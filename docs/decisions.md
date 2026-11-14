@@ -312,6 +312,31 @@ disaster that history rewriting cannot cleanly undo.
 `test_secrets_and_heavy_data_are_never_committable`).
 **Reverse if.** Never.
 
+### D-28 — `yuls` is the integration branch; `main` absorbs it by fast-forward
+**Decision.** The integrated MVP lives on `yuls`: it fast-forwarded `origin/pozo` (a strict superset —
+`contracts.py` and all 12 mock artefacts byte-identical, plus the backend, CI and deploy), then merged
+`origin/main` while keeping the contract at **1.0**. `origin/main` is consequently an *ancestor* of
+`yuls`, so landing the work on the default branch is a zero-conflict fast-forward rather than a merge
+with a reversion commit.
+**Why.** Three branches each held a third of the submission: the artefacts here, the app on `main` (on
+a contract 1.1 that the pipeline itself rejects), the backend on `pozo`. Integrating on the artefact
+branch keeps the diff reviewable and means the default branch never carries a schema the pipeline
+cannot satisfy.
+**Evidence.** `git merge-base origin/main yuls` == `origin/main` (`c4f0fb7`); `./scripts/preflight.sh`
+→ `VERDICT: READY` 7/7 on `f2dd5a8`; `tests/test_contracts.py` pins 1.0 and the field order.
+**Reverse if.** The team moves to short-lived branches off `main` per flujo §6; then `yuls` stops being
+the integration point and this entry is deleted rather than edited.
+
+### N-10 — Two merge regressions, and why "no conflict" is not "correct"
+| # | What actually happened | Guard that caught it |
+|---|---|---|
+| **N-10a** | `data/processed/_availability/*.json` from `origin/main` were **pre-AOI-refresh** (generated 14:36, old bbox `-99.35..-98.85`, granule sizes stripped) and the merge removed 3,775 lines of this branch's refreshed 22:28 evidence | `tests/test_docs_commands.py` — the documented dry-run's exit code flipped from 0 to 5, which is how it surfaced. The artefact gate does **not** cover `_availability` |
+| **N-10b** | `src/domain/contracts.py` auto-merged **with no conflict** and kept `origin/main`'s 1.1 body (`SCHEMA_VERSION "1.1"`, three new required grid fields, three stats keys) while `tests/test_contracts.py` kept matching 1.1 assertions — a clean merge that would have shipped the wrong schema | the contract self-check + the frozen-field-order tests; **nothing in the merge itself** |
+
+Both sides were restored from `HEAD` and re-verified (fingerprint `049376b0…`, `PHASE A/B: PASS`). The
+lesson recorded here: on a file both sides rewrote, a clean auto-merge is the *dangerous* outcome — it
+has to be read, not trusted.
+
 ---
 
 ## F. Discovered by audit (decided implicitly, now recorded)
@@ -400,6 +425,16 @@ one was merged without Rol 3's sign-off.
 **Do not decide by default.** Merge the file union first (`requirements.txt` union, `README.md`
 union, keep both sides of `docs/route-contract.md`), then settle the contract, then regenerate — never
 merge the bump and leave 1.0 artefacts in place.
+
+**Answered 2026-11-14 — option A: revert `main` to 1.0.** The seasonal fields are not merely
+unnecessary, they are unpublishable on this window: `harmonic_fit` reports `annual_coverage 0.36`
+against the 0.75 a harmonic needs and a design condition number of 66.8 against a limit of 30, so
+`seasonal_identifiable` is False and the pipeline says do not publish `seasonal_amp_mm`. No consumer
+reads the 1.1 fields (`grep -rn` over `app.py` and `src/` returns nothing), so the reversion costs the
+UI nothing. Executed as: `src/domain/contracts.py` and `tests/test_contracts.py` restored from this
+branch, `docs/data-contract-v1.md` kept at 1.0, and the fingerprint re-verified as `049376b0…` (D-28,
+PR #3). Option C (1.2 with nullable seasonal fields) stays the technically honest version if the
+project outlives the hackathon.
 
 ### O-06 — Reconcile granule identity before the first real stack
 `pipeline/ingest/02_search_download.py` and `pipeline/process_case.py` currently assign different
