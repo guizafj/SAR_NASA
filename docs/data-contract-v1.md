@@ -66,7 +66,7 @@ Una fila por celda H3 resolución 9 (~200 m de arista) y caso. `cell_id` es úni
 | `val_t2` | float64 | sí | mm | Desplazamiento modelado en la última fecha |
 | `delta_change` | float64 | sí | mm | **`val_t2 - val_t1`** exacto (negativo = subsidencia) |
 | `velocity_mm_yr` | float64 | sí | mm/year | Tendencia lineal ajustada (campo congelado nuevo) |
-| `coherence` | float64 | sí | — | Media temporal corregida por sesgo, en [0, 1] |
+| `coherence` | float64 | sí | — | Ruta real: media temporal por pares, corregida por sesgo cuando hay looks; mock: campo espacial modelado. En [0, 1] |
 | `land_use` | string | sí | — | Enum §7.1 |
 | `risk_level` | string | sí | — | Enum §7.2, derivado por `risk_level_from_velocity` |
 | `case_id` | string | sí | — | Enum `mexico-city` \| `jakarta` \| `malaga`; **un solo valor por fichero** |

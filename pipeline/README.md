@@ -99,7 +99,7 @@ hashes sorted granule file stems — neither hashes file bytes.
 
 Reproduce it: `./scripts/python.sh -c "import math; from pipeline.science import transforms as V; print(round(V.vertical_from_los(0.2384/(4*math.pi)*1e3,39,192),2))"` → `24.41`.
 
-Mexico City at −420 mm/yr is −13.8 mm vertical in a 12-day pair, ≈ 0.09 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13).
+Mexico City's mock `peak_velocity_mm_yr` (config/study_cases.yaml — the model's peak parameter and not a measured cell) at −420 mm/yr is −13.8 mm vertical in a 12-day pair, ≈ 0.09 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13). The strongest grid cell measures −415.14 mm/yr — −13.6 mm vertical, ≈ 0.09 fringe over the same 12-day pair.
 
 Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprinted by `./scripts/check_phase_a.sh`; seed 7, 12 dates 2026-07-02 → 2026-11-11, product `mock`):
 
@@ -120,7 +120,7 @@ Coherence 0.35–0.95 (0.44–0.95 in Mexico City) and 6 `land_use` classes in e
 5. **Sign and heading conventions need GNSS validation**: ISCE2, MintPy and SNAP disagree on azimuth origin and on which LOS direction is positive (README §6, `transforms.los_to_vertical`); target < 5 mm/yr RMSE (README §13). `process_case` writes "NOT yet validated against GNSS" into `provenance.method` on purpose.
 6. **One geometry only**: `v_north ≈ 0` is an assumption, residual `tanθ·sinα·v_north`, east unconstrained, no asc/desc pairing (`transforms.los_to_vertical`).
 7. **Nothing has run on real data**: no download (no credentials), no real granule read, no coverage number; real-path evidence is synthetic fixtures only.
-8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor and returned spans are ~12 months (Málaga 2025-11-18 → 2026-11-13), not 5 years. The window slides with every probe, so treat those endpoints as an example rather than a fact about the archive.
+8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor: every case's result set truncates at that page, and the span the 250 records cover is whatever the date-sorted page returns — ~12 months (Málaga 2025-11-18 → 2026-11-13) where the archive samples the AOI sparsely, years where it samples densely (Jakarta 2023-05-10 → 2026-06-23, ~3.1 years). Neither is the ~16-year history the query window suggests, so this is not 5 years of coverage. The window slides with every probe, so treat those endpoints as an example rather than a fact about the archive.
 
 ## 8. Where to look next
 

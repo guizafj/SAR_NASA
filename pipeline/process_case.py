@@ -40,12 +40,12 @@ docs/nisar-gunw-layout.md §4, NOT yet validated against GNSS" must be **gone** 
 `meta.provenance.method` before any number is shown. The two convention flags change arithmetic as
 well as prose; the two prose flags only record what the operator checked.
 
-* `--los-sign away-from-sensor` (**the physical default**, and today's behaviour) keeps
-  `d_LOS = -lambda/(4*pi)*phi`: positive LOS means the target moved away from the sensor, so
-  subsidence — downward motion, up positive in this pipeline — is **negative**.
-  `--los-sign toward-sensor` uses `+lambda/(4*pi)*phi`, which flips every vertical sign: subsidence
-  then comes out **positive**. A 2π phase slip and a flipped sign both invert subsidence, so the
-  operator must be able to state which of the two they chose.
+* `--los-sign away-from-sensor` (the compatibility label and today's behaviour) keeps
+  `d_LOS = -lambda/(4*pi)*phi`; `--los-sign toward-sensor` uses `+lambda/(4*pi)*phi` and flips every
+  vertical sign. **O-08 is open:** this away-positive label conflicts with `project_to_los`, which
+  assigns positive LOS to positive vertical motion when horizontals are zero. The labels and formulas
+  must be reconciled before real output is physically interpreted or published; synthetic round trips
+  do not settle the physical convention.
 * `--heading-convention platform` (today's behaviour) passes the granule heading through verbatim as
   the azimuth `alpha` of the frozen unit vector
   `u = [cos(theta), -sin(theta)*cos(alpha), -sin(theta)*sin(alpha)]`.

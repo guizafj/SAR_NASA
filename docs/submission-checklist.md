@@ -19,18 +19,22 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 
 ## 2. Hard gates (on the commit you submit, not a dirty tree)
 
-- [ ] `./scripts/check_phase_a.sh` → `PHASE A/B: PASS`, exit 0 (self-check + 9 suites + file gate + handoff).
+- [ ] `./scripts/check_phase_a.sh` → `PHASE A/B: PASS`, exit 0 (self-check + the artefact suites + file gate + handoff).
 - [ ] `./scripts/preflight.sh` → `VERDICT: READY`, exit 0 (the seven hard gates in one run: contract
       self-check, pytest suite, artefact gate, phase A/B handoff, clone reproduction, figures
-      regenerate, demo numbers; ~5 min, `--fast` skips the two slow ones). It keeps going after a
-      failed gate and prints a per-gate table, so a red verdict names what to fix — fix it, do not
-      explain it. Our full run on this working tree printed
-      `VERDICT: READY — 7/7 executed gates passed in 282.09 s`, but also
-      `note: tree is dirty (49 changed paths)` and `note: committed artefacts differ from your tree
-      (clone 1.607 MB vs tree 1.458 MB)`: READY on a dirty tree is **not** the clean-tree
-      reproduction this section asks for.
-- [ ] `./scripts/python.sh -m pytest tests -q` → exit 0, no `F`/`E`. `pytest.ini` adds another `-q`, so
-      the count is suppressed; `./scripts/python.sh -m pytest tests` prints `629 passed, 1 skipped` at `01de89e`.
+      regenerate, demo numbers; ~5 min). It keeps going after a failed gate and prints a per-gate
+      table, so a red verdict names what to fix — fix it, do not explain it.
+      **Gate 5 also runs the filesystem-only doc guards inside the cloned HEAD**
+      (`test_docs_commands`, `test_docs_links`, `test_readme_numbers`, `test_pipeline_readme_numbers`),
+      so a committed document that breaks a guard fails the gate and is named by file:line: a green
+      working tree is not enough, the *commit* must be green. `--fast` skips only the full pytest
+      suite; the clone gate runs in both modes.
+      A `note: tree is dirty` or `note: committed artefacts differ from your tree` line means READY
+      is **not** the clean-tree reproduction this section asks for.
+- [ ] `./scripts/python.sh -m pytest tests -q` → exit 0, no `F`/`E`. `pytest.ini` already adds `-q`,
+      so that command is effectively `-qq` and prints **no counts line at all** — judge by the exit
+      code, not by a summary. Drop the `-q` (`./scripts/python.sh -m pytest tests`) to see counts.
+      Do not quote a pass count here: it moves with every guard added.
 - [ ] `./scripts/python.sh -m src.domain.contracts` → `contract fingerprint: 049376b0…678ce1e` = the hash in
       the `docs/data-contract-v1.md` header.
 - [ ] `git status --porcelain` empty, then clean-tree reproduction (no `.git`, `.venv`, `data/raw`):

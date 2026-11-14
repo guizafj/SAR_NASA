@@ -1,0 +1,434 @@
+# Decision record
+
+Why this file exists: the project carries a frozen contract (`docs/data-contract-v1.md`) and a
+handful of non-obvious technical choices that a reader will otherwise re-litigate. Each entry below
+records what was decided, the *reason*, and what evidence would justify reversing it. A decision
+that is not written down here and not enforced by a test is a preference, not a decision.
+
+Format: `D-nn` for decisions in force, `N-nn` for decisions discovered by audit (made implicitly
+during the 2026-11-14 session and recorded retroactively), `O-nn` for open questions that still
+need an owner's answer. Every entry names the file that enforces or implements it.
+
+Changing a decision: `D-01` (the contract) requires a `SCHEMA_VERSION` bump, a `CHANGELOG` line and
+all three roles' agreement. Every other entry needs the test that guards it to be updated in the
+same commit — otherwise the change is invisible.
+
+---
+
+## A. Contract and domain model
+
+### D-01 — Freeze schema v1.0 behind a fingerprint
+**Decision.** `SCHEMA_VERSION = "1.0"`, `CONTRACT_REVISION = 1`. The contract's own hash is printed
+by `./scripts/python.sh -m src.domain.contracts` and must be quoted by anyone claiming conformance.
+Current value: `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e`.
+**Why.** Three people build against the artefacts in parallel; an unversioned schema means a silent
+shape change reaches the UI as a mysterious `KeyError`. The fingerprint makes "did the contract
+move?" a one-command question instead of a diff review.
+**Evidence.** `src/domain/contracts.py`; `docs/data-contract-v1.md`; guarded by `tests/test_contracts.py`.
+**Reverse if.** Never for this submission — bump instead.
+
+### D-02 — `delta_change` is cumulative, `velocity_mm_yr` is a rate
+**Decision.** `delta_change` = cumulative displacement over the window in mm (equals
+`val_t2 − val_t1`); `velocity_mm_yr` = the fitted trend coefficient in mm/yr. Two units, two fields,
+never one field with a unit flag.
+**Why.** They answer different questions ("how much has it moved?" vs "how fast is it moving?"), and
+conflating them produced the single worst bug of the session: a seasonal term anchored at the first
+date made `delta/T` overstate the trend by 2.1–7.9× and disagreed in *sign* on up to 601 cells.
+**Evidence.** `src/domain/contracts.py` (`GRID_FIELDS`), `tests/test_contracts.py`.
+**Reverse if.** Never; add a field instead.
+
+### D-03 — `product` is a closed enum, and `opera-disp-s1` is not reachable for these AOIs
+**Decision.** Shipped products are `mock` or `nisar-gunw`. `opera-disp-s1` stays in the enum but is
+not usable here: the availability probe returned **0 granules for all three AOIs**.
+**Why.** OPERA DISP-S1 would have been the cheapest path (ready-made displacement, no phase
+processing). It does not exist for our study areas, so adopting it would have meant an empty
+product shipped under a confident badge.
+**Evidence.** `data/processed/_availability/*.json`; `docs/data-source-decision.md`;
+`src/domain/contracts.py` (`SENSOR_PROFILES`).
+**Reverse if.** A later ASF/ASDA query returns DISP-S1 over any AOI.
+
+### D-04 — Nodata is absent, never zero
+**Decision.** Cells with padding mask 127, non-finite phase/coherence, coherence below the frozen
+`coherence_min`, or an incomplete series are **dropped**. Water is not written as `0 mm/yr`; it
+survives only as a `layer: "water"` context feature.
+**Why.** Málaga's median is −1.4 mm/yr — a `0` there is indistinguishable from a real measurement.
+Absent-versus-zero is the difference between "we have no data" and "we measured no motion", and a
+low-signal negative control is exactly where that distinction gets destroyed.
+**Evidence.** `pipeline/process_case.py` (`keep = valid & (coherence >= PROFILE.coherence_min)`;
+`meta.null_policy`); `src/domain/contracts.py` (`META_REQUIRED_KEYS` demands that field).
+**Reverse if.** Never.
+
+### D-05 — Risk bands are sign-agnostic
+**Decision.** `|v| < 5` → `estable`, `5 ≤ |v| < 25` → `moderado`, `|v| ≥ 25` → `critico`
+(`RISK_THRESHOLDS_MM_YR`). Uplift is as alarming as subsidence.
+**Why.** A single sign convention for "up positive" across three cities means a −80 mm/yr city and a
++80 mm/yr city are the same hazard. Thresholds are documented defaults, overridable only in config.
+**Evidence.** `src/domain/contracts.py`; `tests/test_contracts.py`.
+**Reverse if.** A case is added where uplift is benign and must be styled differently.
+
+### D-06 — A detection limit is mandatory once the signal is small
+**Decision.** When `|median velocity| < NULL_RESULT_MM_YR` (5.0 mm/yr), `stats.detection_limit_mm_yr`
+must be present. Málaga ships `1.5` beside its `−1.358` mm/yr median.
+**Why.** Without it, "−1.4 mm/yr" reads as a measured subsidence rate rather than as motion
+indistinguishable from noise. The field makes the null result falsifiable instead of merely modest.
+**Evidence.** `src/domain/contracts.py`; `pipeline/science/transforms.py` (`detection_limit_mm_yr`);
+`tests/test_mock_expectations.py`.
+**Reverse if.** Never; it is the honesty mechanism for the negative control.
+
+### D-07 — Processing parameters are per `(sensor, product)`
+**Decision.** `coherence_min`, `k_sigma`, `min_ddB`, `persistence`, `min_area_m2`, `posting_m` and
+`revisit_days` live in `SENSOR_PROFILES`, keyed by product. Coherence is never pooled across sensors.
+**Why.** NISAR's 12-day revisit and Sentinel-1's 6-day revisit produce different coherence
+distributions from identical ground; a shared threshold would silently favour whichever sensor
+pairs more often, and a shared coherence statistic would be meaningless.
+**Evidence.** `src/domain/contracts.py` (`SensorProfile`); `README.md` §13.
+**Reverse if.** Never; add a profile instead.
+
+---
+
+## B. Science
+
+### D-08 — The seasonal harmonic is centred on the observation window
+**Decision.** The mock's cumulative displacement is `A·(cos(2π(t−c)/T) − cos(2πc/T))` with `c` the
+window centre, so both endpoints carry the same seasonal offset. Not anchored at the first date.
+(`harmonic_fit` fits the plain `[1, t, cos, sin]` basis; the centring belongs to how the mock
+synthesises `d(t)`, which is what keeps the ramp out of `delta_change`.)
+**Why.** Anchoring at the first date puts the seasonal ramp inside `delta_change`, where it is
+indistinguishable from secular motion over a 132-day window. The invariant that proves the fix is
+`delta_change / T ÷ velocity_mm_yr = 1.000` (it was 2.1–7.9× off before, with sign disagreements).
+**Evidence.** `pipeline/science/transforms.py`; `pipeline/mock/model.py`;
+`tests/test_science_transforms.py`.
+**Reverse if.** The window ever covers ≥ 1 full year at ≥ monthly sampling, where anchoring stops
+mattering.
+
+### D-09 — One harmonic by default, with an identifiability guard
+**Decision.** `harmonic_fit(..., n_harmonics=1)`. A second harmonic requires
+`MIN_SEASONAL_COVERAGE_PER_HARMONIC` (0.75) of the period sampled.
+**Why.** Two harmonics over 132 days is 2.7 parameters per 0.36 of a year: the fit has enough
+freedom to absorb the trend and produced ±533 mm/yr scatter in testing. The guard converts "looks
+noisy" into a refusal.
+**Evidence.** `pipeline/science/transforms.py` (`MIN_FIT_POINTS = 4`,
+`MIN_SEASONAL_COVERAGE_PER_HARMONIC = 0.75`).
+**Reverse if.** A multi-year stack arrives.
+
+### D-10 — Vertical conversion uses ONE geometry; the LOS sign is not validated
+**Decision.** `v_up = d_LOS/cosθ + tanθ·(cosα·v_east + sinα·v_north)` from a single flight direction
+(θ = 39°), with `v_north = 0` unless a GNSS model supplies it. Ascending + descending decomposition
+is **not implemented**; the pipeline *refuses* stacks that mix flight directions rather than
+pretending to invert them.
+**Why.** Asc/desc inversion needs two independent look vectors; with one geometry the vertical
+component is only as good as the assumed incidence angle, the assumed horizontals and the sign
+convention. Refusing a mixed stack is honest; silently averaging two directions would be a
+fabrication.
+**Evidence.** `pipeline/process_case.py` (`TrackMismatchError`); `README.md` §6 marks it
+*designed, not implemented*. The "not yet validated against GNSS" hedge is deliberately retained in
+provenance.
+**Reverse if.** GNSS validation is run, or two flight directions are downloaded.
+
+### D-11 — Model coherence down to 0.35 so the quality filter bites
+**Decision.** The mock's coherence spans 0.35–0.95 (Mexico City 0.44–0.95); `coherence_min = 0.35`
+for `nisar-gunw`/`mock`.
+**Why.** Clipping the mock at 0.45 made the quality slider a no-op: every cell passed, so the UI
+control implied a filtering capability the data never exercised. Lowering the floor gives the
+filter something to remove.
+**Evidence.** `config/study_cases.yaml` (mock block); `src/domain/contracts.py` (`SENSOR_PROFILES`).
+**Reverse if.** Real data shows an urban coherence floor above 0.35.
+
+### D-12 — Do not publish a seasonal amplitude from a 4.5-month window
+**Decision.** `seasonal_amp_mm` is computed internally for regime classification but never published
+from this stack.
+**Why.** 132 days is 0.36 of a year: a "seasonal" amplitude fitted to less than one cycle is
+aliased with the trend. The elastic/inelastic classification (Málaga 3.5 mm seasonal > trend;
+Mexico City 1.5 mm seasonal < trend) is a model statement, not a measured seasonality claim.
+**Evidence.** `config/study_cases.yaml` (`limitations`, per case); `pipeline/process_case.py`.
+**Reverse if.** ≥ 1 year of epochs.
+
+---
+
+## C. Acquisition and planning
+
+### D-13 — Product identity is checked before any socket opens
+**Decision.** A download plan validates every granule id against the product policy: L0 `RRSD`,
+L1 `RSLC`/`RIFG`/`RUNW` are rejected; GCOV/GSLC/GOFF only via an explicit `--allow-product`.
+**Why.** A plan built from an unguarded granule list once began fetching a 123 GB L0 file. Identity
+checking is cheap, local, and catches the class of error that costs hours of hackathon time.
+**Evidence.** `pipeline/ingest/02_search_download.py`; `tests/test_download_guard.py`.
+**Reverse if.** Never.
+
+### D-14 — One geometry per stack; mixed stacks are refused, not truncated
+**Decision.** `--stack recommended` selects a single `(track, direction)`; `--stack all` and any
+mixed plan exit 4 with a refusal.
+**Why.** See D-10. A truncation would silently produce a stack whose geometry differs from what the
+operator believed, which is worse than a stop.
+**Evidence.** `pipeline/ingest/02_search_download.py`; `tests/test_download_stack.py`.
+**Reverse if.** Asc/desc inversion is implemented.
+
+### D-15 — `date_range` is the epoch window (reference acquisitions)
+**Decision.** `date_range = [first reference_start, last reference_start]` over the sampled granules;
+`full_date_range` describes the whole stack. A granule id carries **four** timestamps (reference
+start/end, secondary start/end); the secondary is the partner of an *earlier* epoch and does not
+extend the window. Separately, `n_epochs` inventories every distinct acquisition day carried by the
+stack, reference **and secondary**; `connected_epochs` describes the longest chained run.
+**Why.** This cost real debugging time twice: first because a chain check compared ref-end to
+ref-start and "proved" the sampler was broken, then because using both stamps made the advertised
+window disagree with the sampled ids. Reference-only is the coherent definition for the advertised
+window; the epoch inventory is a different quantity and therefore uses both stamps.
+**Evidence.** `pipeline/ingest/02_search_download.py`; `tests/test_availability_evidence.py`
+(asserts the advertised window equals the sampled ids' span).
+**Reverse if.** The report ever describes "acquisitions contained" rather than "epochs covered" —
+then both stamps belong in the window.
+
+### D-16 — The recommended stack is a contiguous, connected run
+**Decision.** Among the stacks, the recommendation is the largest single geometry, then the longest
+connected run of pairs (`_best_download_run`), evenly sampled to `STACK_GRANULE_LIMIT` (12). If the
+run yields fewer than `MIN_FIT_POINTS` (4) connected epochs, the stack is still reported but flagged
+`epoch_sufficient: false` with a warning.
+**Why.** A stack that cannot be fitted must not be advertised as downloadable. Málaga currently
+reports 2 connected epochs and says so — an honest insufficiency instead of a false plan.
+**Evidence.** `pipeline/ingest/02_search_download.py`; `tests/test_download_stack.py`.
+**Reverse if.** `MIN_FIT_POINTS` changes or a longer archive arrives.
+
+### D-17 — Budget: probe sizes, refuse on known, never refuse on unknown
+**Decision.** ASF's SearchAPI carries `sizeMB` for Sentinel-1 but **not** for NISAR GUNW, so a
+`--max-gb` preflight over NISAR sums 0 MB and cannot trip. `--probe-sizes` issues one unauthenticated
+`HEAD` per planned granule (`PROBE_LIMIT = 12`, 0.2 s apart, stops on 401/403) and reads
+`Content-Length`. Known over-budget ⇒ exit 5 *before* transfer. Unknown size ⇒ a loud warning that
+the cap cannot be preflighted, and enforcement is mid-stream.
+**Why.** The pre-existing guard was dead code for the exact product being downloaded: `--max-gb 6`
+passed a 28.23 GB plan. Measured: ~2.34 GB per GUNW, so a 12-granule CDMX stack is **28.23 GB**.
+Refusing on an unknown size would block the only path that matters, so unknown warns loudly instead.
+**Evidence.** `pipeline/ingest/02_search_download.py`; `provenance.json.max_gb` + `size_probe`.
+**Reverse if.** ASF starts returning NISAR sizes, or a manifest with sizes is published.
+
+### D-18 — Authentication fails closed with a checklist
+**Decision.** Missing credentials stop the download (exit 3) with an actionable message naming the
+Earthdata registration, the ASF EULA and the "Authorized Apps" approval. A 401 prints the same
+checklist.
+**Why.** Earthdata 401s are almost never a wrong password; they are an unapproved application. A
+generic "auth failed" wastes the operator's afternoon.
+**Evidence.** `pipeline/ingest/02_search_download.py`; `tests/test_download_auth.py`.
+**Reverse if.** Never.
+
+---
+
+## D. Product and presentation
+
+### D-19 — Mexico City is primary; Málaga is the declared negative control
+**Decision.** `primary: mexico-city` in `config/study_cases.yaml`; Málaga ships as the explicit
+negative control. One-line flip to `malaga` if CDMX's GUNW coverage fails the ≥ 50 % check.
+**Why.** The strongest signal (median −62.1 vs −1.4 mm/yr) is the clearest demo; a negative control
+is required by the brief, and admitting one is more credible than three cities that all look
+alarming. Keeping the flip as a single line means the decision cannot rot into scattered edits.
+**Evidence.** `config/study_cases.yaml`; `docs/data-source-decision.md`.
+**Reverse if.** CDMX coverage < 50 % on real data.
+
+### D-20 — Coverage is measured against AOI cells, not the bounding box
+**Decision.** The ≥ 50 % bar (`COVERAGE_WARNING_FRACTION`) is `|AOI cells ∩ cells with data| /
+|AOI cells|`, with h3 centre containment (`polygon_to_cells`), matching what `process_case` warns
+on. The bbox figure is reported as `coverage_bbox` and must never be spoken as "coverage".
+**Why.** Two denominators had produced two contradictory stories: bbox said Jakarta 47.6 % and
+Málaga 34.8 % ("below half, no city-wide claim"), the AOI said **53.69 / 55.41 / 57.26 %** (all
+clear it). The bbox is ~45 % larger than the Jakarta polygon, so it understated coverage enough to
+flip the conclusion. An envelope is not a denominator.
+**Evidence.** `pipeline/process_case.py`; `docs/first-granule-runbook.md` §4;
+`scripts/demo_numbers.py` (`coverage_aoi` / `coverage_bbox`); `docs/video-script.md`.
+**Reverse if.** Never; report both, label both.
+
+### D-21 — AOI scope: city-scale single polygon is the measurement domain
+**Decision.** Each case's measurement area is one city-scale `Polygon` in `config/aoi/{case}.geojson`.
+Metro/multipart exports are context only and are not adopted. Málaga's detached 1.33 km² fragment is
+a **declared exclusion**, never merged in with a fabricated corridor.
+**Why.** The pipeline derives its cell set from a single closed ring (`h3.LatLngPoly(cfg.aoi_ring)`),
+so multipart needs support end-to-end; the metro exports are 5.3× (CDMX) and 7.2× (Jakarta) larger
+and would triple the cell count while diluting GUNW overlap, making the 50 % bar unreachable exactly
+where the honesty claim depends on it. A MultiPolygon was once committed by mistake, which is why
+the geometry is now guarded.
+**Evidence.** `docs/data-source-decision.md` ("AOI scope"); `tests/test_aoi_geometry.py`
+(rejects MultiPolygon, holes, lat/lon swaps); `tests/test_aoi_loader.py`.
+**Reverse if.** Multipart support is implemented and coverage is re-measured.
+
+### D-22 — The mock is deterministic and byte-identical on rerun
+**Decision.** Fixed seed 7, no wall clock, sorted rows, sorted JSON keys, atomic writes.
+**Why.** Reviewers and the UI need to know that a changed artefact means changed *code*, not a
+changed random draw. Byte-identical reruns also make "is this tree stale?" answerable with a hash.
+**Evidence.** `pipeline/generate_mock.py`; `pipeline/mock/artifacts.py` (`_atomic_write`);
+`tests/test_mock_expectations.py`; `tests/test_mock_reproducibility.py` (rerun from the default
+seed reproduces the committed bytes).
+**Reverse if.** Never for the demo.
+
+### D-23 — The mock badge is part of the product, not a caveat
+**Decision.** Every mock artefact carries `product: "mock"`, `provenance.source` says mock, and the
+UI must badge MOCK. `check_phase_a.sh` is symmetric: a mock product must say mock, a real product
+must not.
+**Why.** The whole submission's credibility rests on not laundering synthetic numbers as measured
+ones. A symmetric test means neither direction can drift unnoticed.
+**Evidence.** `scripts/check_phase_a.sh` (step 4); `tests/test_honesty_claims.py`;
+`scripts/demo_numbers.py` prints one mock banner and repeats the MOCK caveat in every case's
+limitations.
+**Reverse if.** Never.
+
+---
+
+## E. Process and verification
+
+### D-24 — The artefact gate fails closed
+**Decision.** `pipeline/validate_artifacts.py` exits nonzero on zero cases; `--allow-empty` prints a
+vacuous-run warning; a `--case` miss is a failure.
+**Why.** "0 cases, 0 problems" is the classic false green: a pipeline that processed nothing looks
+identical to one that processed everything correctly.
+**Evidence.** `pipeline/validate_artifacts.py`; `tests/test_validate_artifacts.py`.
+**Reverse if.** Never.
+
+### D-25 — Documented commands must work offline
+**Decision.** Every `download ... --dry-run` printed in the docs is executed by
+`tests/test_docs_commands.py` against a fixture built inside `tmp_path`, with no credentials and no
+socket. Lines that genuinely need the network (`--probe-sizes`, a non-dry-run `download`, `search`)
+are never executed: they are proven to sit outside the execution allowlist and checked statically
+against the module's own `--help`. A documented offline line that breaks is a test failure, not a
+doc preference.
+**Why.** Docs rot silently. When HEAD documented `--probe-sizes --dry-run`, the suite went red for
+anyone who cloned — while our own gate still said PASS, because the clone gate did not run the doc
+guards. Both halves are now guarded.
+**Evidence.** `tests/test_docs_commands.py`; `scripts/preflight.sh` (clone gate runs the doc guards).
+**Reverse if.** A documented command is deliberately network-dependent — then it must not be
+presented as the offline verification path.
+
+### D-26 — MIT for the code, with an explicit data carve-out
+**Decision.** `LICENSE` is MIT for code/docs/figures, and states plainly that it does not relicense
+the data: NISAR (NASA/JPL-Caltech, ASF DAAC, Earthdata terms), Sentinel-1 (ESA Copernicus), map
+context (OpenStreetMap, ODbL).
+**Why.** A public repo with no licence is "all rights reserved" by default, which blocks reuse by
+judges and future teams; and an MIT header alone would imply the data is MIT too, which is false.
+**Evidence.** `LICENSE`; `README.md` §17.
+**Reverse if.** The team chooses a different licence — the data carve-out stays regardless.
+
+### D-27 — Ignore backstops for granules and credentials
+**Decision.** `.gitignore` covers `data/raw/`, `data/staging/`, and additionally `*.h5`, `*.hdf5`,
+`*.nc`, `*.zip`, `*.tif*`, `*.part`, `cookies.txt`.
+**Why.** `data/raw/` is the documented landing zone, but a resumed or moved file lands beside its
+destination. One GUNW is ~2.3 GB and a cookie jar is a credential: either one committed is a
+disaster that history rewriting cannot cleanly undo.
+**Evidence.** `.gitignore`; `tests/test_gitignore_policy.py` (`test_no_tracked_file_is_ignored`,
+`test_secrets_and_heavy_data_are_never_committable`).
+**Reverse if.** Never.
+
+---
+
+## F. Discovered by audit (decided implicitly, now recorded)
+
+| # | Decision actually taken | Where it lives | Risk if undocumented |
+|---|---|---|---|
+| **N-01** | `date_range` semantics fixed as reference-start window (D-15) | `02_search_download.py` | a reviewer "fixes" it back to both stamps and the evidence guard fails confusingly |
+| **N-02** | A single-pair stack may report `mean_interval_days: null` (no gap to measure); the guard allows `null` only when `n_granules < 2` and still rejects `0` | `tests/test_availability_evidence.py` | reads as a weakened guard; it is an edge case exemption |
+| **N-03** | Size probing is **opt-in** (`--probe-sizes`), default path unchanged | `02_search_download.py` | a future change makes the default path network-dependent and breaks offline dry runs |
+| **N-04** | Numbers quoted in docs are only allowed if computed by a guard or listed with a reason (the "allowlist") — wall-clock claims are allowlisted, measurements are not | `tests/test_readme_numbers.py`, `tests/test_pipeline_readme_numbers.py` | someone adds a plausible-looking number that nothing checks |
+| **N-05** | The committed figures are asserted byte-identical when regenerated from current artefacts | `scripts/make_figures.py` + manual check | a figure outlives the data it depicts |
+| **N-06** | An unauthenticated `HEAD` is acceptable for size discovery (public CloudFront/S3), and must stop on 401/403 | `02_search_download.py` | someone "optimises" it into a crawl |
+| **N-07** | Area is quoted from the loader's equirectangular estimate (1,498 / 748 / 394 km²); geodesic measurement differs by < 0.5 % | `pipeline/aoi.py`, `README.md` §14 | two areas in two docs look like a contradiction |
+| **N-08** | The reference loader resolves `data/processed` against the **cwd**, not the repo root | `examples/reference_loader.py` | consumers run it from elsewhere and get a "missing data" error that blames the data |
+| **N-09** | `demo_numbers` publishes **both** denominators — `coverage.aoi` (authoritative, the one the 50 % bar is measured on) and `coverage.bbox` (envelope only) — each labelled in the text card and the JSON; the bbox figure is never the threshold denominator (D-20) | `scripts/demo_numbers.py`; `tests/test_demo_numbers.py` | the two figures are compared as if interchangeable (this already happened) |
+
+---
+
+## G. Open decisions (no owner answer yet)
+
+Entries marked **Answered** stay here on purpose: the question, the answer and the date are the audit
+trail. What is left unmarked is still waiting on an owner.
+
+### O-01 — Download budget for the real run
+A 12-granule CDMX stack is **28.23 GB**; the documented cap was 6 GB. Options: raise to ~30 GB, or
+take 8 granules (~19 GB) and stay above `MIN_FIT_POINTS = 4`. Note the recommended chain contains a
+36-day gap (2026-07-16 → 2026-08-21), which weakens a seasonal fit further as epochs are dropped.
+**Blocks.** The first real granule.
+**Guard answered 2026-11-14 (D-17).** The cap is enforceable before any transfer now: `--probe-sizes`
+reads the real `Content-Length` and an over-budget plan exits 5 with nothing fetched. What remains
+open is the spend — ~30 GB for 12 epochs or ~19 GB for 8 — not the mechanism.
+
+### O-02 — Copyright holder for `LICENSE`
+MIT needs a name. Currently "Dancing with the SARs contributors".
+
+### O-03 — Does the loader keep cwd-relative resolution (N-08)?
+Safer than a `__file__`-based guess (the previous version pointed one directory off once copied), but
+it requires running from the repo root. Alternative: explicit `processed=` argument everywhere.
+**Answered 2026-11-14 — keep it cwd-relative.** `examples/reference_loader.py` resolves against the
+caller's cwd and says so in its own docstring (never `__file__`), with `processed=` offered for
+callers that live elsewhere. Recorded as N-08; guarded by `tests/test_handoff_snippets.py`
+(`test_the_default_root_follows_the_cwd`, `test_the_doc_tells_the_caller_to_run_from_the_repo_root`).
+
+### O-04 — Should the artefact carry an AOI-based coverage field?
+Currently coverage is computed by consumers; `meta.stats` has no `coverage_fraction`. Adding one is a
+contract change (`SCHEMA_VERSION` bump) and would remove the ambiguity in N-09 at the source.
+**Answered 2026-11-14 — no contract field.** The ambiguity is settled at the consumer instead: the
+AOI denominator is the bar's (D-20) and `scripts/demo_numbers.py` publishes both figures labelled, so
+nothing has to be inferred from `meta.stats` (N-09; `tests/test_demo_numbers.py`). Revisit only if a
+consumer must report coverage without running the card.
+
+### O-05 — Contract 1.0 vs 1.1 vs 1.2 (the merge blocker)
+`origin/main` (`c4f0fb7`, the default branch) moved the contract to `SCHEMA_VERSION "1.1"` /
+`CONTRACT_REVISION 2` (fingerprint `9a749cea…` <!-- fingerprint-historical: origin/main's 1.1 hash, quoted to show what the default branch moved to; it is not this tree's -->), adding **required** fields: grid
+`seasonal_amp_mm`, `ratio_R`, `regime`; timeseries `trend_mm_yr`, `seasonal_mm`; stats
+`median_seasonal_amp_mm`, `median_ratio_R`, `dominant_regime`. This branch (`yuls`) is at 1.0
+(`049376b0…`), and all three cases fail 1.1 validation with 10 problems each
+(`grid: missing required column 'seasonal_amp_mm'`, and the same for `ratio_R` and `regime`).
+
+**Why it is not a formality.** `harmonic_fit` on our 132-day stacks reports `annual_coverage 0.36`
+against the 0.75 a harmonic needs, and a design condition number of 66.8 (limit 30), so
+`seasonal_identifiable` is False, `regime` is forced to `"transitional"`, and the fit warns *do not
+publish `seasonal_amp_mm`*. The mock's amplitude is recoverable (1.50 / 12.00 / 3.50 mm) only
+because the series is noise-free; the **design** is what is ill-conditioned. A 1.1 artefact would
+publish an amplitude the pipeline itself rejects.
+
+**No consumer needs it.** `app.py` on `main` reads only `provenance.source`, `revisit_days`,
+`len(dates)`, `crs` and grid `lat`/`lon`; the UI iterates `stats` generically. The requirement comes
+from the validator alone, so 1.0 costs the app nothing.
+
+**Options.** (A) revert `main` to 1.0 — one commit, no regeneration, no fingerprint move; (B) adopt
+1.1 and populate — cheapest for the UI, weakest on honesty; (C) revise to 1.2 with nullable
+`seasonal_amp_mm`/`ratio_R`/`seasonal_mm`/`median_*` plus a required boolean `seasonal_identifiable`,
+where `false` forces the nulls and `"transitional"` — about 19 files, and the fingerprint moves.
+
+**Blocks.** Merging to a green default branch: `main` ships the 1.1 contract with **zero artefacts**,
+this branch ships the artefacts with no app, and `yuls` is 3 behind / 4 ahead, so a `--ff-only`
+merge is no longer possible.
+
+**Owner.** All three roles: the contract's own rule requires agreement for a version bump, and this
+one was merged without Rol 3's sign-off.
+
+**Do not decide by default.** Merge the file union first (`requirements.txt` union, `README.md`
+union, keep both sides of `docs/route-contract.md`), then settle the contract, then regenerate — never
+merge the bump and leave 1.0 artefacts in place.
+
+### O-06 — Reconcile granule identity before the first real stack
+`pipeline/ingest/02_search_download.py` and `pipeline/process_case.py` currently assign different
+filename tokens to `track`. The science parser can therefore reject a valid multi-date chain as a
+mix of relative orbits. The 120-name census and its evidence are preserved in
+`docs/pipeline-internals.md` §1.1; `docs/first-granule-runbook.md` now treats this as a known
+blocker rather than a hypothetical grammar mismatch.
+**Blocks.** Processing the first downloaded multi-date stack.
+**Close when.** Both parsers share or agree on the identity fields and a regression proves that a
+valid connected multi-date chain passes `_check_stack_identity` while genuinely mixed geometry is
+still refused. Remove the long census after that regression exists.
+
+### O-07 — Preserve displacement sign in the frontend's 3-D height
+A dated review of `origin/pozo` found elevation based on `|delta_change|`, clipped and scaled for
+display. That makes equal-magnitude uplift and subsidence rise identically, while the artefact
+interface requires height to bind to stored, signed `delta_change`. Re-check the actual merge
+candidate rather than assuming that old branch snapshot is still current.
+**Close when.** The integrated frontend has a parity test for height sign and magnitude, and any
+purely visual exaggeration is applied without discarding the physical direction.
+
+### O-08 — Reconcile the LOS phase sign with the projection convention
+The default phase conversion is labelled `away-from-sensor` and uses
+`d_LOS = -lambda/(4*pi)*phi`, with prose claiming that positive LOS is motion away and subsidence
+is negative. But `project_to_los` computes `u · v` with `u_up = cos(theta) > 0`: with zero
+horizontals it assigns positive LOS to positive vertical motion, and the worked example maps
+downward motion to negative LOS. Those definitions cannot all describe one away-positive physical
+LOS coordinate. Existing synthetic round trips prove algebraic consistency of the projection and
+inverse, not the physical label.
+**Blocks.** Physical interpretation or publication of any real-path velocity, independently of the
+GNSS-validation requirement in D-10.
+**Close when.** Phase conversion, forward/inverse projection, CLI labels, provenance strings, and
+worked examples use one declared LOS direction; independent tests include the physical meaning of
+purely vertical and known horizontal motion, not only round trips; and the external validation gate
+is satisfied. Do not silently flip only one side: that could preserve the contradiction under a
+different label.

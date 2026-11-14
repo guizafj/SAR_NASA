@@ -80,7 +80,7 @@ Mexico City's bowl, Jakarta's coastal edge, and Málaga essentially blank. Gener
 | `jakarta` | 4,811 | same window | −25.4 | mock | synthetic |
 | `malaga` | 2,645 | same window | −1.4 | mock | synthetic |
 
-The full suite (`./scripts/python.sh -m pytest tests`, ~2.5 min) is the thorough check; the gate is
+The full suite (`./scripts/python.sh -m pytest tests`, ~4.5 min) is the thorough check; the gate is
 what a judge should run first. `scripts/demo_numbers.py` prints every number a presenter may say,
 derived from the artefacts rather than typed into a slide.
 
@@ -245,6 +245,12 @@ single-geometry stack, sampled evenly across its window). `download --stack reco
 it, so a fetch is one geometry by construction instead of a preview of everything ASF returned —
 which is what the mixed-geometry guard would otherwise refuse.
 
+**Not every stack is fittable.** Counted from the same JSON: `mexico-city` yields 22 connected
+epochs from 12 sampled granules, `jakarta` 9 — but `malaga` only **2**, below `MIN_FIT_POINTS = 4`,
+so its report carries `epoch_sufficient: false` and `process_case` would refuse that chain. Intersecting
+the AOI is not the same as having a chain long enough to fit; the negative control is honest at the
+availability level too.
+
 **Consequences, decided now and written into the contract:**
 
 - `meta.product` for the first integration is **`nisar-gunw`** (with an explicit urban-coverage
@@ -317,8 +323,10 @@ measurement.
 **Sign and heading conventions are recorded, not validated.** `--los-sign` (default
 `away-from-sensor`) and `--heading-convention` (default `platform`) are written into `provenance`,
 and `provenance.method` keeps its "NOT yet validated against GNSS" hedge; passing the flags restates
-the convention, it does not check it. **Axis/sign conventions differ between ISCE2, MintPy and
-SNAP — validate against GNSS before publishing numbers.**
+the convention, it does not check it. **O-08 is also open:** the default away-positive label
+conflicts with `project_to_los` assigning positive LOS to positive vertical motion when horizontals
+are zero. Reconcile that definition and validate against GNSS before publishing real numbers.
+**Axis/sign conventions differ between ISCE2, MintPy and SNAP.**
 
 **Time-series model** (drives the trend/seasonal split) — *harmonic part implemented, step part
 not*:
@@ -409,6 +417,12 @@ Three people, three verticals, one frozen contract. Source of truth (Spanish, pr
 
 ## 8. Repository layout
 
+**[`CONTEXT.md`](CONTEXT.md)** is the concise project orientation. Its detailed companions cover
+[science](docs/science-guide.md), [pipeline internals](docs/pipeline-internals.md), and
+[verification](docs/verification.md); the frozen contract remains in `docs/data-contract-v1.md`.
+The choices made along the way, each with its evidence and the condition that would reverse it, are
+recorded in **[`docs/decisions.md`](docs/decisions.md)**.
+
 ```
 ├── README.md                          ← this file (entry point)
 ├── flujo_trabajo_y_responsabilidades.md   ← operative doc: roles, branches, phases (Spanish)
@@ -480,12 +494,12 @@ python3 -m venv .venv
 #    before a socket is opened; `--stack recommended` plans ONE geometry, not a preview of
 #    everything ASF returned.
 ./scripts/python.sh pipeline/ingest/02_search_download.py download \
-    --city mexico-city --source nisar_gunw --stack recommended --max-gb 6 \
-    --probe-sizes --dry-run
-#    NISAR GUNW arrives SIZELESS from the ASF SearchAPI, so without `--probe-sizes` the cap
-#    verifies nothing: it sums 0 MB and cannot refuse. `--probe-sizes` issues one unauthenticated
-#    HEAD per planned granule (~2.34 GB each), so the 12-granule CDMX plan prints 28.23 GB and
-#    exits 5, refusing before any byte moves. See docs/first-granule-runbook.md.
+    --city mexico-city --source nisar_gunw --stack recommended --max-gb 6 --dry-run
+#    Offline and reproducible: no credentials, no writes (a guard executes this exact line).
+#    But NISAR GUNW arrives SIZELESS from the ASF SearchAPI, so this plan cannot refuse on budget —
+#    it sums 0 MB. To make the cap real, add `--probe-sizes` (one unauthenticated HEAD per planned
+#    granule, ~2.34 GB each): the 12-granule CDMX plan then prints 28.23 GB and exits 5, refusing
+#    before any byte moves. Details: docs/first-granule-runbook.md.
 
 # 5. Download (needs Earthdata credentials AND the one-time ASF application approval;
 #    fails closed, with an actionable message, when either is missing)
@@ -636,7 +650,8 @@ mm/yr over the window). The series are referenced to the first epoch, so they st
 record that the seasonal term is not separable from the secular one here, so this curve shows the
 shape, not a measured amplitude.*
 
-**Limitations** (also shipped inside `meta.limitations`):
+**Limitations.** The per-case subset also ships inside each artefact's `meta.limitations`; the rest
+are project-level statements that no single artefact carries.
 
 1. Málaga may sit at the detection floor — the bound *is* the result.
 2. CDMX is not coastal; do not claim a coastal framing across all three cities.
@@ -647,6 +662,14 @@ shape, not a measured amplitude.*
 6. Coherence depends on revisit interval; **NISAR 12-day ≠ Sentinel-1 6-day**. Never pool them.
 7. "Changes in imagery" ≠ "changes on the ground" — layover/shadow move with acquisition geometry.
 8. Velocity is the calibrated claim; change detection is a supporting layer, not the headline.
+9. **Vertical comes from one geometry, with the horizontal components assumed zero**
+   (`v_north = 0`, `v_east = 0`, so `v_up = d_LOS/cosθ`). Real horizontal motion is therefore folded
+   into the vertical rate — the east sensitivity reaches ±0.63 — and the LOS sign/heading convention
+   is **recorded but not validated**: with zero horizontals no vertical rate can validate it (§6, and
+   the runbook's Step 6 note).
+10. **No real granule has been downloaded or processed.** All three cases are `product: "mock"` and
+    every artefact's own `limitations` says so; what this submission demonstrates is the schema, the
+    pipeline and the map logic — not NISAR velocities.
 
 ---
 
