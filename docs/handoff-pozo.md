@@ -1,7 +1,7 @@
 # Handoff — `pozo` (Rol 1: Geospatial Backend, Map Adapter, CI & Deploy)
 
 1. **What I own:** `src/data/{validation,loaders}.py`, `src/domain/{filters,metrics,map_adapter}.py`,
-   `.github/workflows/ci.yml`, `deploy/`, `requirements.txt` / `requirements-pipeline.txt`, and
+   `.github/workflows/ci.yml`, `deploy/`, `requirements.txt` / `requirements-app.txt`, and
    `docs/backend-ui-contract.md`.
 2. **How to run tests & checks locally:**
    ```bash

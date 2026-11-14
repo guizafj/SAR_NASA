@@ -432,7 +432,7 @@ def build_city_comparison(
     bundles: Sequence[CaseBundle],
     *,
     enforce_sensor_coherence: bool = True,
-    shared_velocity_range_mm_yr: tuple[float, float] = (-450.0, 50.0),
+    shared_velocity_range_mm_yr: tuple[float, float] = (-425.0, 425.0),
 ) -> CityComparisonResult:
     """Compare multiple cities on one shared physical basis and warn if sensors/revisits differ."""
     rows: list[dict[str, Any]] = []

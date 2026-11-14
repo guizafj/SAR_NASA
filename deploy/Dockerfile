@@ -16,11 +16,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install runtime dependencies first for layer caching
-COPY requirements.txt ./
+# Install lightweight runtime dependencies first for layer caching
+COPY requirements-app.txt ./
 RUN python -m venv /app/.venv \
     && /app/.venv/bin/pip install --upgrade pip \
-    && /app/.venv/bin/pip install -r requirements.txt
+    && /app/.venv/bin/pip install -r requirements-app.txt
 
 # Copy application code, config and pre-computed <15 MiB processed artefacts
 COPY config ./config
@@ -31,7 +31,7 @@ COPY README.md ./README.md
 
 # Validate contract & artefacts at image build time (fail-closed deploy)
 RUN /app/.venv/bin/python -m src.domain.contracts \
-    && /app/.venv/bin/python -m src.data.validation --processed data/processed
+    && /app/.venv/bin/python -m src.data.validation --processed data/processed --require-cases
 
 # Copy Streamlit entry point + optional theme config once Rol 2 lands app.py
 COPY . ./

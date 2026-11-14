@@ -58,12 +58,7 @@ jobs:
         run: ./scripts/python.sh -m pytest tests -q
 
       - name: Validate data/processed/ size budget (< 15 MiB) & published cases
-        run: ./scripts/python.sh -m src.data.validation --processed data/processed
+        run: ./scripts/python.sh -m src.data.validation --processed data/processed --require-cases
 
-      - name: Run pipeline/validate_artifacts.py if present
-        run: |
-          if [ -f pipeline/validate_artifacts.py ]; then
-            ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed
-          else
-            echo "pipeline/validate_artifacts.py not landed yet; covered by src.data.validation."
-          fi
+      - name: Run Phase A/B handoff gate (scripts/check_phase_a.sh)
+        run: ./scripts/check_phase_a.sh

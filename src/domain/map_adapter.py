@@ -16,8 +16,10 @@ Responsibilities (flujo §3.1, §4):
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 
 import h3
@@ -36,22 +38,24 @@ MapMetric = Literal["velocity_mm_yr", "delta_change", "coherence", "risk_level"]
 SCALE_MODES: tuple[str, ...] = ("shared", "independent")
 MAP_METRICS: tuple[str, ...] = ("velocity_mm_yr", "delta_change", "coherence", "risk_level")
 
-#: Shared cross-city velocity domain [mm/year], aligned with docs/route-contract.md §6.
-GLOBAL_VELOCITY_RANGE_MM_YR: tuple[float, float] = (-450.0, 50.0)
-GLOBAL_DELTA_RANGE_MM: tuple[float, float] = (-200.0, 25.0)
+#: Shared symmetric cross-city velocity domain [mm/year], aligned with docs/handoff-mock.md §3b
+#: and docs/figures/velocity_shared_scale.png (±425 mm/yr symmetric about 0).
+GLOBAL_VELOCITY_RANGE_MM_YR: tuple[float, float] = (-425.0, 425.0)
+GLOBAL_DELTA_RANGE_MM: tuple[float, float] = (-155.0, 155.0)
 MAX_EXTRUDE_METERS: float = 3000.0
 
-# Accessible Magma/Viridis-inspired subsidence ramp + neutral slate floor + teal uplift.
+# Diverging RdBu-aligned ramp (red = subsidence < 0, neutral slate = [-5, +5] floor, blue = uplift > 0).
 _VELOCITY_SHARED_ANCHORS: tuple[tuple[float, tuple[int, int, int]], ...] = (
-    (-450.0, (59, 15, 112)),     # #3b0f70 deep indigo-violet (peak compaction)
-    (-300.0, (140, 41, 129)),    # #8c2981 magenta-purple
-    (-150.0, (222, 73, 104)),    # #de4968 coral-red
-    (-75.0, (254, 159, 109)),    # #fe9f6d warm amber-orange
-    (-25.0, (253, 231, 37)),     # #fde725 bright yellow (moderate onset)
+    (-425.0, (103, 0, 31)),      # #67001f deep crimson (peak compaction)
+    (-275.0, (178, 24, 43)),     # #b2182b strong red
+    (-150.0, (214, 96, 77)),     # #d6604d coral-red
+    (-60.0, (244, 165, 130)),    # #f4a582 warm salmon
+    (-25.0, (253, 219, 199)),    # #fddbc7 pale rose (moderate onset)
     (-5.0, (148, 163, 184)),     # #94a3b8 neutral slate (detection/stability edge)
     (5.0, (148, 163, 184)),      # #94a3b8 neutral slate (estable band [-5, +5])
-    (25.0, (45, 212, 191)),      # #2dd4bf teal (moderate uplift)
-    (50.0, (2, 132, 199)),       # #0284c7 ocean blue (strong uplift)
+    (25.0, (209, 229, 240)),     # #d1e5f0 pale ice blue
+    (150.0, (67, 147, 195)),     # #4393c3 medium blue
+    (425.0, (5, 48, 97)),        # #053061 deep ocean blue (strong uplift)
 )
 
 _COHERENCE_ANCHORS: tuple[tuple[float, tuple[int, int, int]], ...] = (
@@ -203,14 +207,14 @@ def _independent_velocity_anchors(
     pos_mid = nb + 0.5 * max(1.0, hi - nb)
 
     return (
-        (lo, (59, 15, 112)),
-        (s3, (140, 41, 129)),
-        (s2, (222, 73, 104)),
-        (s1, (253, 231, 37)),
+        (lo, (103, 0, 31)),
+        (s3, (178, 24, 43)),
+        (s2, (214, 96, 77)),
+        (s1, (244, 165, 130)),
         (-nb, (148, 163, 184)),
         (nb, (148, 163, 184)),
-        (pos_mid, (45, 212, 191)),
-        (hi, (2, 132, 199)),
+        (pos_mid, (67, 147, 195)),
+        (hi, (5, 48, 97)),
     )
 
 
@@ -245,14 +249,19 @@ def compute_view_state(
     )
 
 
+@lru_cache(maxsize=32768)
+def _cached_h3_ring(cell_id: str) -> tuple[tuple[float, float], ...]:
+    ring = [(round(float(lng), 6), round(float(lat), 6)) for lat, lng in h3.cell_to_boundary(cell_id)]
+    if ring and ring[0] != ring[-1]:
+        ring.append(ring[0])
+    return tuple(ring)
+
+
 def _cell_polygon_lonlat(cell_id: str, fallback_lon: float, fallback_lat: float) -> list[list[float]]:
     """Return closed GeoJSON-ordered `[[lon, lat], ...]` boundary for an H3 cell."""
     if h3.is_valid_cell(cell_id):
         # h3 v4 returns ((lat, lng), ...) -> swap to [lng, lat] for PyDeck / GeoJSON.
-        ring = [[round(float(lng), 6), round(float(lat), 6)] for lat, lng in h3.cell_to_boundary(cell_id)]
-        if ring and ring[0] != ring[-1]:
-            ring.append(ring[0])
-        return ring
+        return [[pt[0], pt[1]] for pt in _cached_h3_ring(cell_id)]
     # Small ~100 m square fallback only for non-H3 synthetic test strings
     d = 0.001
     return [
@@ -337,9 +346,10 @@ def build_legend_spec(
             d_min, d_max = GLOBAL_DELTA_RANGE_MM
             neutral = (-2.0, 2.0)
             anchors = tuple(
-                (val * (200.0 / 450.0), rgb) for val, rgb in _VELOCITY_SHARED_ANCHORS
+                (val * (GLOBAL_DELTA_RANGE_MM[1] / GLOBAL_VELOCITY_RANGE_MM_YR[1]), rgb)
+                for val, rgb in _VELOCITY_SHARED_ANCHORS
             )
-            caption = "Shared cumulative displacement scale [-200, +25] mm across cities."
+            caption = f"Shared cumulative displacement scale [{d_min:.0f}, +{d_max:.0f}] mm across cities."
         else:
             lo = float(observed_min) if observed_min is not None else -20.0
             hi = float(observed_max) if observed_max is not None else 5.0
@@ -385,17 +395,18 @@ def build_legend_spec(
             f"Shared cross-city velocity scale [{d_min:.0f}, +{d_max:.0f}] mm/year.{det_note}"
         )
     else:
+        # Per docs/handoff-mock.md §3b: read p05/p95 from meta.stats for independent per-case toggle.
         p05 = stats.get("p05_velocity_mm_yr")
         p95 = stats.get("p95_velocity_mm_yr")
-        lo_seed = float(observed_min) if observed_min is not None else float(p05 or -8.0)
-        hi_seed = float(observed_max) if observed_max is not None else float(p95 or 8.0)
+        lo_seed = float(p05) if isinstance(p05, (int, float)) else float(observed_min or -8.0)
+        hi_seed = float(p95) if isinstance(p95, (int, float)) else float(observed_max or 8.0)
         nb = det_limit if det_limit is not None else 2.0
         anchors = _independent_velocity_anchors(lo_seed, hi_seed, nb)
         d_min, d_max = anchors[0][0], anchors[-1][0]
         neutral = (-nb, nb)
         caption = (
             f"Independent local velocity scale [{d_min:.1f}, +{d_max:.1f}] mm/year "
-            f"(neutral band ±{nb:.1f} mm/year)."
+            f"(seeded from meta.stats p05/p95; neutral band ±{nb:.1f} mm/year)."
         )
 
     stops = tuple(
@@ -541,11 +552,22 @@ def build_map_payload(
         rgb_arr = _interpolate_rgb(vel_arr, anchors)
 
     if extrude_3d:
+        # Per docs/handoff-mock.md §2: bind 3D column height to |delta_change| [mm], normalised
+        # on "shared" by 425 mm/yr * window_years so every city shares one physical rate ceiling.
         if scale_mode == "shared":
-            denom = abs(GLOBAL_VELOCITY_RANGE_MM_YR[0])  # 450 mm/yr across all cities
+            dates_raw = meta.get("dates") or ()
+            span_years = 0.3614
+            if len(dates_raw) >= 2:
+                try:
+                    d0 = dt.date.fromisoformat(str(dates_raw[0]))
+                    d1 = dt.date.fromisoformat(str(dates_raw[-1]))
+                    span_years = max((d1 - d0).days / 365.25, 12.0 / 365.25)
+                except ValueError:
+                    span_years = 0.3614
+            denom = abs(GLOBAL_VELOCITY_RANGE_MM_YR[0]) * span_years
         else:
-            denom = max(10.0, float(np.max(np.abs(vel_arr))))
-        elev_arr = np.clip(np.abs(vel_arr) / denom, 0.0, 1.0) * MAX_EXTRUDE_METERS
+            denom = max(3.5, float(np.max(np.abs(delta_arr))))
+        elev_arr = np.clip(np.abs(delta_arr) / denom, 0.0, 1.0) * MAX_EXTRUDE_METERS
     else:
         elev_arr = np.zeros(n_rows, dtype=np.float64)
 

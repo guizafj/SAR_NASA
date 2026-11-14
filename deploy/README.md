@@ -14,8 +14,8 @@ public demo URL has an immediate fallback.
    - **Branch:** `main` (or `release/mvp`)
    - **Main file path:** `app.py`
    - **Python version:** `3.12` (pinned automatically via `.python-version`)
-3. Streamlit Cloud installs `requirements.txt` (lightweight runtime stack; heavy SAR ingestion
-   packages are isolated in `requirements-pipeline.txt` so GDAL never slows or breaks builds).
+3. Streamlit Cloud installs `requirements.txt` (or point container builds to the minimal
+   runtime-only `requirements-app.txt` so GDAL/HDF5 are skipped in production images).
 4. Verify health at `<app-url>/_stcore/health`.
 
 ---
