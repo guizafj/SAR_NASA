@@ -420,7 +420,7 @@ def _resolve_convention(
     los_sign: str | None,
     heading_convention: str | None,
     method_notes: Sequence[str] | None,
-    validated_against: str | None,
+    validated_against: str | Sequence[str] | None,
     warnings: list[str],
 ) -> ConventionRecord:
     """Validate the four convention flags and fold them into one :class:`ConventionRecord`.
@@ -431,6 +431,9 @@ def _resolve_convention(
       typo must not become a convention;
     * a blank ``--method-note`` / ``--validated-against`` — an empty sentence records nothing (drop
       the flag instead, and the run honestly keeps the "not yet validated" hedge).
+
+    Both text flags are repeatable (runbook §7 records every check), so their sentences accumulate:
+    notes become one sentence each, validations are joined with ``"; "`` into one statement.
 
     Warnings (allowed, but said out loud):
 
@@ -450,14 +453,24 @@ def _resolve_convention(
                 f"the \"NOT yet validated against GNSS\" hedge, {DOC_REFERENCE} §4)."
             )
         notes.append(text)
-    validated = None if validated_against is None else " ".join(str(validated_against).split())
-    if validated is not None and not validated:
-        raise ProcessCaseError(
-            "--validated-against was given an empty string: name the GNSS/levelling series, "
-            "station or published rate the convention was checked against, or drop the flag so the "
-            "run keeps the \"NOT yet validated against GNSS\" hedge instead of claiming a check "
-            "it cannot show."
-        )
+    validated_parts: list[str] = []
+    raw_validations = (
+        []
+        if validated_against is None
+        else ([validated_against] if isinstance(validated_against, str) else list(validated_against))
+    )
+    for part in raw_validations:
+        text = " ".join(str(part).split())
+        if not text:
+            raise ProcessCaseError(
+                "--validated-against was given an empty string: name the GNSS/levelling series, "
+                "station or published rate the convention was checked against, or drop the flag so "
+                "the run keeps the \"NOT yet validated against GNSS\" hedge instead of claiming a "
+                "check it cannot show."
+            )
+        validated_parts.append(text)
+    # Repeatable (runbook §7 tells the operator to record every check): one sentence, semicolons.
+    validated = "; ".join(_dedupe(validated_parts)) if validated_parts else None
 
     record = ConventionRecord(
         los_sign=(
@@ -1131,7 +1144,7 @@ def process_case(
     los_sign: str | None = None,
     heading_convention: str | None = None,
     method_notes: Sequence[str] | None = None,
-    validated_against: str | None = None,
+    validated_against: str | Sequence[str] | None = None,
     assumed_v_east_mm_yr: float | np.ndarray = 0.0,
     assumed_v_north_mm_yr: float | np.ndarray = 0.0,
 ) -> ProcessedCase:
@@ -1143,7 +1156,8 @@ def process_case(
     ``los_sign`` / ``heading_convention`` / ``method_notes`` / ``validated_against`` are the four
     convention inputs, the API side of ``--los-sign``, ``--heading-convention``, ``--method-note``
     and ``--validated-against``; :func:`_resolve_convention` validates them and the module
-    docstring explains the arithmetic. With all four left as ``None``/empty the run behaves exactly
+    docstring explains the arithmetic. Both text inputs are repeatable (runbook §7 records every
+    check); with all four left as ``None``/empty the run behaves exactly
     as before: ``d_LOS = -lambda/(4*pi)*phi``, the platform heading passed through verbatim, and the
     "NOT yet validated against GNSS" hedge kept in ``meta.provenance.method``.
 
@@ -1205,7 +1219,7 @@ def _process_case_rows(
     los_sign: str | None,
     heading_convention: str | None,
     method_notes: Sequence[str] | None,
-    validated_against: str | None,
+    validated_against: str | Sequence[str] | None,
     assumed_v_east_mm_yr: float | np.ndarray,
     assumed_v_north_mm_yr: float | np.ndarray,
     warnings: list[str],
@@ -2071,7 +2085,7 @@ def _meta(
                 f"Below the {COVERAGE_WARNING_FRACTION:.0%} threshold of {DATA_SOURCE_DECISION}: do "
                 "not claim city-wide displacement for this case."
                 if coverage.below_threshold
-                else "Above the 50% threshold of docs/data-source-decision.md."
+                else f"Above the {COVERAGE_WARNING_FRACTION:.0%} threshold of {DATA_SOURCE_DECISION}."
             ),
         ]
     )
@@ -2388,14 +2402,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--validated-against",
+        action="append",
         default=None,
+        dest="validated_against",
         metavar="TEXT",
         help=(
             "what the convention was checked against, e.g. 'GNSS station MEX1, 2019-2024, residual "
             "1.8 mm/yr RMSE' or 'Cigna & Tapete 2022 published -450 mm/yr'. Appended to "
-            "meta.provenance.method and recorded in provenance.geometry_convention.validated_against. "
-            "Allowed without a sign/heading flag (validating the default is legitimate) but warned, "
-            "because the record then names the default rather than your choice"
+            "meta.provenance.method and recorded in provenance.geometry_convention.validated_against "
+            "(repeatable: every check is joined with '; '). Allowed without a sign/heading flag "
+            "(validating the default is legitimate) but warned, because the record then names the "
+            "default rather than your choice"
         ),
     )
     parser.add_argument("--json", action="store_true", dest="as_json", help="machine-readable summary")

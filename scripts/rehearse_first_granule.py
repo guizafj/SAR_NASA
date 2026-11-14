@@ -51,9 +51,9 @@ import sys
 import tempfile
 import textwrap
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 import h3
 import h5py
@@ -75,7 +75,6 @@ from src.domain import contracts as C  # noqa: E402
 
 CASE = "mexico-city"
 DOC_RUNBOOK = "docs/first-granule-runbook.md"
-DOC_LAYOUT = "docs/nisar-gunw-layout.md"
 
 INSPECT = ROOT / "pipeline" / "ingest" / "inspect_hdf5.py"
 READER = ROOT / "pipeline" / "ingest" / "nisar_gunw.py"

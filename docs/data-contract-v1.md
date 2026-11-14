@@ -27,10 +27,10 @@ los datos reales cumplen **exactamente** el mismo esquema.
 
 | Fichero | Productor | Consumidor | Contrato |
 |---|---|---|---|
-| `data/processed/nisar_grid.parquet` | pipeline (Rol 3) | loaders (Rol 1) → mapa (Rol 2) | §3 |
-| `data/processed/timeseries.csv` | pipeline | loaders → gráficos | §4 |
-| `data/processed/meta.json` | pipeline | loaders → cabecera, unidades, badges | §5 |
-| `data/processed/context_layers.geojson` | pipeline | loaders → capas de contexto | §6 |
+| `data/processed/{case_id}/nisar_grid.parquet` | pipeline (Rol 3) | loaders (Rol 1) → mapa (Rol 2) | §3 |
+| `data/processed/{case_id}/timeseries.csv` | pipeline | loaders → gráficos | §4 |
+| `data/processed/{case_id}/meta.json` | pipeline | loaders → cabecera, unidades, badges | §5 |
+| `data/processed/{case_id}/context_layers.geojson` | pipeline | loaders → capas de contexto | §6 |
 
 Nada de `PMTiles`, servidor HTTP ni backend: eso es la migración post-MVP (§2.2 del flujo). Los
 cuatro ficheros son la interfaz completa entre pipeline y aplicación.
@@ -48,8 +48,8 @@ Vocabulario mínimo de tipos: `string` → texto UTF-8; `float64` → coma flota
 | 2 | Ejemplo de `meta.json` con `product: "opera-disp-s1"` | `product` es enum cerrado y debe ser el producto **realmente usado**; hoy es `nisar-gunw` o `mock` | Comprobado el 2026-11-14 contra ASF: OPERA DISP-S1 devuelve **0** granulos en los tres AOI (ver `data/processed/_availability/*.json`). Publicar `opera-disp-s1` sería falso |
 | 3 | `sensor` como "NISAR o Sentinel-1" en texto libre | Enum `nisar` \| `sentinel-1` | La coherencia no es comparable entre sensores; el enum impide escribir `S1A` o `NISAR L2` y que la UI los trate como distintos |
 | 4 | `timeseries.csv` sin clave de agregación | Columna obligatoria `cell_id`: `"aoi"` para la serie agregada del caso, índice H3 para el detalle por celda | El gráfico necesita una serie por caso; el popup necesita detalle. Ambos viven en el mismo fichero, distinguidos por una clave, sin cambiar el esquema |
-| 5 | `coherence_threshold: 0.35` global | Umbrales por `(sensor, product)` en `SENSOR_PROFILES`, con `revisit_days` obligatorio en `meta.json` | NISAR 12 días ≠ Sentinel-1 6 días (informe §13.6). Un umbral global invita a mezclar y a sobreinterpretar |
-| 6 | `stats: {}` sin campos definidos | `stats` con `n_cells`, `n_dates`, `median_velocity_mm_yr`, `p05_velocity_mm_yr`, `p95_velocity_mm_yr`, y `detection_limit_mm_yr` **obligatorio** cuando \|mediana\| < 5 mm/año | Málaga es un resultado nulo declarado: la cota de detección **es** el resultado (informe §13.1) |
+| 5 | `coherence_threshold: 0.35` global | Umbrales por `(sensor, product)` en `SENSOR_PROFILES`, con `revisit_days` obligatorio en `meta.json` | NISAR 12 días ≠ Sentinel-1 6 días (perfiles en §7.3). Un umbral global invita a mezclar y a sobreinterpretar |
+| 6 | `stats: {}` sin campos definidos | `stats` con `n_cells`, `n_dates`, `median_velocity_mm_yr`, `p05_velocity_mm_yr`, `p95_velocity_mm_yr`, y `detection_limit_mm_yr` **obligatorio** cuando \|mediana\| < 5 mm/año | Málaga es un resultado nulo declarado: la cota de detección **es** el resultado |
 
 ---
 
@@ -102,7 +102,7 @@ Ejemplo de fila:
 ```
 
 Presupuesto: una ciudad de 50 × 50 km con ~15 000 celdas ocupa < 2 MB en Parquet (compresión
-zstd). `data/processed/` completo debe quedar por debajo de 15 MB (§14 del informe).
+zstd). `data/processed/` completo debe quedar por debajo de 15 MB (presupuesto de tamaño, `README.md` §8).
 
 ---
 
@@ -269,7 +269,7 @@ error del pipeline, no un caso válido.
 | `egms` | `sentinel-1` | 6 | 0.30 | 2.5 | 3.0 | 2of3 | 500 | 50 |
 | `mock` | `nisar` | 12 | 0.35 | 2.5 | 3.0 | 2of3 | 500 | 80 |
 
-`senor_profile(sensor, product)` lanza `ContractError` si la pareja no existe o no coincide. No hay
+`sensor_profile(sensor, product)` lanza `ContractError` si la pareja no existe o no coincide. No hay
 manera de escribir "umbral único": el perfil es la única puerta.
 
 **Estado real de las fuentes** (sondas en `data/processed/_availability/*.json`, 2026-11-14):
@@ -340,15 +340,15 @@ el pipeline, los loaders y CI comparten exactamente el mismo código de validaci
 
 ---
 
-## 10. Compatibilidad con los informes
+## 10. Compatibilidad con el flujo y el README
 
-| Informe / flujo | Estado |
+| Documento / flujo | Estado |
 |---|---|
 | `flujo §5.1` (`nisar_grid.parquet`) | se mantienen todos los campos; se **añaden** `velocity_mm_yr` y `velocity_unit` (§2.1) |
 | `flujo §5.2` (`timeseries.csv`) | se mantienen los 8 campos; se **añade** `cell_id` (§2.4) |
 | `flujo §5.3` (`meta.json`) | se mantienen las claves del ejemplo; se **añaden** `name`, `bbox`, `reference_point`, `revisit_days`, `thresholds{}`, `limitations`, `null_policy` y tres claves de `provenance` |
 | `flujo §3.1` (rutas) | `src/domain/contracts.py` es el fichero previsto; no se crean rutas nuevas |
-| `informe §14` (`data/processed/`) | mismos cuatro ficheros, mismo sitio, < 15 MB |
+| `README.md` §8 (`data/processed/`) | mismos cuatro ficheros, mismo sitio, < 15 MB |
 | `docs/route-contract.md` (PMTiles, Opción B) | fuera del MVP (§2.2 del flujo); queda como ruta de migración post-MVP |
 
 ---
@@ -357,9 +357,8 @@ el pipeline, los loaders y CI comparten exactamente el mismo código de validaci
 
 Estas no bloquean la congelación y se cierran en `config/study_cases.yaml`, no aquí:
 
-1. **Caso principal.** El informe §12 sugiere Málaga como caso principal y CDMX como "extremo";
-   el flujo §2.1 deja la elección abierta. Recomendación: `mexico-city` como principal (señal
-   fuerte, mejor demo) y `malaga` como control negativo explícito.
+1. **Caso principal.** El flujo §2.1 deja la elección abierta; `config/study_cases.yaml` la resuelve:
+   `mexico-city` como principal (señal fuerte, mejor demo) y `malaga` como control negativo explícito.
 2. **AOI exacto.** El contrato fija el *esquema*, no el polígono: `bbox` es la envolvente del AOI
    real, que puede ser un polígono en config.
 3. **Ventana temporal.** `dates` sale de las adquisiciones realmente descargadas.

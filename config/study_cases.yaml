@@ -1,14 +1,16 @@
-# Study cases — the only place a case is defined.
+# Study cases — the only place a case is declared. The ASF probe config
+# (pipeline/ingest/aois.json) mirrors each case's bbox/CRS/reference point (pinned by
+# tests/test_config_consistency.py), so change both in the same PR.
 #
 # Owner: Rol 3 (yuls). Consumed by pipeline/ (mock + real) and by the app's loaders.
 # Contract: docs/data-contract-v1.md. Nothing here overrides the frozen schema; these are
 # *parameters of a case*, not of the contract.
 #
-# `primary` is deliberately a single switch: the 48 h scope is "one case executed perfectly",
-# and the informe (Málaga as control) and the README (Mexico City for signal) disagreed.
-# DECIDED 2026-11-14: mexico-city is primary (strongest signal, clearest demo); malaga ships as the
-# explicit negative control. If CDMX's NISAR GUNW fails the urban-coverage check in
-# docs/data-source-decision.md, flip this one line to `malaga` — nothing else changes.
+# `primary` is deliberately a single switch: the 48 h scope is "one case executed perfectly".
+# The two requirements — a declared negative control (Málaga) and the clearest signal (Mexico City) —
+# disagree, so the switch picks one. DECIDED 2026-11-14: mexico-city is primary (strongest signal,
+# clearest demo); malaga ships as the explicit negative control. If CDMX's NISAR GUNW fails the
+# urban-coverage check in docs/data-source-decision.md, flip this one line to `malaga` — nothing else changes.
 
 schema_version: "1.0"
 

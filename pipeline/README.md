@@ -19,7 +19,7 @@ Product: NISAR L2 GUNW first; **OPERA DISP-S1 is excluded** — 0 granules for a
 
 ## 2. The four artefacts
 
-Per case under `data/processed/<case>/` (contract §1 lists the flat form; `pipeline/validate_artifacts.py` accepts both). Field detail lives in `docs/data-contract-v1.md`; validity is decided by `src/domain/contracts.py`, which prevails when the prose disagrees.
+Per case under `data/processed/<case>/` (contract §1 names `data/processed/{case_id}/…`; `pipeline/validate_artifacts.py` accepts both the per-case and flat layouts). Field detail lives in `docs/data-contract-v1.md`; validity is decided by `src/domain/contracts.py`, which prevails when the prose disagrees.
 
 | File | Contents, one line | Governed by |
 |---|---|---|
@@ -69,7 +69,7 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 ./scripts/python.sh pipeline/process_case.py --case mexico-city \
     --granule data/raw/mexico-city/nisar_gunw/<granule-a>.h5 \
     --granule data/raw/mexico-city/nisar_gunw/<granule-b>.h5 \
-    --out data/processed/mexico-city
+    --out data/processed/mexico-city --force
 # 7 the gate: contract self-check → Phase A suites → artefact gate → handoff summary
 ./scripts/check_phase_a.sh
 ```
@@ -99,17 +99,17 @@ hashes sorted granule file stems — neither hashes file bytes.
 
 Reproduce it: `./scripts/python.sh -c "import math; from pipeline.science import transforms as V; print(round(V.vertical_from_los(0.2384/(4*math.pi)*1e3,39,192),2))"` → `24.41`.
 
-Mexico City at −420 mm/yr is −13.8 mm vertical in a 12-day pair, ≈ 0.09 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13).
+Mexico City at −420 mm/yr is −13.8 mm LOS (≈ −17.8 mm vertical) in a 12-day pair, ≈ 0.12 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13).
 
 Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprinted by `./scripts/check_phase_a.sh`; seed 7, 12 dates 2026-07-02 → 2026-11-11, product `mock`):
 
 | case | cells | median mm/yr | p05 | size |
 |---|---:|---:|---:|---:|
 | `mexico-city` | 13,379 | −54.7 | −223.3 | 1.01 MB |
-| `jakarta` | 4,855 | −25.8 | −143.9 | 0.38 MB |
-| `malaga` | 2,677 | −1.4 | −3.5 | 0.22 MB |
+| `jakarta` | 4,811 | −25.4 | −141.9 | 0.38 MB |
+| `malaga` | 2,650 | −1.4 | −3.5 | 0.22 MB |
 
-Coherence 0.45–0.95 and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
+Coherence 0.35–0.95 (0.43–0.95 in Mexico City) and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
 
 ## 7. Known limits and unverified parts
 

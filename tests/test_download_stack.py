@@ -255,7 +255,7 @@ def test_mean_interval_days_is_the_median_gap_of_consecutive_dates():
 # ---------------------------------------------------------------------------------------------
 
 
-def test_recommended_stack_is_the_largest_and_its_ids_span_the_window():
+def test_recommended_stack_is_the_largest_and_a_contiguous_connected_chain():
     payload = series("079", "D", 34) + series("078", "D", 5) + series("012", "A", 2)
 
     report = M.summarise(payload, 250)
@@ -263,22 +263,54 @@ def test_recommended_stack_is_the_largest_and_its_ids_span_the_window():
 
     assert recommended["track"] == "079"
     assert recommended["n_granules"] == 34
+    assert recommended["sample_purpose"] == "download"
     assert recommended["granule_ids_truncated"] is True
     assert len(recommended["granule_ids"]) == M.STACK_GRANULE_LIMIT == 12
     assert "largest single-geometry stack" in recommended["why"]
     assert "12 of 34" in recommended["why"]
-    assert "2025-10" in recommended["why"]  # window start
-    assert "2026-11" in recommended["why"]  # window end (33 x 12 d after 2025-10-25)
+    assert "13 connected epoch(s)" in recommended["why"]
+    assert "2026-07" in recommended["why"]  # window of the *sample*, not of the stack
+    assert "2026-11" in recommended["why"]
 
-    # evenly spread: first and last acquisition included, and every third of the window hit
+    # contiguous: the most recent 12 granules of the 34-granule stack, no holes
     stack_ids = ids(series("079", "D", 34))
     positions = [stack_ids.index(granule_id_) for granule_id_ in recommended["granule_ids"]]
+    assert positions == list(range(22, 34))
+    assert recommended["granule_ids"] == stack_ids[22:]
+
+    # chronological, and the advertised window is exactly what the sample covers
+    sampled = [M.parse_granule(granule_id_) for granule_id_ in recommended["granule_ids"]]
+    references = [parsed.reference_start for parsed in sampled]
+    assert references == sorted(references)
+    assert recommended["date_range"] == [references[0], references[-1]]
+    # ... while the whole stack keeps its own truth alongside it
+    full_references = [M.parse_granule(granule_id_).reference_start for granule_id_ in stack_ids]
+    assert recommended["full_date_range"] == [full_references[0], full_references[-1]]
+    assert recommended["n_epochs"] == 35  # 34 chained pairs -> 35 acquisition days
+    assert recommended["connected_epochs"] == 35
+    assert recommended["download_epochs"] == 13
+    assert recommended["epoch_sufficient"] is True
+    assert recommended["warning"] is None
+
+
+def test_preview_stacks_keep_the_even_sample_and_say_so():
+    """Only the recommended stack is narrowed to a chain; the rest still preview the window."""
+    payload = series("079", "D", 34) + series("078", "D", 20)
+
+    report = M.summarise(payload, 250)
+    by_track = {stack["track"]: stack for stack in report["stacks"]}
+    preview = by_track["078"]
+
+    ordered = ids(series("078", "D", 20))
+    assert preview["sample_purpose"] == "preview"
+    assert preview["granule_ids"] == M._even_sample(ordered, M.STACK_GRANULE_LIMIT)
+    positions = [ordered.index(granule_id_) for granule_id_ in preview["granule_ids"]]
     assert positions[0] == 0
-    assert positions[-1] == len(stack_ids) - 1
-    assert any(position < len(stack_ids) / 3 for position in positions)
-    assert any(len(stack_ids) / 3 <= position < 2 * len(stack_ids) / 3 for position in positions)
-    assert any(position >= 2 * len(stack_ids) / 3 for position in positions)
-    assert positions == sorted(positions)
+    assert positions[-1] == len(ordered) - 1
+    references = [M.parse_granule(granule_id_).reference_start for granule_id_ in ordered]
+    assert preview["date_range"] == preview["full_date_range"] == [references[0], references[-1]]
+    assert "download_epochs" not in preview  # a preview is not a download verdict
+    assert by_track["079"]["sample_purpose"] == "download"
 
 
 def test_summarise_persists_granule_ids_capped_with_the_truncation_flag():
@@ -351,6 +383,169 @@ def test_unparseable_names_are_grouped_apart_and_never_recommended():
     unidentified = M.recommend_stack(M.derive_stacks(malformed))
     assert unidentified["track"] is None
     assert "no granule name carried a track/direction" in unidentified["why"]
+
+
+# ---------------------------------------------------------------------------------------------
+# The connected run: a download must be a chain, not an even spread
+# ---------------------------------------------------------------------------------------------
+#
+# A granule is a *pair*: its name carries a reference and a secondary acquisition. A stack only
+# chains when granule[i].secondary == granule[i+1].reference, which is exactly the invariant
+# `process_case._chain` enforces (it refuses a network gap) and what turns `k` pairs into `k + 1`
+# epochs. The old even sample spread 12 ids across the whole window, so adjacent ids rarely shared
+# an acquisition and `process_case` saw 3 disconnected epochs (below MIN_FIT_POINTS = 4).
+
+TRANSFORMS = ROOT / "pipeline" / "science" / "transforms.py"
+
+
+def local_chain_epochs(granule_ids: list[str]) -> int:
+    """Independent epoch count of the longest adjacent chain (no module-private helpers)."""
+    pairs = [
+        (M.parse_granule(granule_id).reference_start, M.parse_granule(granule_id).secondary_start)
+        for granule_id in granule_ids
+    ]
+    runs: list[list[tuple[str | None, str | None]]] = []
+    current: list[tuple[str | None, str | None]] = []
+    for reference, secondary in pairs:
+        chained = (
+            bool(current)
+            and bool(reference)
+            and bool(current[-1][1])
+            and reference[:10] == current[-1][1][:10]  # type: ignore[index]
+        )
+        if chained:
+            current.append((reference, secondary))
+        else:
+            if current:
+                runs.append(current)
+            current = [(reference, secondary)]
+    if current:
+        runs.append(current)
+
+    def epochs(run: list[tuple[str | None, str | None]]) -> int:
+        days = {
+            stamp[:10]
+            for pair in run
+            for stamp in pair
+            if stamp
+        }
+        return len(days)
+
+    return max((epochs(run) for run in runs), default=0)
+
+
+def test_min_fit_points_is_the_science_threshold_not_a_copy():
+    text = TRANSFORMS.read_text()
+    match = re.search(r"^MIN_FIT_POINTS\s*=\s*(\d+)", text, re.MULTILINE)
+    assert match is not None, f"no MIN_FIT_POINTS in {TRANSFORMS}"
+    assert M.MIN_FIT_POINTS == int(match.group(1))
+
+
+def test_33_granule_stack_recommends_a_contiguous_chain():
+    payload = series("079", "D", 33)
+
+    recommended = M.summarise(payload, 250)["recommended_stack"]
+    sampled = [M.parse_granule(granule_id_) for granule_id_ in recommended["granule_ids"]]
+
+    # every consecutive pair shares an acquisition: the chain `process_case` needs
+    for earlier, later in zip(sampled, sampled[1:]):
+        assert earlier.secondary_start == later.reference_start, (
+            f"granule {earlier.raw!r} secondary {earlier.secondary_start!r} does not meet "
+            f"{later.raw!r} reference {later.reference_start!r}"
+        )
+
+    epochs = len(recommended["granule_ids"]) + 1
+    assert epochs >= M.MIN_FIT_POINTS, (
+        f"the recommendation yields {epochs} epochs < MIN_FIT_POINTS={M.MIN_FIT_POINTS}; "
+        "`process_case` would refuse it"
+    )
+    assert recommended["download_epochs"] == epochs
+    assert recommended["epoch_sufficient"] is True
+    assert recommended["warning"] is None
+    assert recommended["sample_purpose"] == "download"
+
+    # contiguous in the ordered stack: the capped, most recent run of one unbroken chain
+    ordered = ids(payload)
+    positions = [ordered.index(granule_id_) for granule_id_ in recommended["granule_ids"]]
+    assert positions == list(range(len(ordered) - M.STACK_GRANULE_LIMIT, len(ordered)))
+    assert recommended["granule_ids"] == ordered[-M.STACK_GRANULE_LIMIT:]
+    assert recommended["granule_ids_truncated"] is True
+    references = [parsed.reference_start for parsed in sampled]
+    assert references == sorted(references)
+    assert recommended["date_range"] == [references[0], references[-1]]
+    assert recommended["full_date_range"] == [ordered_reference(ordered, 0), ordered_reference(ordered, -1)]
+    assert local_chain_epochs(recommended["granule_ids"]) == epochs
+
+
+def ordered_reference(granule_ids: list[str], index: int) -> str | None:
+    return M.parse_granule(granule_ids[index]).reference_start
+
+
+def test_a_stack_too_short_to_fit_says_so_and_names_a_usable_stack():
+    # 8 interleaved pairs on the biggest track: no two adjacent granules chain (each granule is a
+    # lone pair -> 2 epochs), which is Málaga track 020's real shape. A smaller track chains fully.
+    payload = series("020", "A", 8, cadence=6) + series("070", "D", 6)
+
+    report = M.summarise(payload, 250)
+    recommended = report["recommended_stack"]
+
+    assert recommended["track"] == "020"  # the largest identified stack still wins
+    epochs = len(recommended["granule_ids"]) + 1
+    assert epochs < M.MIN_FIT_POINTS
+    assert recommended["download_epochs"] < M.MIN_FIT_POINTS
+    assert recommended["epoch_sufficient"] is False
+    assert recommended["min_fit_points"] == M.MIN_FIT_POINTS
+    assert recommended["warning"], "an unusable recommendation must never be silent"
+    assert f"MIN_FIT_POINTS={M.MIN_FIT_POINTS}" in recommended["warning"]
+    assert "process_case" in recommended["warning"]
+    assert "--stack 070" in recommended["warning"]  # the way forward, not just a complaint
+    # the warning is persisted in stacks[] too, next to the recommendation it describes
+    published = next(stack for stack in report["stacks"] if stack["track"] == "020")
+    assert published["warning"] == recommended["warning"]
+    assert published["epoch_sufficient"] is False
+
+    # and the CLI says it out loud before planning anything
+    records, label, notes = M.select_stack_granules(report, "recommended")
+    assert records  # the plan still names what would be fetched
+    assert "020" in label
+    assert any("MIN_FIT_POINTS" in note and "--stack 070" in note for note in notes)
+
+
+def test_a_stack_too_short_with_no_alternative_says_re_run_search():
+    payload = series("020", "A", 8, cadence=6)
+
+    recommended = M.summarise(payload, 250)["recommended_stack"]
+
+    assert recommended["epoch_sufficient"] is False
+    assert "No stack in this report reaches the threshold" in recommended["warning"]
+
+
+def test_the_run_with_more_epochs_wins_over_a_more_recent_shorter_run():
+    # one geometry, two separated chains: 5 chained pairs early, 3 chained pairs late
+    early = series("079", "D", 5)
+    late = at_dates(
+        [BASE + dt.timedelta(days=200 + 12 * index) for index in range(3)]
+    )
+
+    recommended = M.summarise(early + late, 250)["recommended_stack"]
+
+    assert recommended["granule_ids"] == ids(early), "more epochs must beat recency"
+    assert recommended["download_epochs"] == len(early) + 1 == 6
+    assert recommended["granule_ids_truncated"] is True  # 5 of 8 granules
+
+
+def test_equal_epoch_runs_pick_the_most_recent_one():
+    early = series("079", "D", 3)
+    late = at_dates([BASE + dt.timedelta(days=200 + 12 * index) for index in range(3)])
+
+    recommended = M.summarise(early + late, 250)["recommended_stack"]
+
+    assert recommended["granule_ids"] == ids(late), "equal epochs must break to the recent run"
+    assert recommended["download_epochs"] == len(late) + 1 == 4
+    assert recommended["granule_ids"] == sorted(
+        recommended["granule_ids"],
+        key=lambda granule_id_: M.parse_granule(granule_id_).reference_start or "",
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -583,3 +778,70 @@ def test_committed_report_recommended_dry_run_is_single_geometry(
     assert len(geometries) == 1, f"{city}: mixed geometries in the recommended plan"
     assert "1 geometry/geometries" in out
     assert not raw.exists()  # dry run writes nothing
+
+
+# ---------------------------------------------------------------------------------------------
+# The committed evidence, measured: how many epochs does the recommendation actually give?
+# ---------------------------------------------------------------------------------------------
+#
+# The committed reports were generated *before* this fix, so their `recommended_stack` still
+# carries the old even sample (mexico-city 12 ids -> 3 connected epochs, jakarta 8 -> 9, malaga
+# 12 -> 3). They cannot be regenerated offline, so this test measures and reports instead of
+# asserting a stale number; once `search` is re-run it locks in the new verdict per case.
+
+EVIDENCE_CASES = ("mexico-city", "jakarta", "malaga")
+
+
+@pytest.mark.parametrize("city", EVIDENCE_CASES)
+def test_committed_recommendation_epochs(city: str, record_property) -> None:
+    """Report `len(granule_ids) + 1` and the measured chain for each committed recommendation."""
+    report_path = COMMITTED / f"{city}.json"
+    if not report_path.exists():
+        pytest.skip(f"no committed availability report for {city!r}")
+    source = json.loads(report_path.read_text())["sources"].get(SOURCE) or {}
+    recommended = source.get("recommended_stack") or {}
+    granule_ids = recommended.get("granule_ids") or []
+    if not granule_ids:
+        pytest.skip(f"{city}: committed report has no recommended_stack ids")
+
+    sampled = [M.parse_granule(granule_id) for granule_id in granule_ids]
+    references = [parsed.reference_start for parsed in sampled]
+    assert references == sorted(references), f"{city}: recommended ids are not chronological"
+
+    epochs = len(granule_ids) + 1
+    connected = local_chain_epochs(granule_ids)
+    clears = connected >= M.MIN_FIT_POINTS
+    record_property("granule_ids", len(granule_ids))
+    record_property("epochs_if_chained", epochs)
+    record_property("connected_epochs", connected)
+    record_property("clears_min_fit_points", clears)
+    print(
+        f"\n{city}: recommended_stack has {len(granule_ids)} id(s) -> {epochs} epoch(s) if they "
+        f"chained; measured longest chain = {connected}; clears MIN_FIT_POINTS={M.MIN_FIT_POINTS}: "
+        f"{'YES' if clears else 'NO'}"
+    )
+
+    if recommended.get("sample_purpose") == "download":
+        # fresh evidence: the report itself must agree with the measurement, and never hide a
+        # recommendation that cannot feed a fit
+        assert recommended["download_epochs"] == connected, (
+            f"{city}: report claims {recommended['download_epochs']} download epochs, "
+            f"measurement says {connected}"
+        )
+        assert recommended["epoch_sufficient"] is clears
+        if clears:
+            assert connected == epochs, (
+                f"{city}: a sufficient download must be a chain ({len(granule_ids)} pairs -> "
+                f"{epochs} epochs), measured {connected}"
+            )
+        else:
+            assert recommended.get("warning"), (
+                f"{city}: {connected} epochs < MIN_FIT_POINTS={M.MIN_FIT_POINTS} but the report "
+                "carries no `warning`"
+            )
+    elif not clears:
+        pytest.skip(
+            f"{city}: committed evidence predates the connected-run fix — {len(granule_ids)} "
+            f"even-sampled id(s) chain into {connected} epoch(s), below MIN_FIT_POINTS="
+            f"{M.MIN_FIT_POINTS}; re-run `search` (needs network) to persist the contiguous run"
+        )

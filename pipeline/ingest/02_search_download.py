@@ -76,6 +76,27 @@ MAX_STACKS = 10
 GRANULE_ID_CAP = 120
 
 
+def _science_min_fit_points() -> int:
+    """Read ``MIN_FIT_POINTS`` from ``pipeline/science/transforms.py``.
+
+    The threshold belongs to the science layer, so it is read from there instead of being
+    forked here; a missing file falls back to the documented value so ingest still runs
+    standalone (``python pipeline/ingest/02_search_download.py`` puts only its own directory on
+    ``sys.path``, which makes importing the science module unsafe).
+    """
+    path = ROOT / "pipeline" / "science" / "transforms.py"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 4
+    match = re.search(r"^MIN_FIT_POINTS\s*=\s*(\d+)", text, re.MULTILINE)
+    return int(match.group(1)) if match else 4
+
+
+#: Epochs a trend fit needs (``transforms.MIN_FIT_POINTS``). A download that yields fewer is
+#: refused by ``process_case``, so the recommendation must say so instead of pretending.
+MIN_FIT_POINTS = _science_min_fit_points()
+
 # =============================================================================================
 # Granule-name grammar (single source of truth: parse once, reuse for stacks and the guard)
 # =============================================================================================
@@ -176,12 +197,120 @@ def _even_sample(items: list[str], limit: int) -> list[str]:
     return [items[round(index * step)] for index in range(limit)]
 
 
+# --- epoch chaining --------------------------------------------------------------------------
+
+def _epoch_day(timestamp: str | None) -> str | None:
+    """The UTC day of an acquisition timestamp: the unit `process_case._chain` compares.
+
+    `process_case` compares `reference_date`/`secondary_date`, i.e. the *day* of each
+    acquisition, not the second. Two granules chain when the next one's reference acquisition
+    falls on the same day as the previous one's secondary acquisition; the second-level drift
+    between repeated orbits (e.g. `...T011330` vs `...T011331`) must not break that chain.
+    """
+    return timestamp[:10] if timestamp else None
+
+
+def _run_epochs(run: list[tuple[str, ParsedGranule]]) -> int:
+    """Distinct epochs one connected run of granules gives.
+
+    A run of `k` chained pairs yields `k + 1` epochs (the first reference plus every secondary);
+    a lone unpaired granule (Sentinel-1 SLC) yields its single reference as one epoch.
+    """
+    epochs: set[str] = set()
+    for _, parsed in run:
+        for stamp in (parsed.reference_start, parsed.secondary_start):
+            day = _epoch_day(stamp)
+            if day:
+                epochs.add(day)
+    return len(epochs)
+
+
+def _connected_runs(members: list[tuple[str, ParsedGranule]]) -> list[list[tuple[str, ParsedGranule]]]:
+    """Split chronologically ordered members into maximal chained runs.
+
+    Adjacent members belong to the same run iff the earlier granule's secondary acquisition and
+    the later granule's reference acquisition are the same acquisition (same UTC day). A missing
+    secondary (Sentinel-1 SLC, an unparsed name) starts a new run: nothing proves it chains.
+    """
+    runs: list[list[tuple[str, ParsedGranule]]] = []
+    current: list[tuple[str, ParsedGranule]] = []
+    previous_secondary: str | None = None
+    for member in members:
+        _, parsed = member
+        reference = _epoch_day(parsed.reference_start)
+        if current and reference is not None and reference == previous_secondary:
+            current.append(member)
+        else:
+            if current:
+                runs.append(current)
+            current = [member]
+        previous_secondary = _epoch_day(parsed.secondary_start)
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _best_download_run(members: list[tuple[str, ParsedGranule]]) -> tuple[list[tuple[str, ParsedGranule]], int]:
+    """The contiguous chain a download should fetch, and how many epochs it gives.
+
+    Selection rule. Only *connected* runs count (each granule's secondary acquisition is the next
+    granule's reference, so `k` pairs give `k + 1` epochs and `process_case._chain` accepts the
+    stack). Among those runs take the one with the most epochs — `min(STACK_GRANULE_LIMIT, n)`
+    consecutive granules by reference date whenever a chain that long exists — and break ties by
+    the **most recent** run (latest reference timestamp). A run longer than the limit is cut to
+    its most recent `STACK_GRANULE_LIMIT` granules, which is still a chain and keeps the epoch
+    maximum at `STACK_GRANULE_LIMIT + 1`.
+
+    Non-interferometric stacks (no granule carries a secondary acquisition, e.g. Sentinel-1 SLC)
+    have no pairing to prove: one granule is one epoch, so the run is simply the most recent
+    `min(STACK_GRANULE_LIMIT, n)` consecutive granules and the epoch count is the distinct
+    reference days.
+    """
+    if not members:
+        return [], 0
+    if not any(parsed.secondary_start for _, parsed in members):
+        run = members[-STACK_GRANULE_LIMIT:]
+        return run, _run_epochs(run)
+
+    runs = _connected_runs(members)
+    best = max(
+        runs,
+        key=lambda run: (len(run), run[-1][1].reference_start or run[-1][0]),
+    )
+    if len(best) > STACK_GRANULE_LIMIT:
+        best = best[-STACK_GRANULE_LIMIT:]
+    return best, _run_epochs(best)
+
+
+def _stack_epochs(members: list[tuple[str, ParsedGranule]]) -> tuple[int, int]:
+    """`(n_epochs, connected_epochs)` for the *whole* stack.
+
+    `n_epochs` counts every distinct acquisition day the stack carries; `connected_epochs` is the
+    longest chain reachable inside it (what the best download run would give before the cap).
+    """
+    epochs = {
+        day
+        for _, parsed in members
+        for day in (_epoch_day(parsed.reference_start), _epoch_day(parsed.secondary_start))
+        if day
+    }
+    runs = _connected_runs(members)
+    connected = max((_run_epochs(run) for run in runs), default=0)
+    return len(epochs), connected
+
+
 def derive_stacks(granules: list[dict]) -> list[dict]:
     """Group granules by `(track, flight direction)` and describe each stack.
 
-    Each stack carries the window (`date_range`), the median revisit (`mean_interval_days`) and
-    at most `STACK_GRANULE_LIMIT` granule ids *evenly sampled* so the series spans the window
-    (first and last acquisition always included). Sorted largest first, then most recent.
+    Every stack *previews* its window: `date_range` is the full `[first, last]` reference date,
+    `full_date_range` repeats it, and `granule_ids` is an even sample of at most
+    `STACK_GRANULE_LIMIT` ids so the preview spans the window (first and last always included).
+    `sample_purpose` is `"preview"` here; `recommend_stack` replaces the chosen stack's sample
+    with the contiguous chain a download actually needs (`sample_purpose: "download"`).
+
+    Each stack also carries the whole stack's truth — `n_epochs` (every distinct acquisition day)
+    and `connected_epochs` (the longest chain inside the stack) — so a narrowed download window
+    never has to be confused with the stack's real span. Sorted largest first, then most recent.
     """
     groups: dict[tuple[str | None, str | None], list[tuple[str, ParsedGranule]]] = {}
     for granule in granules:
@@ -205,15 +334,22 @@ def derive_stacks(granules: list[dict]) -> list[dict]:
         mean_interval = float(statistics.median(gaps)) if gaps else None
 
         sampled = _even_sample(ids, STACK_GRANULE_LIMIT)
+        n_epochs, connected_epochs = _stack_epochs(members)
         stacks.append(
             {
                 "track": track,
                 "direction": direction,
                 "n_granules": len(members),
                 "date_range": date_range,
+                "full_date_range": list(date_range) if date_range else None,
                 "mean_interval_days": mean_interval,
                 "granule_ids": sampled,
                 "granule_ids_truncated": len(sampled) < len(ids),
+                "sample_purpose": "preview",
+                "n_epochs": n_epochs,
+                "connected_epochs": connected_epochs,
+                # internal: the full ordered member list, never persisted (see `_public`)
+                "_members": members,
             }
         )
 
@@ -223,37 +359,109 @@ def derive_stacks(granules: list[dict]) -> list[dict]:
     return stacks
 
 
-def recommend_stack(stacks: list[dict]) -> dict | None:
-    """Pick the stack to fetch: the largest *identified* geometry, with a one-line `why`."""
+def _public(stack: dict) -> dict:
+    """A stack dict without the internal (`_`-prefixed) working fields."""
+    return {key: value for key, value in stack.items() if not key.startswith("_")}
+
+
+def _choose_stack(stacks: list[dict]) -> dict | None:
+    """The stack to fetch: the largest *identified* geometry, else the largest group."""
     if not stacks:
         return None
     identified = [stack for stack in stacks if stack["track"] is not None]
-    if identified:
-        chosen = identified[0]
+    return identified[0] if identified else stacks[0]
+
+
+def _download_sample(stack: dict, stacks: list[dict]) -> dict:
+    """Replace a preview stack's ids with the contiguous connected chain a download needs.
+
+    `date_range` becomes the *sampled run's* window (what `granule_ids` actually covers, which is
+    what `tests/test_availability_evidence.py` checks); `full_date_range` keeps the whole stack's
+    window. `download_epochs` is the epoch count of this sample (`len(granule_ids) + 1` for a
+    chain) and `warning` is set, never swallowed, when it cannot reach `MIN_FIT_POINTS`.
+    """
+    members = stack.get("_members") or [
+        (granule_id, parse_granule(granule_id))
+        for granule_id in stack.get("granule_ids") or []
+    ]
+    run, epochs = _best_download_run(members)
+    run_ids = [granule_id for granule_id, _ in run]
+    starts = [parsed.reference_start for _, parsed in run if parsed.reference_start]
+    sample = _public(stack)
+    sample.update(
+        {
+            "date_range": [starts[0], starts[-1]] if starts else None,
+            "granule_ids": run_ids,
+            "granule_ids_truncated": len(run_ids) < stack["n_granules"],
+            "sample_purpose": "download",
+            "download_epochs": epochs,
+            "min_fit_points": MIN_FIT_POINTS,
+            "epoch_sufficient": epochs >= MIN_FIT_POINTS,
+            "warning": _epoch_warning(stack, epochs, stacks),
+        }
+    )
+    return sample
+
+
+def _epoch_warning(stack: dict, epochs: int, stacks: list[dict]) -> str | None:
+    """Say plainly when the recommended download cannot feed a fit, and name a usable stack."""
+    if epochs >= MIN_FIT_POINTS:
+        return None
+    head = (
+        f"this stack yields {epochs} connected epoch(s), below MIN_FIT_POINTS={MIN_FIT_POINTS}: "
+        "`process_case` would refuse the download"
+    )
+    usable: list[tuple[int, dict]] = []
+    for other in stacks:
+        if other is stack or other.get("track") is None:
+            continue
+        other_epochs = _best_download_run(other.get("_members") or [])[1]
+        if other_epochs >= MIN_FIT_POINTS:
+            usable.append((other_epochs, other))
+    if not usable:
+        return f"{head}. No stack in this report reaches the threshold; re-run `search` over a longer window."
+    other_epochs, other = max(
+        usable,
+        key=lambda item: (item[0], (item[1].get("date_range") or ["", ""])[1]),
+    )
+    return (
+        f"{head}. Use `--stack {other['track']}` (track {other['track']}/"
+        f"{other['direction']}, {other_epochs} epoch(s)) instead."
+    )
+
+
+def recommend_stack(stacks: list[dict]) -> dict | None:
+    """Pick the stack to fetch (largest identified geometry) with a downloadable *chain*.
+
+    The recommendation and the `stacks[]` entry it names carry the same sample: a contiguous,
+    connected run selected by `_best_download_run` (max epochs, ties to the most recent run).
+    `why` states what was picked; `warning` states when it still cannot reach `MIN_FIT_POINTS`.
+    """
+    chosen = _choose_stack(stacks)
+    if chosen is None:
+        return None
+    sample = _download_sample(chosen, stacks)
+    if chosen["track"] is not None:
         span = (
-            f"{chosen['date_range'][0][:7]} .. {chosen['date_range'][1][:7]}"
-            if chosen["date_range"]
+            f"{sample['date_range'][0][:7]} .. {sample['date_range'][1][:7]}"
+            if sample["date_range"]
             else "unknown window"
         )
-        if chosen.get("granule_ids_truncated"):
-            detail = (
-                f"{len(chosen['granule_ids'])} of {chosen['n_granules']} granules "
-                f"spread across {span}"
-            )
-        else:
-            detail = f"all {chosen['n_granules']} granules, {span}"
+        detail = (
+            f"{len(sample['granule_ids'])} of {sample['n_granules']} granules, "
+            f"{sample['download_epochs']} connected epoch(s), {span}"
+        )
         why = (
             f"largest single-geometry stack (track {chosen['track']}/{chosen['direction']}); "
             f"{detail}"
         )
-        return {**chosen, "why": why}
+        return {**sample, "why": why}
 
-    chosen = stacks[0]
     why = (
         "no granule name carried a track/direction; this group cannot be verified as one "
         f"geometry ({chosen['n_granules']} granule(s)) — re-run `search` before downloading"
     )
-    return {**chosen, "why": why}
+    return {**sample, "why": why}
 
 
 # =============================================================================================
@@ -317,11 +525,26 @@ def summarise(granules: list[dict], requested: int) -> dict:
     ordered = _ordered_by_reference(granules)
 
     all_stacks = derive_stacks(ordered)
-    stacks = all_stacks[:MAX_STACKS]
     recommended = recommend_stack(all_stacks)
+    chosen = _choose_stack(all_stacks)
+    published: list[dict] = []
+    for stack in all_stacks:
+        if stack is chosen and recommended is not None:
+            # the recommendation's own entry in `stacks[]` IS the download sample, so the two
+            # never disagree about which granules (and which window) the fetch covers
+            published.append(
+                {key: value for key, value in recommended.items() if key != "why"}
+            )
+        else:
+            published.append(_public(stack))
+    # Re-rank after sampling: `date_range` now describes the sample, so the documented
+    # largest-first/most-recent order must be recomputed against what is actually published.
+    published.sort(key=lambda stack: (stack["date_range"] or ["", ""])[1], reverse=True)
+    published.sort(key=lambda stack: stack["n_granules"], reverse=True)
+    stacks = published[:MAX_STACKS]
 
     # Bound the persisted id list without ever dropping a published stack id: each stack keeps
-    # its own even sample, so its ids span its window and `download` has a url+size record for
+    # its own sample, so its ids span its window and `download` has a url+size record for
     # each of them (the records below are built from the same slice).
     preferred = {
         granule_id
@@ -874,6 +1097,11 @@ def select_stack_granules(
     def legacy_label(count: int) -> str:
         return f"legacy preview ({count} granule(s))"
 
+    def epoch_notes(stack: dict) -> list[str]:
+        """Carry the report's epoch verdict into the plan: never fetch an unfittable stack quietly."""
+        warning = stack.get("warning")
+        return [warning] if stack.get("epoch_sufficient") is False and warning else []
+
     normalised = choice.strip().lower()
     if normalised == "all":
         label = (
@@ -897,7 +1125,7 @@ def select_stack_granules(
                 f"recommended: track {stack['track']} {stack['direction']} "
                 f"({len(selected)} of {stack['n_granules']} granule(s))"
             )
-        return selected, label, notes
+        return selected, label, [*notes, *epoch_notes(stack)]
 
     wanted = _normalise_track(choice)
     match = next(
@@ -916,7 +1144,7 @@ def select_stack_granules(
         f"track {match['track']} {match['direction']} "
         f"({len(selected)} of {match['n_granules']} granule(s))"
     )
-    return selected, label, notes
+    return selected, label, [*notes, *epoch_notes(match)]
 
 
 # =============================================================================================
