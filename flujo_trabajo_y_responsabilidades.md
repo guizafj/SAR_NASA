@@ -87,38 +87,33 @@ contrato de datos.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 3.1. Estructura propuesta
+### 3.1. Estructura propuesta (Corregida sin colisión UI/Backend)
 
-```text
-.
+```
 ├── app.py
 ├── src/
 │   ├── data/
-│   │   ├── loaders.py
-│   │   └── validation.py
+│   │   ├── loaders.py          # Rol 1: Lectura con @st.cache_data
+│   │   └── validation.py       # Rol 1: Validación de esquemas
 │   ├── domain/
-│   │   ├── contracts.py
-│   │   ├── filters.py
-│   │   └── metrics.py
+│   │   ├── contracts.py        # Rol 1 (conenso 3 roles): Esquemas y tipos
+│   │   ├── filters.py          # Rol 1: Filtrado rápido de DataFrames
+│   │   ├── metrics.py          # Rol 1: Cálculo de KPIs agregados
+│   │   └── map_adapter.py      # Rol 1: Prepara columnas RGBA y elevación para PyDeck
 │   └── ui/
-│       ├── map_view.py
-│       ├── charts.py
-│       ├── kpi_cards.py
-│       └── educational.py
-├── pipeline/
-│   ├── generate_mock.py
-│   ├── discover_sources.py
-│   ├── process_product.py
-│   ├── enrich_context.py
-│   └── export_artifacts.py
+│       ├── map_view.py         # Rol 2 (fradiaz): Instancia PyDeck, capas, cámara y tooltips
+│       ├── charts.py           # Rol 2 (fradiaz): Gráficos Plotly de series temporales
+│       ├── kpi_cards.py        # Rol 2 (fradiaz): Tarjetas de métricas e insignias de provenance
+│       └── educational.py      # Rol 2 (fradiaz): Pestaña/drawer sobre banda L, rugosidad y constante dieléctrica
+├── pipeline/                   # Rol 3 (yuls): Scripts offline de ingesta y cálculo SAR
 ├── config/
 │   └── study_cases.yaml
 ├── data/
-│   ├── raw/
-│   └── processed/
+│   ├── raw/                    # IGNORADO EN GIT (.gitignore) - Archivos HDF5/SAFE pesados
+│   └── processed/              # VERSIONADO EN GIT (< 15 MB total) - Artefactos listos para Cloud
+│       ├── main_case/
+│       └── malaga_control/
 ├── tests/
-├── .github/
-│   └── workflows/
 └── requirements.txt
 ```
 
@@ -153,13 +148,13 @@ qué datos necesita cada capa y el frontend decide cómo presentarlos e interact
 
 **Responsable sugerido: pozo**
 
-### Responsabilidad principal
+#### Responsabilidad principal
 
 Convertir los artefactos científicos en una interfaz de datos preparada para mapas, métricas y
 series temporales. Este rol no es un backend HTTP independiente: es la capa técnica que conecta
 el pipeline con el frontend.
 
-### Tareas
+#### Tareas
 
 1. Implementar `src/data/loaders.py` para cargar Parquet, CSV, GeoJSON y `meta.json`.
 2. Implementar `src/data/validation.py` para validar esquema, unidades, CRS y valores nulos.
@@ -178,7 +173,7 @@ el pipeline con el frontend.
 9. Mantener el contrato de datos y su versión.
 10. Configurar CI, pruebas de carga de datos y despliegue.
 
-### Entregables
+#### Entregables
 
 ```text
 src/data/loaders.py
@@ -190,7 +185,7 @@ src/ui/map_view.py
 .github/workflows/
 ```
 
-### No debe hacer
+#### No debe hacer
 
 - No modificar las ecuaciones científicas sin el Rol 3.
 - No descargar HDF5 desde la aplicación.
@@ -201,11 +196,11 @@ src/ui/map_view.py
 
 **Responsable sugerido: fradiaz**
 
-### Responsabilidad principal
+#### Responsabilidad principal
 
 Consumir la interfaz de datos del backend y convertirla en una experiencia clara e interactiva.
 
-### Tareas
+#### Tareas
 
 1. Implementar el esqueleto y la composición de `app.py`.
 2. Crear los controles de usuario:
@@ -223,7 +218,7 @@ Consumir la interfaz de datos del backend y convertirla en una experiencia clara
 9. Gestionar estado de interacción y accesibilidad.
 10. Probar la aplicación contra el mock y contra datos reales.
 
-### Entregables
+#### Entregables
 
 ```text
 app.py
@@ -233,7 +228,7 @@ src/ui/educational.py
 .streamlit/config.toml
 ```
 
-### No debe hacer
+#### No debe hacer
 
 - No leer archivos directamente desde múltiples componentes.
 - No procesar HDF5.
@@ -245,12 +240,12 @@ src/ui/educational.py
 
 **Responsable sugerido: yuls**
 
-### Responsabilidad principal
+#### Responsabilidad principal
 
 Generar y validar la información científica y contextual que consume el backend, además de
 garantizar que el producto comunica correctamente sus resultados.
 
-### Tareas
+#### Tareas
 
 1. Verificar la cobertura real de NISAR para el caso elegido.
 2. Elegir y documentar la fuente utilizada:
@@ -268,7 +263,7 @@ garantizar que el producto comunica correctamente sus resultados.
 9. Revisar con el backend que los artefactos sean adecuados para mapas.
 10. Preparar narrativa, README, pitch y vídeo.
 
-### Entregables
+#### Entregables
 
 ```text
 pipeline/
@@ -281,7 +276,7 @@ README.md
 material de presentación
 ```
 
-### No debe hacer
+#### No debe hacer
 
 - No escribir componentes de frontend.
 - No introducir lógica de cálculo científico en la aplicación.
@@ -323,26 +318,26 @@ material de presentación
 
 El contrato se congela antes de comenzar el desarrollo paralelo.
 
-### 5.1. `nisar_grid.parquet`
+### 5.1. Contrato actualizado: `nisar_grid.parquet` (Optimizado para PyDeck)
 
 | Campo | Tipo | Obligatorio | Descripción |
 |---|---|---:|---|
 | `cell_id` | string | Sí | Identificador de celda o índice H3 |
-| `lat` | float | Sí | Latitud en EPSG:4326 |
-| `lon` | float | Sí | Longitud en EPSG:4326 |
-| `val_t1` | float | Sí | Valor inicial |
-| `val_t2` | float | Sí | Valor final |
-| `delta_change` | float | Sí | Cambio neto |
-| `coherence` | float | Sí | Índice de calidad entre 0 y 1 |
-| `land_use` | string | Sí | Categoría territorial |
-| `risk_level` | string | Sí | Estable, moderado o crítico |
-| `case_id` | string | Sí | Identificador del caso |
-| `sensor` | string | Sí | NISAR o Sentinel-1 |
-| `product` | string | Sí | GCOV, GUNW, DISP-S1, EGMS, etc. |
-| `unit` | string | Sí | mm, mm/year, dB u otra unidad declarada |
-| `source` | string | Sí | Fuente del producto |
-| `acquisition_date` | string | No | Fecha de adquisición |
-| `provenance_id` | string | Sí | Referencia trazable al procesamiento |
+| `lat` | float | Sí | Latitud del centroide en EPSG:4326 |
+| `lon` | float | Sí | Longitud del centroide en EPSG:4326 |
+| `val_t1` | float | Sí | Valor en fecha inicial ($T_1$) |
+| `val_t2` | float | Sí | Valor en fecha final ($T_2$) |
+| `delta_change` | float | Sí | Cambio neto ($T_2 - T_1$) |
+| `coherence` | float | Sí | Coherencia interferométrica / calidad entre 0.0 y 1.0 |
+| `land_use` | string | Sí | Categoría territorial (urbano, agrícola, humedal, infraestructura) |
+| `risk_level` | string | Sí | `estable`, `moderado` o `critico` |
+| `polarization` | string | Sí | Polarización utilizada (`HH`, `HV`, `VV`) |
+| `case_id` | string | Sí | Identificador del caso (`main_case`, `malaga_control`) |
+| `sensor` | string | Sí | Sensor origen (`NISAR`, `Sentinel-1`, `SAOCOM`) |
+| `product` | string | Sí | Producto (`GUNW`, `GCOV`, `DISP-S1`, `EGMS`) |
+| `unit` | string | Sí | Unidad física declarada (`mm`, `mm/year`, `dB`) |
+| `source` | string | Sí | Repositorio o agencia (`ASF DAAC`, `Copernicus`) |
+| `provenance_id` | string | Sí | Hash o ID trazable al bloque `provenance` de `meta.json` |
 
 ### 5.2. `timeseries.csv`
 
@@ -458,13 +453,13 @@ chore: configure deployment
 
 ## 7. Flujo de trabajo por fases
 
-## Fase 0 — Sincronización
+### Fase 0 — Sincronización
 
-### Objetivo
+#### Objetivo
 
 Eliminar decisiones ambiguas antes de escribir código.
 
-### Acciones
+#### Acciones
 
 - Elegir el caso principal.
 - Confirmar cobertura de NISAR.
@@ -474,15 +469,15 @@ Eliminar decisiones ambiguas antes de escribir código.
 - Crear ramas.
 - Crear issues o tareas por entregable.
 
-### Criterio de salida
+#### Criterio de salida
 
 Los tres integrantes pueden ejecutar y entender el mock sin depender de datos externos.
 
 ---
 
-## Fase 1 — Mock funcional
+### Fase 1 — Mock funcional
 
-### Datos
+#### Datos
 
 El Rol 3 genera:
 
@@ -493,7 +488,7 @@ context_layers.geojson
 meta.json
 ```
 
-### Aplicación
+#### Aplicación
 
 El Rol 2 muestra:
 
@@ -502,7 +497,7 @@ El Rol 2 muestra:
 - gráfico;
 - filtros básicos.
 
-### Producto
+#### Producto
 
 El Rol 3 revisa:
 
@@ -511,13 +506,13 @@ El Rol 3 revisa:
 - AOI;
 - coherencia visual.
 
-### Criterio de salida
+#### Criterio de salida
 
 La aplicación arranca localmente usando solo datos mock.
 
 ---
 
-## Fase 2 — Desarrollo paralelo
+### Fase 2 — Desarrollo paralelo
 
 | Rol | Trabajo principal |
 |---|---|
@@ -532,7 +527,7 @@ necesarios, mientras el frontend implementa la interacción y la presentación v
 
 ---
 
-## Fase 3 — Integración de datos reales
+### Fase 3 — Integración de datos reales
 
 1. Ejecutar el pipeline desde cero.
 2. Comparar el esquema real con el mock.
@@ -547,7 +542,7 @@ aplicación.
 
 ---
 
-## Fase 4 — Validación y despliegue
+### Fase 4 — Validación y despliegue
 
 Validar:
 
@@ -563,7 +558,7 @@ Validar:
 
 ---
 
-## Fase 5 — Code freeze
+### Fase 5 — Code freeze
 
 Después del freeze solo se aceptan:
 
