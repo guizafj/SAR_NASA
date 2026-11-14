@@ -8,8 +8,11 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 
 - [ ] **Repo public and importable** — `origin` `git@github.com:neoyuls/SAR_NASA.git`; visibility `[owner to fill]`. **Rol 1 pozo**.
 - [ ] **README** — `README.md` §1 what it is, §2 scope + cut lines, §11 done, §13 limitations. **Rol 3 yuls**.
-- [ ] **Demo (URL or local run)** — `[owner to fill]`: no `app.py`, `app/src/{ui,charts,state,events}`
-      empty, `streamlit` commented out in `requirements.txt`, `deploy/` + `serve/` empty. **Rol 2 fradiaz**.
+- [ ] **Demo (URL or local run)** — `[owner to fill]` for the URL. The local run is **verified**:
+      `./scripts/python.sh -m streamlit run app.py` serves the committed mock (`/_stcore/health` → 200,
+      `/` → 200) with no NASA credentials. What is still missing is the deployed URL — `deploy/Dockerfile`
+      is in the tree but this machine has no `docker` binary, so the image build is unverified.
+      **Rol 2 fradiaz** for the URL, **Rol 1 pozo** for the deploy.
       If the app is not runnable when recording, the backup plan is [docs/demo-fallback.md](demo-fallback.md).
 - [ ] **Video** 20 s problem / 90 s demo / 30 s architecture+impact — script `docs/video-script.md`;
       recording `[owner to fill]`. **Rol 3 yuls**.

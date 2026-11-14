@@ -7,18 +7,22 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 
 | | |
 |---|---|
-| Demo | *not deployed yet* — the app shell is the frontend role's next task |
+| Demo | *no public URL yet* — `app.py` boots locally on the committed mock (verified 2026-11-14: Streamlit `/_stcore/health` → 200, root → 200); deployment is the last open deliverable |
 | Repository | `github.com/neoyuls/SAR_NASA`, branch **`yuls`** (this is the branch with the artefacts; `main` lags) |
 | Video | script ready in [`docs/video-script.md`](docs/video-script.md); recording pending |
 | Team | **yuls** SAR science, GIS, product · **pozo** geospatial backend, deployment · **fradiaz** frontend, interaction |
 | Challenge | NASA Space Apps 2026 — *Dancing with the SARs* |
 
-> **What works today (2026-11-14, ~hour 40 of 48).** Contract v1.0 frozen and enforced by tests ·
+> **What works today (2026-11-14, ~hour 41 of 48).** Contract v1.0 frozen and enforced by tests ·
 > three contract-conformant **mock** artefact sets · the whole offline pipeline, rehearsed on
-> synthetic granules · `./scripts/check_phase_a.sh` → PASS, and a fresh clone of this branch runs
-> the full suite green.
+> synthetic granules · a Streamlit shell (`app.py`) that boots on the committed mock with no
+> credentials · loaders, validation, filters and the PyDeck adapter (`src/data/`, `src/domain/`)
+> with their own tests · `deploy/Dockerfile` and `.github/workflows/ci.yml` in the tree ·
+> `./scripts/check_phase_a.sh` → PASS, `./scripts/preflight.sh` → `VERDICT: READY` (7/7 gates),
+> and a fresh clone of this branch runs the full suite green.
 >
-> **What does not exist yet:** any UI, any run on a real granule, any deployed URL.
+> **What does not exist yet:** any run on a real granule, and any deployed URL. The image build and
+> the first CI run are committed but unverified here, because this machine has no `docker` binary.
 > **Every number in `data/processed/` is synthetic** — `product: "mock"`, and every artefact says so
 > in its own `provenance` and `limitations`.
 >
@@ -436,10 +440,10 @@ recorded in **[`docs/decisions.md`](docs/decisions.md)**.
 │   └── route-contract.md              ← post-MVP Option B: PMTiles routes (not built yet)
 ├── src/
 │   ├── domain/contracts.py            ← frozen schema, enums, thresholds, validators
-│   ├── domain/{filters,metrics}.py    ← Rol 1 (planned)
-│   ├── data/{loaders,validation}.py   ← Rol 1 (planned)
-│   └── ui/{map_view,charts,kpi_cards,educational}.py  ← Rol 2 (planned)
-├── app.py                             ← Rol 2 (planned): composition only
+│   ├── domain/{filters,metrics,map_adapter}.py  ← Rol 1 (done): filtering, KPIs, PyDeck payload
+│   ├── data/{loaders,ui_bridge,validation}.py    ← Rol 1 (done): cached loaders, cockpit bridge, fail-closed gate
+│   └── ui/                            ← Rol 2 (not built): the shell lives in app.py for now
+├── app.py                             ← Rol 2 (done, local only): Streamlit shell, composition only
 ├── pipeline/
 │   ├── ingest/02_search_download.py   ← availability probe + guarded, resumable download (done)
 │   ├── ingest/aois.json               ← AOI bboxes, CRS, reference points (done)

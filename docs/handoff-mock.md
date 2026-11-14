@@ -20,13 +20,14 @@ data/processed/{case}/meta.json               # dates, thresholds, provenance, s
 data/processed/_availability/{case}.json      # source-probe evidence; not a case — case glob is */nisar_grid.parquet
 ```
 
-Cases: `mexico-city`, `jakarta`, `malaga`. Loaders are Rol 1's: `src/data/loaders.py` does not exist
-in the tree yet, so copy the reference instead of re-translating this page —
-`examples/reference_loader.py` is the working version of §2b, and it imports nothing from
-`examples/` (only `src.domain.contracts`), so the copy is the whole install:
+Cases: `mexico-city`, `jakarta`, `malaga`. Loaders are Rol 1's and they now exist:
+`src/data/loaders.py` (plus `ui_bridge.py` and `validation.py`) landed with the backend merge on
+2026-11-14 and is the authoritative implementation — **do not overwrite it**. `examples/reference_loader.py`
+is the same API kept as a standalone, dependency-free reference for readers of §2b; if you need a
+copy for a scratch tree, copy it *somewhere else*, never onto `src/data/loaders.py`:
 
 ```bash
-mkdir -p src/data && cp examples/reference_loader.py src/data/loaders.py
+cp examples/reference_loader.py /tmp/scratch/loaders.py   # NOT src/data/loaders.py
 ```
 
 Run from the repo root: that is what puts `src.domain.contracts` on `sys.path`, and `load_case`
