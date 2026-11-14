@@ -71,11 +71,8 @@ def _bars(rows: list[dict[str, Any]] | None) -> None:
 
 
 def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
-    if isinstance(meta, dict) and (meta.get("product") == "mock" or "mock" in str((meta.get("provenance") or {}).get("source", "")).lower()):
-        st.markdown(
-            '<div class="demo-banner" role="status">DATOS DE DEMOSTRACIÓN</div>',
-            unsafe_allow_html=True,
-        )
+    # The persistent demo banner lives in app.py; do not duplicate it per tab.
+    del meta
     case_id = filters.get("case_id")
     render_kpi_cards(_call(loaders, "get_series_kpis", case_id, filters))
     _line(_call(loaders, "get_case_series", case_id, filters))

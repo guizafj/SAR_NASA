@@ -1,15 +1,43 @@
-"""Context layers. Empty unless Rol 3 has delivered the GeoJSON."""
+"""Context layers. Empty unless Rol 3 has delivered the GeoJSON.
+
+Presentation only: reads the loader payload, never the artefact files.
+"""
 
 from __future__ import annotations
 
+import html
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
+_TABLE_FIELDS = ("layer", "class", "name", "source", "provenance_id")
+
+
+def _features(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    geojson = payload.get("geojson") if isinstance(payload, dict) else None
+    features = geojson.get("features") if isinstance(geojson, dict) else None
+    if not isinstance(features, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for feature in features:
+        props = feature.get("properties") if isinstance(feature, dict) else None
+        if not isinstance(props, dict):
+            continue
+        rows.append({field: props.get(field) for field in _TABLE_FIELDS})
+    return rows
+
+
 def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
-    del filters
     loader = getattr(loaders, "load_context_layers", None)
-    payload = loader() if loader is not None else None
+    case_id = filters.get("case_id")
+    if loader is None:
+        payload = None
+    else:
+        try:
+            payload = loader(case_id)
+        except TypeError:
+            payload = loader()
     if not payload:
         st.markdown(
             '<div class="cockpit-card is-empty">'
@@ -19,5 +47,33 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
             unsafe_allow_html=True,
         )
         return
+
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     st.caption(f"Capas entregadas: {payload.get('path', 'declarada')}")
-    st.json(payload.get("summary") or {})
+    st.json(summary)
+
+    rows = _features(payload)
+    if not rows:
+        return
+    frame = pd.DataFrame(rows, columns=list(_TABLE_FIELDS))
+    frame = frame.fillna("")
+    layers = sorted(str(value) for value in frame["layer"].unique() if str(value))
+    st.markdown(
+        '<div class="cockpit-card">'
+        '<p class="kicker">Capas contextuales</p>'
+        f"<p>{len(rows)} features · {html.escape(', '.join(layers) or 'sin capas')}</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.dataframe(
+        frame,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "layer": "layer",
+            "class": "class",
+            "name": "name",
+            "source": "source",
+            "provenance_id": "provenance_id",
+        },
+    )

@@ -101,6 +101,15 @@ def _blank(value: str | None) -> str | None:
     return value
 
 
+def _case_options(loaders: Any, name: str, case_id: str) -> tuple[str, ...]:
+    """Prefer case-scoped options; fall back for stubs whose hook takes no argument."""
+    function = getattr(loaders, name)
+    try:
+        return tuple(function(case_id))
+    except TypeError:
+        return tuple(function())
+
+
 def render_header(meta: dict[str, Any] | None) -> None:
     line = telemetry_line(meta)
     telemetry = f'<p class="telemetry">{html.escape(line)}</p>' if line else ""
@@ -209,8 +218,8 @@ def render_app() -> None:
 
     meta = loaders.load_meta(st.session_state.filter_case_id)
     render_header(meta if isinstance(meta, dict) else None)
-    land_uses = tuple(loaders.load_land_use_options())
-    risk_levels = tuple(loaders.load_risk_levels())
+    land_uses = _case_options(loaders, "load_land_use_options", st.session_state.filter_case_id)
+    risk_levels = _case_options(loaders, "load_risk_levels", st.session_state.filter_case_id)
     # Drop stale filter values when options shrink (stub no longer lists absent classes).
     if st.session_state.get("filter_land_use") not in ("", *land_uses):
         st.session_state.filter_land_use = ""

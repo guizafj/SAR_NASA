@@ -167,6 +167,12 @@ def get_map_layer_df(
     df = payload.grid_frame.copy()
     df["color"] = df["fill_color"]
     df["height"] = df["elevation_m"]
+    # Thesis metrics for tooltip/inspector parity; additive, never required by the contract.
+    for extra in ("regime", "ratio_R", "seasonal_amp_mm"):
+        if extra in bundle.grid.columns:
+            lookup = bundle.grid.set_index("cell_id")[extra]
+            df[extra] = df["cell_id"].map(lookup)
+            columns.append(extra)
     return df[columns]
 
 
@@ -197,6 +203,10 @@ def get_color_scale(
         "saturated": saturated,
         "fallback": False,
         "mixed_units": False,
+        # Legend parity hooks for `src/ui/map_view.py`; additive, never remove the keys above.
+        "metric": payload.legend.metric,
+        "caption": payload.legend.caption,
+        "stops": [stop.color_hex for stop in payload.legend.stops],
     }
 
 
@@ -279,6 +289,26 @@ def get_map_kpis(
     ]
 
 
+def _series_rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Normalise a `timeseries.csv` slice for the inspector without touching the contract."""
+    if frame.empty:
+        return []
+    return [
+        {
+            "case_id": str(r.case_id),
+            "cell_id": str(r.cell_id),
+            "date": str(r.date),
+            "value": float(r.value),
+            "unit": str(r.unit),
+            "sensor": str(r.sensor),
+            "product": str(r.product),
+            "quality": str(r.quality),
+            "provenance_id": str(r.provenance_id),
+        }
+        for r in frame.itertuples(index=False)
+    ]
+
+
 def get_cell_detail(
     case_id: str,
     cell_id: str,
@@ -300,6 +330,7 @@ def get_cell_detail(
         "val_t2": float(row["val_t2"]),
         "delta_change": float(row["delta_change"]),
         "velocity_mm_yr": float(row["velocity_mm_yr"]),
+        "velocity_unit": str(row["velocity_unit"]),
         "coherence": float(row["coherence"]),
         "land_use": str(row["land_use"]),
         "risk_level": str(row["risk_level"]),
@@ -315,25 +346,22 @@ def get_cell_detail(
             else None
         ),
     }
+    # v1.1 thesis metrics: optional on older artefacts, so never fail the detail on absence.
+    for optional in ("seasonal_amp_mm", "ratio_R", "regime"):
+        if optional in bundle.grid.columns and pd.notna(row[optional]):
+            value = row[optional]
+            detail[optional] = float(value) if optional != "regime" else str(value)
     cell_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == str(cell_id)]
-    detail["series"] = (
-        [
-            {
-                "case_id": str(r.case_id),
-                "cell_id": str(r.cell_id),
-                "date": str(r.date),
-                "value": float(r.value),
-                "unit": str(r.unit),
-                "sensor": str(r.sensor),
-                "product": str(r.product),
-                "quality": str(r.quality),
-                "provenance_id": str(r.provenance_id),
-            }
-            for r in cell_ts.itertuples(index=False)
-        ]
-        if not cell_ts.empty
-        else []
-    )
+    series = _series_rows(cell_ts)
+    if series:
+        detail["series_scope"] = "cell"
+    else:
+        # Contract §4 emits only the AOI aggregate by default. Show that instead of an
+        # empty chart, and say so in the UI; do not invent a per-cell series.
+        aoi_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == "aoi"]
+        series = _series_rows(aoi_ts)
+        detail["series_scope"] = "aoi" if series else "none"
+    detail["series"] = series
     return detail
 
 

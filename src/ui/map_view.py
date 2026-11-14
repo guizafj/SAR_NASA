@@ -94,7 +94,13 @@ def _legend(scale: dict[str, Any], mode: str) -> str:
     vmin = scale.get("min")
     vmax = scale.get("max")
     unit = scale.get("unit") or "unidad no declarada"
-    gradient = ", ".join(f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in STOPS)
+    metric = scale.get("metric") or "delta_change"
+    stops = scale.get("stops")
+    if isinstance(stops, (list, tuple)) and stops:
+        gradient = ", ".join(html.escape(str(color)) for color in stops)
+    else:
+        # Fallback for `_stubs`, whose scale has no stop list.
+        gradient = ", ".join(f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in STOPS)
     ticks = ""
     if isinstance(vmin, (int, float)) and isinstance(vmax, (int, float)):
         mid = vmin + (vmax - vmin) / 2
@@ -105,12 +111,15 @@ def _legend(scale: dict[str, Any], mode: str) -> str:
         )
     note = SATURATION_NOTE if scale.get("saturated") else ""
     fallback = " Dominio provisional." if scale.get("fallback") else ""
+    caption = scale.get("caption")
+    caption_html = f"<p>{html.escape(str(caption))}</p>" if caption else ""
     return (
         '<div class="legend">'
-        f'<p class="kicker">delta_change · {html.escape(str(unit))}</p>'
+        f'<p class="kicker">{html.escape(str(metric))} · {html.escape(str(unit))}</p>'
         f'<div class="legend-bar" style="background: linear-gradient(90deg, {gradient})"></div>'
         f'<div class="legend-ticks">{ticks}</div>'
         f"<p>{html.escape(mode)} · rango {html.escape(str(vmin))} – {html.escape(str(vmax))} {html.escape(str(unit))}{html.escape(fallback)}</p>"
+        f"{caption_html}"
         f"<p>{html.escape(note)}</p>"
         "</div>"
     )
@@ -167,7 +176,21 @@ def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> Non
     lines = [
         f"caso: {detail.get('case_id') or case_id or 'no declarado'}",
         _figure_line("delta_change", detail.get("delta_change"), unit if isinstance(unit, str) else None, provenance_id if isinstance(provenance_id, str) else None),
+        _figure_line(
+            "velocity_mm_yr",
+            detail.get("velocity_mm_yr"),
+            detail.get("velocity_unit") if isinstance(detail.get("velocity_unit"), str) else None,
+            provenance_id if isinstance(provenance_id, str) else None,
+        ),
         _figure_line("coherence", detail.get("coherence"), None, provenance_id if isinstance(provenance_id, str) else None),
+        f"regime: {detail.get('regime') or 'no declarado'}",
+        _figure_line("ratio_R", detail.get("ratio_R"), None, provenance_id if isinstance(provenance_id, str) else None),
+        _figure_line(
+            "seasonal_amp_mm",
+            detail.get("seasonal_amp_mm"),
+            unit if isinstance(unit, str) else None,
+            provenance_id if isinstance(provenance_id, str) else None,
+        ),
         f"land_use: {detail.get('land_use') or 'no declarado'}",
         f"sensor: {detail.get('sensor') or 'no declarado'}",
         f"product: {detail.get('product') or 'no declarado'}",
@@ -187,10 +210,10 @@ def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> Non
     if not isinstance(series, list) or not series:
         st.caption("Sin serie para esta celda.")
         return
-    _render_series(series)
+    _render_series(series, str(detail.get("series_scope") or "cell"))
 
 
-def _render_series(series: list[dict[str, Any]]) -> None:
+def _render_series(series: list[dict[str, Any]], scope: str = "cell") -> None:
     import plotly.graph_objects as go
 
     dates = [row.get("date") for row in series if row.get("date")]
@@ -217,6 +240,9 @@ def _render_series(series: list[dict[str, Any]]) -> None:
     )
     st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
     source = provenance_id or "fuente no declarada"
+    if scope == "aoi":
+        st.caption("Serie agregada del AOI (serie por celda no emitida)")
+        return
     st.caption(f"serie · {unit or 'unidad no declarada'} · {source}")
 
 
@@ -355,7 +381,10 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                     "text": (
                         "cell_id: {cell_id}\n"
                         "delta_change: {delta_change} {unit}\n"
+                        "velocity: {velocity_mm_yr} {velocity_unit}\n"
                         "coherence: {coherence}\n"
+                        "regime: {regime}\n"
+                        "ratio_R: {ratio_R}\n"
                         "risk_level: {risk_level}"
                     )
                 },
