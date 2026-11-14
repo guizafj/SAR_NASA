@@ -137,7 +137,7 @@ def get_map_layer_df(
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     crit = _dict_to_criteria(filters)
     mode = _resolve_scale_mode((filters or {}).get("scale_mode"))
-    extrude = bool((filters or {}).get("extrude_3d", True))
+    extrude = bool((filters or {}).get("extrude_3d", False))
 
     payload = build_map_payload(
         bundle,

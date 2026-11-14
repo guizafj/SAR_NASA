@@ -17,4 +17,5 @@ El toggle de la UI arranca en `False`. Pedimos cambiar el default a `False` para
 La UI ya aplana `height` en modo flat como red de seguridad; alinear el default evita trabajo duplicado y sorpresas si otro consumidor llama el hook sin `extrude_3d`.
 
 **Impacto en contrato de datos:** ninguno (solo default de presentación del bridge).  
-**Aprobación:** Rol 1; Rol 2 verifica el mapa tras el cambio.
+**Aprobación:** Rol 1; Rol 2 verifica el mapa tras el cambio.  
+**Estado:** RESUELTO por Rol 1 (`pozo`) — default cambiado a `False` en `src/data/ui_bridge.py` y cubierto por test en `tests/test_ui_bridge.py`.
