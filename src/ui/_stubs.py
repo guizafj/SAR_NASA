@@ -100,13 +100,19 @@ def load_meta(case_id: str) -> dict[str, Any]:
 
 
 def load_land_use_options() -> tuple[str, ...]:
-    """# TODO(rol1): distinct land_use values present in the selected grid."""
-    return LAND_USE
+    """# TODO(rol1): distinct land_use from the artefact, not the full enum.
+
+    Select is global, so this is the union across mock cases. Empty categories
+    must not appear: they zero the layer (e.g. vegetation never occurs in the disk).
+    """
+    values = sorted({str(row["land_use"]) for case_id in CASE_IDS for row in _grid(case_id)})
+    return tuple(values)
 
 
 def load_risk_levels() -> tuple[str, ...]:
-    """# TODO(rol1): distinct risk_level values present in the selected grid."""
-    return RISK_LEVELS
+    """# TODO(rol1): distinct risk_level from the artefact, not the full enum."""
+    values = sorted({str(row["risk_level"]) for case_id in CASE_IDS for row in _grid(case_id)})
+    return tuple(values)
 
 
 def _reference(case_id: str) -> tuple[float, float] | None:
@@ -168,13 +174,16 @@ def _grid(case_id: str) -> tuple[dict[str, Any], ...]:
         unit = _display_unit(case_id)
         velocity_mm = _velocity_mm_yr(delta, unit)
         risk = risk_level_from_velocity(velocity_mm) if velocity_mm is not None else "estable"
+        # Scatter low coherence (~1/5). Ring-aligned floors open concentric gaps that
+        # read as two stacked layers on multi-color cases (mexico-city / jakarta).
+        coherence = 0.2 if h3.str_to_int(cell_id) % 5 == 0 else 0.9
         rows.append(
             {
                 "cell_id": cell_id,
                 "lat": lat,
                 "lon": lon,
                 "delta_change": delta,
-                "coherence": 0.2 if ring % 3 == 0 else 0.9,
+                "coherence": coherence,
                 "land_use": LAND_USE[ring % len(LAND_USE)],
                 "risk_level": risk,
                 "unit": unit,
@@ -320,16 +329,17 @@ def get_map_kpis(case_id: str, filters: dict[str, Any] | None = None) -> list[di
     """# TODO(rol1): aggregations belong in src/domain/metrics.py."""
     rows = _filtered(case_id, filters)
     provenance_id = _provenance_id(case_id)
+    unit = _display_unit(case_id)
     if not rows:
         return [
-            {"label": "delta_change max", "value": None, "unit": UNIT, "provenance_id": provenance_id},
+            {"label": "delta_change max", "value": None, "unit": unit, "provenance_id": provenance_id},
             {"label": "coherence min", "value": None, "unit": None, "provenance_id": provenance_id},
         ]
     return [
         {
             "label": "delta_change max",
             "value": max(float(row["delta_change"]) for row in rows),
-            "unit": UNIT,
+            "unit": unit,
             "provenance_id": provenance_id,
         },
         {

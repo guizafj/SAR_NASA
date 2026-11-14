@@ -1,0 +1,38 @@
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Raw SAR / GIS downloads & staging — NEVER commit heavy granules (README §8, flujo §3.2)
+data/raw/
+data/staging/
+*.h5
+*.hdf5
+*.he5
+*.SAFE/
+
+# Keep contract artefacts in data/processed/ versioned (< 15 MB budget enforced in CI)
+!data/processed/
+!data/processed/**
+
+# Secrets & local overrides
+.env
+.env.*
+.streamlit/secrets.toml
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~

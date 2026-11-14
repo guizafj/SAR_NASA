@@ -1,0 +1,393 @@
+"""Post-write gates for the four mock artefacts.
+
+Two layers, deliberately separate:
+
+1. `contracts.validate_all(...)` — the frozen contract, owned by Rol 1/2/3 together. Its word is
+   final; nothing here re-implements a schema rule.
+2. The assertions this task adds on top of the contract, because the contract cannot see them:
+   nodata is *absent* and exactly explained (the grid cell set equals the coverage-ellipse cell set
+   minus precisely the cells below `thresholds.coherence_min`), the arithmetic holds to 1e-9, the
+   dates/statistics/provenance ids are mutually consistent, and the mock-specific ranges (published
+   coherence in [coherence_min, 0.95], Málaga's null result) are respected.
+
+`assert_case()` raises `AssertionError` with every failed check, so `--check` is a real gate and
+not a linter with opinions.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from src.domain import contracts as C
+
+from . import model as M
+from .artifacts import ARTEFACTS, PRODUCT, TOTAL_BUDGET_BYTES
+from .cases import CaseSpec, StudyCases
+
+
+@dataclass
+class CaseReport:
+    case_id: str
+    n_cells: int
+    n_dates: int
+    n_series_rows: int
+    n_context_features: int
+    land_use: dict[str, int]
+    median_velocity: float
+    p05_velocity: float
+    p95_velocity: float
+    median_coherence: float
+    sizes: dict[str, int] = field(default_factory=dict)
+    checks: list[str] = field(default_factory=list)
+    contract_report: dict[str, list[str]] = field(default_factory=dict)
+
+    @property
+    def total_bytes(self) -> int:
+        return sum(self.sizes.values())
+
+
+@dataclass
+class LoadedCase:
+    directory: Path
+    grid: pd.DataFrame
+    series: pd.DataFrame
+    meta: dict[str, Any]
+    context: dict[str, Any]
+    meta_text: str
+    sizes: dict[str, int]
+
+
+def load_case(directory: Path) -> LoadedCase:
+    missing = [name for name in ARTEFACTS if not (directory / name).is_file()]
+    if missing:
+        raise AssertionError(f"{directory}: missing artefact(s) {missing}")
+    meta_path = directory / "meta.json"
+    meta_text = meta_path.read_text(encoding="utf-8")
+    return LoadedCase(
+        directory=directory,
+        grid=pd.read_parquet(directory / "nisar_grid.parquet"),
+        series=pd.read_csv(directory / "timeseries.csv"),
+        meta=json.loads(meta_text),
+        context=json.loads((directory / "context_layers.geojson").read_text(encoding="utf-8")),
+        meta_text=meta_text,
+        sizes={name: (directory / name).stat().st_size for name in ARTEFACTS},
+    )
+
+
+def _require(condition: Any, message: str, failures: list[str]) -> bool:
+    if not condition:
+        failures.append(message)
+        return False
+    return True
+
+
+def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseReport:
+    """Run every gate for one case. Raises AssertionError listing every failure, not just the first."""
+    loaded = load_case(directory)
+    grid, series, meta, context, meta_text = (
+        loaded.grid,
+        loaded.series,
+        loaded.meta,
+        loaded.context,
+        loaded.meta_text,
+    )
+    failures: list[str] = []
+    checks: list[str] = []
+
+    # -- 1. the frozen contract has the last word --------------------------------------------
+    report = C.validate_all(grid=grid, timeseries=series, meta=meta, context=context, case_id=case.case_id)
+    for name, problems in report.items():
+        for problem in problems:
+            failures.append(f"contract.{name}: {problem}")
+    checks.append(f"contracts.validate_all empty for grid/timeseries/meta/context")
+
+    # -- 2. no nulls in the required fields ---------------------------------------------------
+    for spec in C.GRID_FIELDS:
+        if spec.required:
+            _require(spec.name in grid.columns and grid[spec.name].notna().all(), f"grid.{spec.name} has nulls", failures)
+    for spec in C.TIMESERIES_FIELDS:
+        if spec.required:
+            _require(
+                spec.name in series.columns and series[spec.name].notna().all(),
+                f"timeseries.{spec.name} has nulls",
+                failures,
+            )
+    checks.append("no nulls in required grid/timeseries columns")
+
+    # -- 3. arithmetic: delta_change == val_t2 - val_t1 exactly (gate: 1e-9) -----------------
+    residual = (grid["val_t2"] - grid["val_t1"] - grid["delta_change"]).abs().max()
+    _require(float(residual) <= 1e-9, f"delta_change arithmetic residual {residual:.3e} > 1e-9", failures)
+    checks.append(f"delta_change = val_t2 - val_t1 (max residual {float(residual):.2e} <= 1e-9)")
+
+    # -- 4. nodata is ABSENT and exactly explained by the quality filter -----------------------
+    # The cell set is an equation, not a percentage: a cell inside the ellipse is published iff its
+    # modelled coherence is >= thresholds.coherence_min. The model publishes its seed, so the check
+    # rebuilds the pre-filter cell set and its coherence deterministically and compares sets.
+    expected_ids, _, _ = M.expected_cells(case, study.h3_resolution)
+    expected = {str(v) for v in expected_ids}
+    actual = set(grid["cell_id"].astype(str))
+    threshold = float(meta["thresholds"]["coherence_min"])
+    try:
+        seed = int(meta["provenance"]["mock_seed"])
+    except (KeyError, TypeError, ValueError):
+        seed = -1
+    _require(
+        seed >= 0,
+        "meta.provenance.mock_seed is missing: the published cell set cannot be re-derived, so "
+        "the quality filter cannot be audited",
+        failures,
+    )
+    model = M.build_case(case, study, seed) if seed >= 0 else None
+    if model is not None:
+        modelled_prefilter = {str(v) for v in model.prefilter_cell_id}
+        _require(
+            modelled_prefilter == expected,
+            f"the model covers {len(modelled_prefilter)} cells but the coverage ellipse holds "
+            f"{len(expected)}: pre-filter cell set and nodata rule disagree",
+            failures,
+        )
+        expected_keep = {
+            str(cell)
+            for cell, coherence in zip(model.prefilter_cell_id, model.prefilter_coherence, strict=True)
+            if float(coherence) >= threshold
+        }
+        invented = actual - modelled_prefilter
+        _require(
+            not invented,
+            f"grid contains {len(invented)} cell(s) outside the coverage ellipse — cells must "
+            f"never be invented or zero-filled",
+            failures,
+        )
+        missing = expected_keep - actual
+        _require(
+            not missing,
+            f"{len(missing)} cell(s) inside the coverage ellipse with modelled coherence >= "
+            f"{threshold:.2f} are missing from the grid: the filter must drop exactly the cells "
+            f"below it (e.g. {sorted(missing)[:3]})",
+            failures,
+        )
+        unexplained = actual - expected_keep
+        _require(
+            not unexplained,
+            f"{len(unexplained)} published cell(s) have modelled coherence below "
+            f"{threshold:.2f}: a decorrelating surface must be absent, not published "
+            f"(e.g. {sorted(unexplained)[:3]})",
+            failures,
+        )
+        dropped = modelled_prefilter - expected_keep
+        checks.append(
+            f"nodata absent, not zero: {len(expected)} coverage cells - {len(dropped)} below "
+            f"coherence_min {threshold:.2f} == {len(actual)} written cells (exact set equality)"
+        )
+
+    # Zero is a legitimate velocity — a null-result city can sit at exactly 0 — so this is a
+    # bounded guard, not a ban. What it must catch is a masked region written as 0: a 133-cell
+    # blob (CDMX, ~14 km²) is nodata in disguise, and so is a whole neighbourhood at 0.
+    zero_counts = {
+        column: int((grid[column].to_numpy() == 0.0).sum())
+        for column in ("velocity_mm_yr", "delta_change", "val_t2")
+    }
+    _require(
+        all(count <= 2 for count in zero_counts.values()),
+        f"exact zeros beyond coincidence: {zero_counts} (guard: <= 2 cells per column). A zero "
+        f"blob is nodata written as 0; zero itself is a valid velocity, so a handful is fine",
+        failures,
+    )
+    checks.append(f"no zero blobs: exact zeros per column {zero_counts} (<= 2)")
+
+    # -- 5. dates: every series date in meta.dates; one 'aoi' row per date -------------------
+    meta_dates = list(meta["dates"])
+    _require(set(series["date"].astype(str)) <= set(meta_dates), "series has a date outside meta.dates", failures)
+    aoi = series[series["cell_id"].astype(str) == "aoi"]
+    _require(sorted(aoi["date"].astype(str)) == sorted(meta_dates), "aoi series is not one row per meta date", failures)
+    _require(len(meta_dates) == len(study.dates), "meta.dates differs from the configured grid", failures)
+    per_cell = series[series["cell_id"].astype(str) != "aoi"]
+    if len(per_cell):
+        counts = per_cell.groupby("cell_id").size()
+        _require(
+            bool((counts == len(meta_dates)).all()),
+            f"per-cell series incomplete: {int((counts != len(meta_dates)).sum())} cell(s) without every date",
+            failures,
+        )
+    checks.append(f"dates: {len(meta_dates)} in meta.dates, aoi rows == n_dates, {len(per_cell)} per-cell rows")
+
+    # -- 6. provenance: format + resolves inside meta.json + consistent across artefacts -----
+    provenance_ids = {
+        "grid": set(grid["provenance_id"].astype(str)),
+        "timeseries": set(series["provenance_id"].astype(str)),
+        "context": set(f["properties"]["provenance_id"] for f in context["features"]),
+    }
+    all_ids = set().union(*provenance_ids.values())
+    _require(len(all_ids) == 1, f"artefacts carry {len(all_ids)} provenance ids: {sorted(all_ids)}", failures)
+    for artefact, ids in provenance_ids.items():
+        bad = [v for v in ids if not C.PROVENANCE_ID_RE.match(v)]
+        _require(not bad, f"{artefact}: provenance_id {bad[:3]} does not match PROVENANCE_ID_RE", failures)
+        _require(
+            all(v in meta_text for v in ids),
+            f"{artefact}: provenance_id {sorted(ids)} does not appear in meta.json",
+            failures,
+        )
+    _require(
+        meta["provenance"].get("provenance_id") in all_ids,
+        "meta.provenance.provenance_id does not match the artefacts",
+        failures,
+    )
+    checks.append(f"provenance_id {sorted(all_ids)[0]} matches the regex and resolves in meta.json")
+
+    # -- 7. derived fields are derived, not hand-written -------------------------------------
+    expected_risk = [C.risk_level_from_velocity(v) for v in grid["velocity_mm_yr"]]
+    _require(
+        (grid["risk_level"].astype(str).tolist() == expected_risk),
+        "risk_level was not produced by contracts.risk_level_from_velocity",
+        failures,
+    )
+    _require(
+        bool(grid["coherence"].between(float(meta["thresholds"]["coherence_min"]), 0.95).all()),
+        f"coherence outside [{meta['thresholds']['coherence_min']}, 0.95]: a published cell must "
+        f"have passed the filter and the model must not exceed 0.95",
+        failures,
+    )
+    known_land_use = set(C.LAND_USE)
+    _require(set(grid["land_use"].astype(str)) <= known_land_use, "land_use outside the frozen vocabulary", failures)
+    land_use_counts = {str(k): int(v) for k, v in grid["land_use"].value_counts().items()}
+    _require(len(land_use_counts) >= 5, f"land_use only uses {sorted(land_use_counts)}: rule is too coarse", failures)
+    # Water must be ABSENT from the grid (a specular surface has no usable phase, so the quality
+    # filter drops those cells) while remaining a context layer, so the app can draw the coastline
+    # without publishing "ocean with subsidence".
+    _require(
+        "water" not in land_use_counts,
+        f"{land_use_counts.get('water')} water cell(s) survived the quality filter — a specular "
+        f"surface must not carry a displacement",
+        failures,
+    )
+    _require(
+        "water" in {f["properties"]["layer"] for f in context.get("features", [])},
+        "no water feature in context_layers: the synthetic coastline/lake rule did not fire",
+        failures,
+    )
+    checks.append(
+        f"derived: risk bands from velocity, coherence in "
+        f"[{meta['thresholds']['coherence_min']}, 0.95], land_use classes {len(land_use_counts)}"
+    )
+
+    # -- 8. aggregate consistency: aoi first/last == mean grid val_t1/val_t2 ------------------
+    aoi_values = aoi.sort_values("date")["value"].to_numpy()
+    _require(
+        abs(float(aoi_values[0]) - float(grid["val_t1"].mean())) <= 1e-6,
+        "aoi first value != mean(val_t1)",
+        failures,
+    )
+    _require(
+        abs(float(aoi_values[-1]) - float(grid["val_t2"].mean())) <= 1e-6,
+        "aoi last value != mean(val_t2)",
+        failures,
+    )
+    checks.append("aoi series endpoints == mean(val_t1)/mean(val_t2) of the grid")
+
+    # -- 9. stats describe the actual file ---------------------------------------------------
+    stats = meta["stats"]
+    _require(stats["n_cells"] == len(grid), f"stats.n_cells {stats['n_cells']} != {len(grid)}", failures)
+    _require(stats["n_dates"] == len(meta_dates), "stats.n_dates != len(meta.dates)", failures)
+    for key, actual_value in (
+        ("median_velocity_mm_yr", float(grid["velocity_mm_yr"].median())),
+        ("p05_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.05))),
+        ("p95_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.95))),
+    ):
+        _require(
+            abs(float(stats[key]) - actual_value) <= 1e-2,
+            f"stats.{key} {stats[key]} != recomputed {actual_value:.3f}",
+            failures,
+        )
+    checks.append("stats recomputed from the parquet (n_cells, median, p05, p95)")
+
+    # -- 10. null-result case: Málaga stays flat and publishes its bound ---------------------
+    median = float(grid["velocity_mm_yr"].median())
+    if case.null_result:
+        _require(abs(median) < C.NULL_RESULT_MM_YR, f"null-result case median |v| = {abs(median):.2f} >= 5", failures)
+        _require(
+            isinstance(stats.get("detection_limit_mm_yr"), (int, float)),
+            "null-result case missing stats.detection_limit_mm_yr",
+            failures,
+        )
+        checks.append(
+            f"null result: median |v| = {abs(median):.2f} < 5 mm/yr with detection_limit "
+            f"{stats['detection_limit_mm_yr']} mm/yr"
+        )
+
+    # -- 11. meta carries the mock badge and the null policy ---------------------------------
+    _require("mock" in str(meta["provenance"]["source"]).lower(), "provenance.source does not say mock", failures)
+    _require("absent" in str(meta["null_policy"]).lower(), "null_policy does not state that nodata is absent", failures)
+    _require(bool(meta["limitations"]), "meta.limitations is empty", failures)
+    checks.append("meta: provenance.source says mock, null_policy states absence, limitations present")
+
+    # -- 12. context layers come from the same land_use assignment ---------------------------
+    context_classes = {
+        f["properties"]["class"] for f in context["features"] if f["properties"]["layer"] == "land_use"
+    }
+    _require(
+        set(land_use_counts) <= context_classes,
+        f"grid land_use {sorted(set(land_use_counts) - context_classes)} has no context polygon",
+        failures,
+    )
+    layers = {f["properties"]["layer"] for f in context["features"]}
+    _require({"land_use", "infrastructure", "water"} <= layers, f"context layers {sorted(layers)} incomplete", failures)
+    checks.append(f"context: {len(context['features'])} features, land_use classes match the grid")
+
+    # -- 13. budget: this case cannot own the whole 15 MB tree -------------------------------
+    _require(
+        loaded.sizes and sum(loaded.sizes.values()) <= TOTAL_BUDGET_BYTES,
+        "case artefacts exceed the total budget",
+        failures,
+    )
+
+    if failures:
+        raise AssertionError(f"{case.case_id}: {len(failures)} gate(s) failed\n  - " + "\n  - ".join(failures))
+
+    return CaseReport(
+        case_id=case.case_id,
+        n_cells=len(grid),
+        n_dates=len(meta_dates),
+        n_series_rows=len(series),
+        n_context_features=len(context["features"]),
+        land_use=land_use_counts,
+        median_velocity=median,
+        p05_velocity=float(grid["velocity_mm_yr"].quantile(0.05)),
+        p95_velocity=float(grid["velocity_mm_yr"].quantile(0.95)),
+        median_coherence=float(grid["coherence"].median()),
+        sizes=loaded.sizes,
+        checks=checks,
+        contract_report=report,
+    )
+
+
+def summary_table(reports: list[CaseReport]) -> str:
+    """Per-case summary table, plus the grand total against the 15 MB budget."""
+    header = (
+        f"{'case':<12} {'cells':>7} {'dates':>5} {'series':>7} {'ctx':>4} "
+        f"{'median v':>9} {'p05':>9} {'p95':>9} {'parquet':>8} {'csv':>8} {'geojson':>8} {'meta':>6} {'case MB':>8}"
+    )
+    lines = [header, "-" * len(header)]
+    total = 0
+    for report in reports:
+        total += report.total_bytes
+        sizes = report.sizes
+        lines.append(
+            f"{report.case_id:<12} {report.n_cells:>7} {report.n_dates:>5} {report.n_series_rows:>7} "
+            f"{report.n_context_features:>4} {report.median_velocity:>9.2f} {report.p05_velocity:>9.2f} "
+            f"{report.p95_velocity:>9.2f} {sizes['nisar_grid.parquet'] / 1024:>8.1f} "
+            f"{sizes['timeseries.csv'] / 1024:>8.1f} {sizes['context_layers.geojson'] / 1024:>8.1f} "
+            f"{sizes['meta.json'] / 1024:>6.1f} {report.total_bytes / 1024 / 1024:>8.2f}"
+        )
+    lines.append("-" * len(header))
+    lines.append(
+        f"{'TOTAL':<12} {'':>7} {'':>5} {'':>7} {'':>4} {'':>9} {'':>9} {'':>9} "
+        f"{'':>8} {'':>8} {'':>8} {'':>6} {total / 1024 / 1024:>8.2f}"
+        f"   (budget {TOTAL_BUDGET_BYTES / 1024 / 1024:.0f} MB, KiB per file)"
+    )
+    return "\n".join(lines)

@@ -1,30 +1,33 @@
 # Necesidades de datos de la UI
 
-Shell de Rol 2. No se tocó `src/data/` ni `pipeline/`.
+Contrato de integración entre el shell de Rol 2 y los loaders/pipeline de Rol 1 y Rol 3.
 
 ## Ausente
 
-- `src/data/loaders.py` (pendiente, Rol 1).
-- `config/study_cases.yaml` (pendiente). El selectbox usa los slugs de `CASE_IDS`, sin nombres traducidos.
-- `pipeline/generate_mock.py` no está. No se ejecutó ningún generador.
-- Artefactos `nisar_grid.parquet`, `timeseries.csv`, `context_layers.geojson`, `meta.json`: no están.
+- `src/data/loaders.py` implementa la lectura cacheada de los artefactos.
+- `config/study_cases.yaml` define los casos y sus nombres.
+- `pipeline/generate_mock.py` genera artefactos reproducibles para el shell.
+- Los artefactos viven en `data/processed/mexico-city/` (y la misma estructura para cada caso):
+  `nisar_grid.parquet`, `timeseries.csv`,
+  `context_layers.geojson` y `meta.json`.
 
 ## Stub temporal
 
-`src/ui/_stubs.py` (`# TODO(rol1)`). La app lo usa solo si `src.data.loaders` no exporta las cuatro funciones de abajo. No lee artefactos.
+`src/ui/_stubs.py` (`# TODO(rol1)`) sirve como fallback visual cuando no hay artefactos.
 
 Funciones que debe publicar Rol 1, con la misma firma:
 
 - `load_study_cases() -> list[{id, label}]` desde `config/study_cases.yaml`.
-- `load_meta(case_id) -> dict` del `meta.json` real. Confirmar ruta: `data/processed/meta.json` o `data/processed/{case_id}/meta.json` (`app.py` antiguo usaba la segunda; el contrato cita la primera).
+- `load_meta(case_id) -> dict` del `data/processed/mexico-city/meta.json` o del directorio del caso.
 - `load_land_use_options()` valores presentes en el grid, no el enum completo si el caso no los tiene.
 - `load_risk_levels()` igual, desde el artefacto.
 
-Los filtros viven en `st.session_state` y se pasan a las pestañas. No se aplican aquí. Hace falta `src/domain/filters.py` (pendiente, Rol 1).
+Los filtros viven en `st.session_state` y se pasan a las pestañas; `src/domain/filters.py` los aplica
+antes de construir el payload del mapa.
 
 ## Mock y umbral
 
-No hace falta un campo nuevo.
+El contrato v1.1 incluye los campos de la tesis secular/estacional.
 
 - Aviso **DATOS DE DEMOSTRACIÓN** si `product == "mock"` o `provenance.source` contiene `mock`. El contrato v1.1 ya define `mock`.
 - La cabecera solo pinta `sensor`, `product`, `unit`, `dates`, `coherence_threshold`, y omite la clave que no esté.
@@ -42,7 +45,8 @@ El stub calcula, la UI solo pinta. Faltan en Rol 1:
 
 ## Pestaña 3
 
-`data/processed/context_layers.geojson` no existe. La pestaña no inventa dossier, mitigaciones ni índices.
+`data/processed/mexico-city/context_layers.geojson` aporta las capas de contexto. La pestaña no
+inventa dossier, mitigaciones ni índices.
 
 ## Pestaña 4
 

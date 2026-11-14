@@ -1,6 +1,37 @@
-streamlit>=1.38.0
-pandas>=2.2.0
-pyarrow>=16.0.0
+# Python dependencies — NASA Space Apps 2026, "Dancing with the SARs"
+#
+# Full workspace environment (pipeline + backend + Streamlit app + test suite):
+#   ./scripts/python.sh -m pip install -r requirements.txt
+#
+# For lightweight container/cloud runtime-only builds (no offline SAR ingestion),
+# see `requirements-app.txt`.
+
+# --- core: frozen contract, backend loaders/adapters, GIS & validation -------------------
+numpy>=2.0
+pandas>=2.2
+pyarrow>=16.0          # parquet artefacts
+shapely>=2.0
+geopandas>=1.0
+pyproj>=3.6            # CRS handling in enrich_context/process_case
+h3>=4.4                # H3 res 9 cells = the parquet's primary key
+requests>=2.31         # ASF SearchAPI probe (unauthenticated)
+pyyaml>=6.0            # config/study_cases.yaml
+
+# --- ingest: real SAR retrieval (Rol 3 — offline pipeline) -------------------------------
+asf_search>=7.1
+earthaccess>=0.9
+h5py>=3.11
+xarray>=2024.6
+rioxarray>=0.17
+rasterio>=1.3
+
+# --- figures / QC (Rol 3) ----------------------------------------------------------------
+matplotlib>=3.8
+
+# --- Streamlit web application (Rol 1 map payloads + Rol 2 UI) ---------------------------
+streamlit>=1.38
 pydeck>=0.9.1
-plotly>=5.22.0
-h3>=4.4.0
+plotly>=5.22
+
+# --- dev & CI gate -----------------------------------------------------------------------
+pytest>=8.0

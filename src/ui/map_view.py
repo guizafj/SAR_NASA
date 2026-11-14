@@ -311,6 +311,11 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
             )
         else:
             records = frame.to_dict(orient="records") if frame is not None and hasattr(frame, "to_dict") else []
+            extrude = bool(active.get("extrude_3d"))
+            # Flat mode must not keep loader heights: non-zero elevation still
+            # produces z-fighting that reads as overlapping hexes.
+            if not extrude and records:
+                records = [{**row, "height": 0} for row in records]
             layer = pdk.Layer(
                 "H3HexagonLayer",
                 data=records,
@@ -320,8 +325,8 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                 get_elevation="height",
                 pickable=True,
                 auto_highlight=True,
-                extruded=bool(active.get("extrude_3d")),
-                elevation_scale=1,
+                extruded=extrude,
+                elevation_scale=1 if extrude else 0,
                 coverage=0.9,
             )
             deck = pdk.Deck(
@@ -330,7 +335,7 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                     latitude=view["latitude"],
                     longitude=view["longitude"],
                     zoom=view["zoom"],
-                    pitch=40 if active.get("extrude_3d") else 0,
+                    pitch=40 if extrude else 0,
                     bearing=0,
                 ),
                 map_provider="carto",
@@ -351,7 +356,9 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                     width="stretch",
                     on_select="rerun",
                     selection_mode="single-object",
-                    key="h3-map",
+                    # Remount when the case changes so initial_view_state applies
+                    # and the previous AOI layer cannot linger on top.
+                    key=f"h3-map-{case_id}",
                 )
             picked = _selected_cell(event)
             if st.session_state.get("_map_case") != case_id:

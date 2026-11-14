@@ -208,11 +208,18 @@ def render_app() -> None:
 
     meta = loaders.load_meta(st.session_state.filter_case_id)
     render_header(meta if isinstance(meta, dict) else None)
+    land_uses = tuple(loaders.load_land_use_options())
+    risk_levels = tuple(loaders.load_risk_levels())
+    # Drop stale filter values when options shrink (stub no longer lists absent classes).
+    if st.session_state.get("filter_land_use") not in ("", *land_uses):
+        st.session_state.filter_land_use = ""
+    if st.session_state.get("filter_risk_level") not in ("", *risk_levels):
+        st.session_state.filter_risk_level = ""
     filters = render_filters(
         case_ids,
         labels,
-        tuple(loaders.load_land_use_options()),
-        tuple(loaders.load_risk_levels()),
+        land_uses,
+        risk_levels,
         coherence_default(meta if isinstance(meta, dict) else None),
     )
 

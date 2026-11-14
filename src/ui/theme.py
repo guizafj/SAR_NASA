@@ -315,10 +315,24 @@ button[data-baseweb="tab"][aria-selected="true"] {{
   font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--muted);
+  min-width: 0;
+}}
+
+.compare-row > span:first-child {{
+  flex: 0 0 auto;
+}}
+
+.compare-row > span:last-child {{
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }}
 
 .compare-track {{
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   height: 8px;
   background: var(--bg);
   border: 1px solid var(--border);

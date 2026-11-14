@@ -1,28 +1,52 @@
 {
   "contract_version": "1.0",
-  "note": "AOIs mirror docs/route-contract.md §2 bboxes [W,S,E,N] and README §6 study areas.",
+  "note": "AOIs mirror docs/route-contract.md \u00a72 bboxes [W,S,E,N] and README \u00a76 study areas.",
   "cities": {
     "mexico-city": {
       "name": "Mexico City, MX",
-      "bbox": [-99.35, 19.20, -98.85, 19.65],
+      "bbox": [
+        -99.3649243,
+        19.0487186,
+        -98.9403027,
+        19.5927574
+      ],
       "crs": "EPSG:32614",
-      "reference_point": [-99.13, 19.43],
+      "reference_point": [
+        -99.13,
+        19.43
+      ],
       "eu_member_state": null,
       "expected_regime": "extreme subsidence, ~-450 mm/yr peak"
     },
     "jakarta": {
       "name": "Jakarta, ID",
-      "bbox": [106.70, -6.40, 107.00, -6.10],
+      "bbox": [
+        106.6856359,
+        -6.3744576,
+        106.9739751,
+        -6.0699999
+      ],
       "crs": "EPSG:32748",
-      "reference_point": [106.85, -6.21],
+      "reference_point": [
+        106.85,
+        -6.21
+      ],
       "eu_member_state": null,
       "expected_regime": "coastal subsidence, ~-300 mm/yr peak"
     },
     "malaga": {
-      "name": "Malaga, ES",
-      "bbox": [-4.60, 36.60, -4.30, 36.85],
+      "name": "M\u00e1laga, ES",
+      "bbox": [
+        -4.5878888,
+        36.6358376,
+        -4.2604896,
+        36.8938733
+      ],
       "crs": "EPSG:32630",
-      "reference_point": [-4.42, 36.72],
+      "reference_point": [
+        -4.42,
+        36.72
+      ],
       "eu_member_state": "ES",
       "expected_regime": "null result / control site, < 5 mm/yr expected"
     }

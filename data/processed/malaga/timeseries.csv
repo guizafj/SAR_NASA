@@ -1,0 +1,13 @@
+case_id,cell_id,date,value,trend_mm_yr,seasonal_mm,unit,sensor,product,quality,provenance_id
+malaga,aoi,2026-07-02,0.000000000,-1.377614656,0.000000000,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-07-14,0.573835609,-1.377614656,0.619096049,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-07-26,1.058695900,-1.377614656,1.149216781,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-08-07,1.432070961,-1.377614656,1.567852282,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-08-19,1.676184750,-1.377614656,1.857226512,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-08-31,1.778749900,-1.377614656,2.005052102,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-09-12,1.733489459,-1.377614656,2.005052102,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-09-24,1.540403429,-1.377614656,1.857226512,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-10-06,1.205768759,-1.377614656,1.567852282,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-10-18,0.741872817,-1.377614656,1.149216781,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-10-30,0.166491645,-1.377614656,0.619096049,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-11-11,-0.497864845,-1.377614656,-0.000000000,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19

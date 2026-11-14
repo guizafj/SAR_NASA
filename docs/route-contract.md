@@ -1,3 +1,7 @@
+> **SUPERSEDED for the MVP — this page describes the post-MVP static/PMTiles migration and is NOT
+> the artefact contract. The authoritative schema is `docs/data-contract-v1.md` +
+> `src/domain/contracts.py`.**
+
 # Route contract v1.1 — Option B (static site + PMTiles)
 
 **Status: FROZEN as of Sat 14 Nov 2026, hackathon H0.**
@@ -115,7 +119,8 @@ Rules:
   The one exception is `bs/{date}.pmtiles`, whose `{date}` comes from `dates`.
 - `range` is authoritative for both the legend and de-quantisation. A `null` range means the
   layer is not published for this city — the client hides it. `detection_limit_mm_yr` is required
-  whenever `|median_vel| < 5` (Málaga is a declared null result, see informe §13).
+  whenever `|median_vel| < 5` (Málaga is a declared null result: its `|median| < 5 mm/yr` makes the
+  detection bound the result — `docs/data-contract-v1.md` §5).
 - Every published layer carries `provenance`. Judges ask; the badge reads it.
 - `revisit_days` propagates to the coherence legend; coherence is **not** comparable across sensors.
 
@@ -247,16 +252,21 @@ styles are JSON config, never UI code, per the non-overlap rule).
 
 ## 7. Build & verify
 
+**Target layout only — none of these paths exist in the MVP tree except the generator.** The real
+generator today is `pipeline/generate_mock.py`; `pipeline/emit/*`, `serve/build.py`, `serve/dev.py`
+and `serve/check_contract.py` belong to the post-MVP static/PMTiles migration and must be built
+before the routes in §1 can be served.
+
 ```
-pipeline/01_generate_mock.py     → data/processed/{contract layout}   (stubs, H0, unblocks app)
-pipeline/emit/*                  → same layout, real data             (H2+)
-serve/build.py                   → app/public/tiles/                   (copy + validate)
-serve/dev.py                     → http://localhost:8000 with Range   (local demo)
-serve/check_contract.py          → asserts every route in §1            (CI gate)
+pipeline/generate_mock.py        → data/processed/{case}/…            (current mock generator)
+pipeline/emit/*                  → same layout, real data             (target, H2+)
+serve/build.py                   → app/public/tiles/                   (target, copy + validate)
+serve/dev.py                     → http://localhost:8000 with Range   (target, local demo)
+serve/check_contract.py          → asserts every route in §1            (target, CI gate)
 ```
 
-`serve/check_contract.py` is the definition of done for pozo: it walks §1 for all cities, checks
-MIME, `Accept-Ranges`, a 206 on `bytes=0-99`, JSON schema keys, `dates` ⊆ `meta.dates`,
+Once built, `serve/check_contract.py` is the definition of done for pozo: it walks §1 for all
+cities, checks MIME, `Accept-Ranges`, a 206 on `bytes=0-99`, JSON schema keys, `dates` ⊆ `meta.dates`,
 every `events.series_cell` resolving, and PMTiles magic `PMTiles\x03`. Non-zero exit fails CI.
 
 ---

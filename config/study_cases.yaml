@@ -1,0 +1,124 @@
+# Study cases — the only place a case is declared. The ASF probe config
+# (pipeline/ingest/aois.json) mirrors each case's bbox/CRS/reference point (pinned by
+# tests/test_config_consistency.py), so change both in the same PR.
+#
+# Owner: Rol 3 (yuls). Consumed by pipeline/ (mock + real) and by the app's loaders.
+# Contract: docs/data-contract-v1.md. Nothing here overrides the frozen schema; these are
+# *parameters of a case*, not of the contract.
+#
+# `primary` is deliberately a single switch: the 48 h scope is "one case executed perfectly".
+# The two requirements — a declared negative control (Málaga) and the clearest signal (Mexico City) —
+# disagree, so the switch picks one. DECIDED 2026-11-14: mexico-city is primary (strongest signal,
+# clearest demo); malaga ships as the explicit negative control. If CDMX's NISAR GUNW fails the
+# urban-coverage check in docs/data-source-decision.md, flip this one line to `malaga` — nothing else changes.
+
+schema_version: "1.1"
+
+primary: mexico-city
+
+cases:
+  mexico-city:
+    name: "Mexico City, MX"
+    role: "primary — extreme differential subsidence"
+    bbox: [-99.3649243, 19.0487186, -98.9403027, 19.5927574]   # AOI envelope (OSM CDMX boundary)
+    # The authoritative ring is `config/aoi/mexico-city.geojson` (OSM city limit, ~227 vertices).
+    # No inline aoi_polygon: duplicating the ring here invited the two copies to drift.
+    # ring lives in config/aoi/mexico-city.geojson
+    crs_publish: EPSG:4326                         # artefacts are published in this CRS
+    crs_analysis: EPSG:32614                       # UTM 14N — metric maths happens here
+    reference_point: [-99.13, 19.43]               # InSAR reference pixel, lon/lat
+    revisit_days: 12                               # of the declared product, never pooled
+    expected_regime: inelastic
+    published_rate_mm_yr: -450                     # Cigna & Tapete 2022, doi:10.1029/2022gl098923
+    limitations:
+      - "Lacustrine clay, closed basin: rates are not transferable to the other two cities."
+      - "GUNW posting 80 m: city scale, not building scale."
+      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+      # Physics of the mock amplitude, not a decoration: lacustrine clay compacts inelastically and
+      # irreversibly, so the reversible seasonal term must stay much smaller than the secular trend
+      # (|trend| > 2 * seasonal_amplitude ⇒ inelastic). A large harmonic here would read as 5 mm of
+      # seasonal uplift on the one case whose whole story is permanent, non-recoverable compaction.
+      - "Inelastic compaction: the seasonal amplitude (1.5 mm) stays far below the trend, so |trend| > 2 * A_seasonal and the case classifies as inelastic — almost none of this motion is recoverable."
+    mock:                                          # parameters of the synthetic field only
+      peak_velocity_mm_yr: -420
+      peak_lonlat: [-99.13, 19.43]
+      falloff_km: 8.0
+      noise_mm_yr: 8.0
+      coverage_ellipse:                            # cells outside this are nodata (absent)
+        center: [-99.10, 19.42]
+        semi_axes_km: [24.0, 22.0]
+        rotation_deg: 0
+      seasonal_amplitude_mm: 1.5
+
+  jakarta:
+    name: "Jakarta, ID"
+    role: "second site — coastal, mixed regime"
+    bbox: [106.6856359, -6.3744576, 106.9739751, -6.0699999]   # AOI envelope (OSM DKI, mainland)
+    # The authoritative ring is `config/aoi/jakarta.geojson` (city limit clipped to the city).
+    # ring lives in config/aoi/jakarta.geojson
+    crs_publish: EPSG:4326
+    crs_analysis: EPSG:32748                       # UTM 48S
+    reference_point: [106.85, -6.21]
+    revisit_days: 12
+    expected_regime: mixed
+    published_rate_mm_yr: -50
+    limitations:
+      - "Not the capital-planning case: ground truth is fragmented across agencies."
+      - "Coastal: inundation, not just subsidence, drives the story."
+      - "GUNW posting 80 m: city scale, not building scale."
+      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+    mock:
+      peak_velocity_mm_yr: -300
+      peak_lonlat: [106.85, -6.13]                 # north coast
+      falloff_km: 6.0
+      noise_mm_yr: 10.0
+      coverage_ellipse:
+        center: [106.85, -6.25]
+        semi_axes_km: [13.0, 13.0]
+        rotation_deg: 0
+      seasonal_amplitude_mm: 12.0
+
+  malaga:
+    name: "Málaga, ES"
+    role: "control — declared null result (EU, EGMS-eligible)"
+    bbox: [-4.5878888, 36.6358376, -4.2604896, 36.8938733]   # AOI envelope (OSM Málaga mainland)
+    # The authoritative ring is `config/aoi/malaga.geojson` (municipality, mainland part).
+    # ring lives in config/aoi/malaga.geojson
+    crs_publish: EPSG:4326
+    crs_analysis: EPSG:32630                       # UTM 30N
+    reference_point: [-4.42, 36.72]
+    revisit_days: 12
+    expected_regime: elastic
+    published_rate_mm_yr: -1.2
+    # |median| < 5 mm/yr ⇒ meta.stats.detection_limit_mm_yr becomes mandatory (contract §5)
+    null_result: true
+    detection_limit_mm_yr: 1.5
+    limitations:
+      - "Rates are at or below the detection floor: the bound IS the result."
+      - "Do not present flatness as absence of aquifer stress — it is a compressibility result."
+      - "GUNW posting 80 m: city scale, not building scale."
+      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+      # Opposite physics to Mexico City: a karst aquifer is elastic, so a real seasonal cycle of
+      # recharge is expected to move the surface recoverably by an amount comparable to (or larger
+      # than) the tiny secular trend (|trend| < seasonal_amplitude ⇒ elastic).
+      - "Elastic karst: the seasonal amplitude (3.5 mm) is larger than the ~3 mm/yr trend, so |trend| < A_seasonal and the motion is recoverable — this is the mirror image of the inelastic Mexico City case."
+    mock:
+      peak_velocity_mm_yr: -3.0
+      peak_lonlat: [-4.44, 36.72]
+      falloff_km: 9.0
+      noise_mm_yr: 1.2
+      coverage_ellipse:
+        center: [-4.45, 36.72]
+        semi_axes_km: [12.0, 11.0]
+        rotation_deg: 0
+      seasonal_amplitude_mm: 3.5
+
+# Analysis constants shared by every case (they belong to the method, not to a city).
+processing:
+  h3_resolution: 9                                # ≈200 m edge — matches GUNW's 80 m posting scale
+  coherence_min: 0.35                             # overridden per (sensor, product) by contracts.py
+  k_sigma: 2.5
+  min_area_m2: 500
+  dates_start: "2026-07-02"                       # mock window; real dates come from the granules
+  dates_step_days: 12
+  dates_count: 12
