@@ -1,7 +1,11 @@
+# Claves verificadas en Streamlit 1.67.0 (`streamlit/config.py`):
+# theme.base, primaryColor, backgroundColor, secondaryBackgroundColor, textColor.
+# No se fija `font`: el valor antiguo "sans serif" no es válido (el enum es
+# "sans-serif"). La tipografía del cockpit está en src/ui/theme.py.
+
 [theme]
 base = "dark"
 primaryColor = "#06B6D4"
 backgroundColor = "#0B0F19"
-secondaryBackgroundColor = "#111827"
+secondaryBackgroundColor = "#0F172A"
 textColor = "#F8FAFC"
-font = "sans serif"

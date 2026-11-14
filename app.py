@@ -1,208 +1,246 @@
+"""Streamlit shell. Composition only: no file reads and no geospatial math."""
+
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import html
 from typing import Any
 
-import pandas as pd
-import pydeck as pdk
 import streamlit as st
 
-from src.data.loaders import LoaderError, load_case_bundle
-from src.domain import map_adapter as MA
+from src.ui.charts import render_series_tab
+from src.ui.context_view import render_hazard_tab
+from src.ui.educational import render_physics_tab
+from src.ui.formatters import format_dates_span
+from src.ui.map_view import render_map_tab
+from src.ui.theme import inject_css
+
+TAB_MAP = "1. Mapa"
+TAB_SERIES = "2. Series y KPIs"
+TAB_HAZARD = "3. Peligro e infraestructura"
+TAB_PHYSICS = "4. Física SAR y procedencia"
+PENDING = "Se implementa en feat/ui-charts"
+TITLE = "Dancing with the SARs: NISAR Interferometry Cockpit"
+
+# Header telemetry may use only these keys. Missing keys are omitted.
+_TELEMETRY_KEYS = ("sensor", "product", "unit", "dates", "coherence_threshold")
 
 
-ROOT = Path(__file__).parent
-CASES = {
-    "mexico-city": "Ciudad de México",
-    "jakarta": "Yakarta",
-    "malaga": "Málaga",
-}
-
-#: Only layers the frozen contract actually publishes. `backscatter` and `events` used to be
-#: offered here; neither has a column in any `nisar_grid.parquet` and `contracts.py` rejects
-#: undeclared grid columns, so selecting them could never render data. Layer -> (metric, label).
-LAYERS: dict[str, tuple[str, str]] = {
-    "velocity": ("velocity_mm_yr", "Velocidad LOS (mm/año)"),
-    "coherence": ("coherence", "Coherencia (0–1)"),
-    "change": ("delta_change", "Cambio acumulado (mm)"),
-}
-SCALES = {"Compartida": "shared", "Independiente": "independent"}
-
-
-@st.cache_data(show_spinner=False)
-def load_case_metadata(case_id: str) -> dict[str, Any] | None:
-    metadata_path = ROOT / "data" / "processed" / case_id / "meta.json"
-    if not metadata_path.exists():
-        return None
-
-    with metadata_path.open(encoding="utf-8") as metadata_file:
-        metadata = json.load(metadata_file)
-
-    if not isinstance(metadata, dict):
-        raise ValueError(f"El metadato de {case_id} debe ser un objeto JSON.")
-
-    return metadata
-
-
-@st.cache_data(show_spinner=False)
-def load_layer(case_id: str, metric: str, scale_mode: str) -> dict[str, Any] | None:
-    """Ask the backend for the map frame for one metric; compute nothing here.
-
-    Every colour, height and legend stop comes from `src.domain.map_adapter`, which is the same
-    module that feeds `docs/figures/` and the QGIS styles. The UI only renders what it is given.
-    """
+def _loaders() -> Any:
     try:
-        bundle = load_case_bundle(case_id, processed_dir=ROOT / "data" / "processed")
-    except LoaderError:
-        return None
-
-    payload = MA.build_map_payload(
-        bundle,
-        metric=metric,
-        scale_mode=scale_mode,
-        extrude_3d=False,
-        include_h3_polygons=False,
+        from src.data import loaders as real
+    except ImportError:
+        real = None
+    required = (
+        "load_study_cases",
+        "load_meta",
+        "load_land_use_options",
+        "load_risk_levels",
+        "get_map_layer_df",
+        "get_view_state",
+        "get_cell_detail",
+        "load_timeseries",
     )
-    if payload.is_empty:
-        return None
+    if real is not None and all(hasattr(real, name) for name in required):
+        return real
+    from src.ui import _stubs
 
-    frame = payload.grid_frame.copy()
-    legend = payload.legend
+    return _stubs
+
+
+def is_demonstration(meta: dict[str, Any] | None) -> bool:
+    """True when the artefact declares itself mock. No extra contract field."""
+    if not isinstance(meta, dict):
+        return False
+    if meta.get("product") == "mock":
+        return True
+    provenance = meta.get("provenance")
+    if isinstance(provenance, dict) and "mock" in str(provenance.get("source", "")).lower():
+        return True
+    return False
+
+
+def telemetry_line(meta: dict[str, Any] | None) -> str:
+    """Join only telemetry keys that exist and are non-empty."""
+    if not isinstance(meta, dict):
+        return ""
+    parts: list[str] = []
+    for key in _TELEMETRY_KEYS:
+        if key not in meta:
+            continue
+        value = meta[key]
+        if value is None or value == "" or value == []:
+            continue
+        if key == "dates":
+            span = format_dates_span(value if isinstance(value, list) else None)
+            if span:
+                parts.append(span)
+            continue
+        parts.append(f"{key} {value}")
+    return " · ".join(parts)
+
+
+def coherence_default(meta: dict[str, Any] | None) -> float | None:
+    """Slider default from meta. Do not invent or clamp the received number.
+
+    v1.1 stores the floor at thresholds.coherence_min. coherence_threshold is
+    read only when that key is actually present.
+    """
+    if not isinstance(meta, dict):
+        return None
+    if "coherence_threshold" in meta and isinstance(meta["coherence_threshold"], (int, float)):
+        return float(meta["coherence_threshold"])
+    thresholds = meta.get("thresholds")
+    if isinstance(thresholds, dict) and isinstance(thresholds.get("coherence_min"), (int, float)):
+        return float(thresholds["coherence_min"])
+    return None
+
+
+def _blank(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    return value
+
+
+def render_header(meta: dict[str, Any] | None) -> None:
+    line = telemetry_line(meta)
+    telemetry = f'<p class="telemetry">{html.escape(line)}</p>' if line else ""
+    st.markdown(
+        '<header class="mission-bar">'
+        f'<p class="mission-title">{html.escape(TITLE)}</p>'
+        f"{telemetry}"
+        "</header>",
+        unsafe_allow_html=True,
+    )
+    if is_demonstration(meta):
+        st.markdown(
+            '<div class="demo-banner" role="status">DATOS DE DEMOSTRACIÓN</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_filters(
+    case_ids: list[str],
+    labels: dict[str, str],
+    land_uses: tuple[str, ...] | list[str],
+    risk_levels: tuple[str, ...] | list[str],
+    coherence_floor: float | None,
+) -> dict[str, Any]:
+    """Draw the filter strip. Values stay in session_state; nothing is filtered."""
+    with st.container(border=True, key="filter-strip"):
+        case_col, land_col, coherence_col, risk_col, extrude_col = st.columns(5)
+        with case_col:
+            st.selectbox(
+                "Caso",
+                options=case_ids,
+                format_func=lambda case_id: labels.get(case_id, case_id),
+                key="filter_case_id",
+            )
+        with land_col:
+            st.selectbox(
+                "Uso del suelo",
+                options=["", *land_uses],
+                format_func=lambda value: "sin filtrar" if value == "" else value,
+                key="filter_land_use",
+            )
+        with coherence_col:
+            if coherence_floor is None:
+                st.caption("Umbral de coherencia no declarado.")
+            elif not 0.0 <= coherence_floor <= 1.0:
+                st.caption("Umbral de coherencia fuera de [0, 1]. No se modifica.")
+            else:
+                if "filter_coherence_min" not in st.session_state:
+                    st.session_state.filter_coherence_min = coherence_floor
+                st.slider(
+                    "Coherencia mínima",
+                    min_value=0.0,
+                    max_value=1.0,
+                    key="filter_coherence_min",
+                )
+        with risk_col:
+            st.selectbox(
+                "Nivel de riesgo",
+                options=["", *risk_levels],
+                format_func=lambda value: "sin filtrar" if value == "" else value,
+                key="filter_risk_level",
+            )
+        with extrude_col:
+            if "filter_extrude_3d" not in st.session_state:
+                st.session_state.filter_extrude_3d = False
+            st.toggle("Extrusión 3D", key="filter_extrude_3d")
+
     return {
-        "frame": frame,
-        "view": payload.view_state,
-        "legend": {
-            "metric": legend.metric,
-            "unit": legend.unit,
-            "mode": legend.scale_mode,
-            "min": legend.domain_min,
-            "max": legend.domain_max,
-            "caption": legend.caption,
-        },
-        "is_mock": payload.is_mock,
+        "case_id": st.session_state.get("filter_case_id"),
+        "land_use": _blank(st.session_state.get("filter_land_use")),
+        "coherence_min": st.session_state.get("filter_coherence_min", coherence_floor),
+        "risk_level": _blank(st.session_state.get("filter_risk_level")),
+        "extrude_3d": bool(st.session_state.get("filter_extrude_3d", False)),
     }
 
 
-def render_header() -> None:
-    st.caption("DANCING WITH THE SARS")
-    st.title("Three Cities, One Pump")
-    st.write(
-        "Explora cómo las observaciones SAR revelan subsidencia y cambios territoriales "
-        "en ciudades con distinta compresibilidad del acuífero."
-    )
+def _render_map(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
+    render_map_tab(filters, loaders, meta)
 
 
-def render_provenance(metadata: dict[str, Any] | None, case_id: str) -> None:
-    st.subheader("Provenance")
-    if metadata is None:
-        st.info(
-            f"Aún no hay artefactos publicados para **{CASES[case_id]}**. "
-            "El frontend está listo para consumir `meta.json` y `nisar_grid.parquet`."
-        )
-        return
-
-    provenance = metadata.get("provenance", {})
-    product = metadata.get("product", "—")
-    columns = st.columns(4)
-    columns[0].metric("Fuente", provenance.get("source", "No disponible"))
-    columns[1].metric("Revisita", f"{metadata.get('revisit_days', '—')} días")
-    columns[2].metric("Fechas", len(metadata.get("dates", [])))
-    columns[3].metric("CRS", metadata.get("crs", "No disponible"))
-    if product == "mock":
-        st.warning(
-            "**Datos sintéticos (`product: mock`).** Ninguna cifra de esta demo proviene de un "
-            "granulo NISAR real; el esquema y el pipeline sí son los definitivos.",
-            icon="⚠️",
-        )
-
-
-def render_map(
-    layer_data: dict[str, Any] | None,
-    metadata: dict[str, Any] | None,
-    layer_key: str,
-) -> None:
-    metric_label = LAYERS[layer_key][1]
-    if layer_data is None:
-        st.container(border=True).markdown(
-            "### Mapa pendiente de datos\n"
-            "El backend geoespacial no devolvió celdas para esta capa y ciudad."
-        )
-        return
-
-    frame: pd.DataFrame = layer_data["frame"]
-    view: MA.MapViewState = layer_data["view"]
-    legend: dict[str, Any] = layer_data["legend"]
-
-    deck = pdk.Deck(
-        layers=[
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=frame,
-                get_position=["lon", "lat"],
-                get_fill_color="fill_color",
-                get_radius=60,
-                pickable=True,
-                opacity=0.85,
-            )
-        ],
-        initial_view_state=pdk.ViewState(
-            latitude=view.latitude,
-            longitude=view.longitude,
-            zoom=view.zoom,
-            pitch=0,
-        ),
-        tooltip={
-            "html": "<b>{cell_id}</b><br/>velocidad: {velocity_mm_yr} mm/año<br/>"
-            "coherencia: {coherence}",
-            "style": {"backgroundColor": "#0B0F19", "color": "#F8FAFC"},
-        },
-    )
-    st.pydeck_chart(deck, use_container_width=True)
-
-    span = "—"
-    if legend["min"] is not None and legend["max"] is not None:
-        span = f"{legend['min']:g} … {legend['max']:g} {legend['unit']}"
-    st.caption(
-        f"Capa: **{metric_label}** · escala **{legend['mode']}** · {legend['caption']} · "
-        f"dominio {span} · {len(frame):,} celdas publicadas · "
-        f"fuente: {(metadata or {}).get('provenance', {}).get('source', '—')}"
+def render_pending(note: str, filters: dict[str, Any]) -> None:
+    del filters
+    st.markdown(
+        '<div class="cockpit-card is-empty">'
+        '<p class="kicker">Pendiente</p>'
+        f'<p class="empty-prompt">{html.escape(note)}</p>'
+        "</div>",
+        unsafe_allow_html=True,
     )
 
 
 def render_app() -> None:
-    st.set_page_config(
-        page_title="Three Cities, One Pump",
-        page_icon="🌎",
-        layout="wide",
-        initial_sidebar_state="expanded",
+    loaders = _loaders()
+    cases = list(loaders.load_study_cases())
+    case_ids = [str(case["id"]) for case in cases if case.get("id")]
+    labels = {str(case["id"]): str(case.get("label") or case["id"]) for case in cases}
+
+    if not case_ids:
+        st.error("No hay casos. Falta config/study_cases.yaml.")
+        return
+
+    if "filter_case_id" not in st.session_state:
+        st.session_state.filter_case_id = case_ids[0]
+    if st.session_state.filter_case_id not in case_ids:
+        st.session_state.filter_case_id = case_ids[0]
+
+    meta = loaders.load_meta(st.session_state.filter_case_id)
+    render_header(meta if isinstance(meta, dict) else None)
+    land_uses = tuple(loaders.load_land_use_options())
+    risk_levels = tuple(loaders.load_risk_levels())
+    # Drop stale filter values when options shrink (stub no longer lists absent classes).
+    if st.session_state.get("filter_land_use") not in ("", *land_uses):
+        st.session_state.filter_land_use = ""
+    if st.session_state.get("filter_risk_level") not in ("", *risk_levels):
+        st.session_state.filter_risk_level = ""
+    filters = render_filters(
+        case_ids,
+        labels,
+        land_uses,
+        risk_levels,
+        coherence_default(meta if isinstance(meta, dict) else None),
     )
-    render_header()
 
-    with st.sidebar:
-        st.header("Controles")
-        case_id = st.selectbox("Ciudad", options=list(CASES), format_func=CASES.get)
-        layer_key = st.selectbox(
-            "Capa",
-            options=list(LAYERS),
-            format_func=lambda key: LAYERS[key][1],
-        )
-        scale_label = st.radio("Escala", list(SCALES))
-        st.divider()
-        st.caption(f"Contrato de datos: v1.0 · `{case_id}`")
-        st.caption(
-            "Capas disponibles: las tres columnas que el contrato publica "
-            "(`velocity_mm_yr`, `coherence`, `delta_change`)."
-        )
-
-    metric = LAYERS[layer_key][0]
-    scale_mode = SCALES[scale_label]
-    metadata = load_case_metadata(case_id)
-
-    render_provenance(metadata, case_id)
-    st.divider()
-    render_map(load_layer(case_id, metric, scale_mode), metadata, layer_key)
+    map_tab, series_tab, hazard_tab, physics_tab = st.tabs(
+        [TAB_MAP, TAB_SERIES, TAB_HAZARD, TAB_PHYSICS]
+    )
+    with map_tab:
+        _render_map(filters, loaders, meta if isinstance(meta, dict) else None)
+    with series_tab:
+        render_series_tab(filters, loaders, meta if isinstance(meta, dict) else None)
+    with hazard_tab:
+        render_hazard_tab(filters, loaders)
+    with physics_tab:
+        render_physics_tab(loaders, meta if isinstance(meta, dict) else None)
 
 
-if __name__ == "__main__":
-    render_app()
+st.set_page_config(
+    page_title=TITLE,
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+inject_css()
+render_app()
