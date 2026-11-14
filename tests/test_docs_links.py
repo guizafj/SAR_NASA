@@ -86,9 +86,6 @@ ALLOWLIST_PREFIXES: dict[str, str] = {
 
 #: Singular paths that look checkable but are legitimately absent. Each reason is one line.
 ALLOWLIST: dict[str, str] = {
-    # README §7 "Produces" and §8 "(planned)" mark these as Rol 2 deliverables, not present files.
-    ".streamlit/config.toml": "planned Rol 2 Streamlit config (README §7); app not built yet",
-    "src/ui/map_view.py": "planned Rol 2 module (flujo §3.1 'Estructura propuesta'); not built yet",
     "data/raw": "gitignored download directory (submission-checklist §2); absent on clean clone",
     # Post-MVP Option B target paths (route-contract & submission-checklist explicitly mark post-MVP).
     "app/src/": "route-contract §0 post-MVP Option B static frontend directory; not built in MVP",

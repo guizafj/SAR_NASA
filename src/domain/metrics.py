@@ -96,6 +96,9 @@ class CaseKPIs:
     detection_limit_mm_yr: float | None
     expected_regime: str | None
     is_mock: bool
+    median_seasonal_amp_mm: float | None = None
+    median_ratio_R: float | None = None
+    dominant_regime: str | None = None
     displacement_unit: str = C.UNIT
     velocity_unit: str = C.VELOCITY_UNIT
     area_unit: str = AREA_UNIT
@@ -263,6 +266,8 @@ def compute_kpis(
         median_delta = min_delta = max_delta = mean_coh = None
         net_vol = sub_loss_vol = None
         dominant_lu = None
+        med_seasonal = med_ratio_r = None
+        dom_regime = str(stats["dominant_regime"]) if stats.get("dominant_regime") else None
     else:
         cell_ids = grid["cell_id"].astype(str).tolist()
         areas_km2 = _cell_areas_km2(cell_ids)
@@ -293,6 +298,21 @@ def compute_kpis(
 
         lu_counts = grid["land_use"].astype(str).value_counts()
         dominant_lu = str(lu_counts.index[0]) if not lu_counts.empty else None
+        med_seasonal = (
+            float(np.median(grid["seasonal_amp_mm"].to_numpy(dtype=np.float64)))
+            if "seasonal_amp_mm" in grid.columns
+            else None
+        )
+        med_ratio_r = (
+            float(np.median(grid["ratio_R"].to_numpy(dtype=np.float64)))
+            if "ratio_R" in grid.columns
+            else None
+        )
+        if "regime" in grid.columns:
+            reg_counts = grid["regime"].astype(str).value_counts()
+            dom_regime = str(reg_counts.index[0]) if not reg_counts.empty else None
+        else:
+            dom_regime = str(stats["dominant_regime"]) if stats.get("dominant_regime") else None
 
     ts_aoi = view.timeseries_aoi
     active_date: str | None = view.active_date
@@ -346,6 +366,9 @@ def compute_kpis(
         detection_limit_mm_yr=detection_limit,
         expected_regime=expected_regime,
         is_mock=(str(meta.get("product")) == "mock"),
+        median_seasonal_amp_mm=med_seasonal,
+        median_ratio_R=med_ratio_r,
+        dominant_regime=dom_regime,
     )
 
 

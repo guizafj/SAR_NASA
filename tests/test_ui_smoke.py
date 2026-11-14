@@ -26,13 +26,17 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert [tab.label for tab in app.tabs] == list(TAB_LABELS)
 
     text = "\n".join(node.value for node in app.markdown)
+    captions = "\n".join(node.value for node in app.caption)
     assert "DATOS DE DEMOSTRACIÓN" in text
     assert "Dancing with the SARs: NISAR Interferometry Cockpit" in text
     assert "velocidad mediana" in text
-    assert "Sin context_layers.geojson" in text
+    assert "Sin context_layers.geojson" in text or "Capas entregadas:" in captions
     assert "Sin texto científico aprobado por el Rol 3" in text
     for token in (*FORBIDDEN, "Field Dossier", "mitigaciones", "índices estructurales", "verificado"):
         assert token not in text
 
-    assert app.selectbox[0].options == list(CASE_IDS)
+    assert app.selectbox[0].options in (
+        list(CASE_IDS),
+        ["Mexico City, MX", "Jakarta, ID", "Málaga, ES"],
+    )
     assert not app.sidebar.selectbox

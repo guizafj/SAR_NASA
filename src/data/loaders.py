@@ -158,7 +158,7 @@ def load_study_cases_config(
         raise C.ContractError(f"Invalid YAML root in {path}: expected mapping")
 
     schema_version = str(raw.get("schema_version", ""))
-    if schema_version != C.SCHEMA_VERSION:
+    if schema_version not in ("1.0", C.SCHEMA_VERSION):
         raise C.ContractError(
             f"study_cases.yaml schema_version is {schema_version!r}, expected {C.SCHEMA_VERSION!r}"
         )
@@ -305,12 +305,23 @@ def list_available_cases(
 
 def _normalise_grid(grid: pd.DataFrame) -> pd.DataFrame:
     df = grid.copy()
-    numeric_cols = ("lat", "lon", "val_t1", "val_t2", "delta_change", "velocity_mm_yr", "coherence")
+    numeric_cols = (
+        "lat",
+        "lon",
+        "val_t1",
+        "val_t2",
+        "delta_change",
+        "velocity_mm_yr",
+        "seasonal_amp_mm",
+        "ratio_R",
+        "coherence",
+    )
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="raise").astype("float64")
     string_cols = (
         "cell_id",
+        "regime",
         "land_use",
         "risk_level",
         "case_id",
@@ -333,8 +344,9 @@ def _normalise_grid(grid: pd.DataFrame) -> pd.DataFrame:
 
 def _normalise_timeseries(series: pd.DataFrame) -> pd.DataFrame:
     df = series.copy()
-    if "value" in df.columns:
-        df["value"] = pd.to_numeric(df["value"], errors="raise").astype("float64")
+    for num_col in ("value", "trend_mm_yr", "seasonal_mm"):
+        if num_col in df.columns:
+            df[num_col] = pd.to_numeric(df[num_col], errors="raise").astype("float64")
     for col in ("case_id", "cell_id", "date", "unit", "sensor", "product", "quality", "provenance_id"):
         if col in df.columns:
             df[col] = df[col].astype(str)
