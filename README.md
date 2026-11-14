@@ -112,7 +112,110 @@ on_click(lon, lat):
 
 ---
 
-## 4. Study areas
+## 4. Team & labour division
+
+Three people, three verticals, one shared contract. The architecture (§3) is what makes the
+split clean: **yuls produces artefacts, pozo serves them, fradiaz renders them.**
+
+| Member | Role | Owns | Ships |
+|---|---|---|---|
+| **yuls** | Geospatial & visualization lead | SAR ingestion, InSAR processing, metrics, tile/artefact generation, cartographic design, colour scales | `pipeline/`, all `data/processed` artefacts, layer styling + legend logic |
+| **pozo** | Backend & infrastructure | Artefact serving, build orchestration, CI/CD, caching, deployment, route contract | `serve/`, `deploy/`, CI workflows, publish step of `pipeline/` |
+| **fradiaz** | Frontend & interaction | SPA shell, map wiring, slider, charts, URL state, responsive + a11y | `app/src/{ui,state,charts}`, the 5 views |
+
+### Ownership detail
+
+**yuls — geospatial**
+- `asf_search` → HyP3/OPERA/EGMS ingest; ISCE2+MintPy where needed
+- LOS→vertical, harmonic decomposition, velocity/gradient/volume metrics
+- COG + PMTiles pyramid generation at z8–z14; series JSON tiling
+- Colour scale design — including the **global shared scale** that makes Málaga look flat
+- Everything that decides *what colour a number is*
+
+**pozo — backend**
+- Static artefact hosting + CDN/cache headers
+- Build orchestration: run `pipeline/` on CI, publish artefacts on success
+- The **route contract** (below) and its validation
+- Optional: thin query layer if series get too large to pre-tile
+- Deployment, uptime, "does the demo URL work at 4 a.m."
+
+**fradiaz — frontend**
+- MapLibre GL JS + deck.gl layer hierarchy; raster re-tiling on zoom
+- Date slider, swipe divider, play/pause; chart layer (uPlot/Observable Plot)
+- URL-hash state; linked brushing between chart and map
+- The **shared/independent legend toggle** — the single button that carries the thesis
+- Keyboard access, mobile layout, loading/empty/error states
+
+### Interface contracts — freeze these on Day 0
+
+Non-negotiable seams. Whoever defines them, everyone codes against them immediately.
+
+**1. `meta.json`** — yuls defines → pozo serves → fradiaz consumes (schema in §3)
+
+**2. `series/{z}/{x}/{y}.json`** — yuls produces → fradiaz renders
+
+```jsonc
+{
+  "city": "mexico-city",
+  "cell": [12, 1145, 1650],
+  "n_pixels": 842,
+  "dates": ["2026-01-12", "2026-01-24", "2026-02-05"],
+  "displacement_mm": [0, -3.1, -7.4],
+  "coherence": [0.82, 0.79, 0.81],
+  "fit": { "trend_mm_yr": -128, "seasonal_amp_mm": 9.4, "r2": 0.91 },
+  "regime": "inelastic",
+  "quality": "good"
+}
+```
+
+**3. HTTP routes** — pozo defines → fradiaz consumes
+
+```
+GET /{city}/meta.json
+GET /{city}/vel.pmtiles
+GET /{city}/bs/{date}.pmtiles
+GET /{city}/series/{z}/{x}/{y}.json
+GET /global-scale.json
+```
+
+### Build order (critical path)
+
+| Window | yuls | pozo | fradiaz |
+|---|---|---|---|
+| **H0–2** | Write `meta.json` + `series` schema; commit **stub** artefacts | Set up static host + routes | Scaffold SPA against stubs |
+| **H2–20** | Real ingest → velocity → tiles | CI: auto-publish on artefact push | Map + slider + charts on stub data |
+| **H20–30** | Metrics, shared scale, change mask | Cache headers, size/Perf audit | Wire real artefacts as they land |
+| **H30–40** | QC, validation table, figures | Deploy hardening | Polish, a11y, error states |
+| **H40–48** | Provenance badges, docs | Final deploy | Demo script, rehearsal |
+
+**The stub rule:** fradiaz never blocks on yuls. Ship three fake `series` files and one fake
+`meta.json` in H0 and build the entire UI against them. Real data drops in with zero interface
+change — that is the whole point of freezing the contract early.
+
+### Explicit non-overlaps
+
+- yuls **does not** write app UI code (except layer style definitions, passed as JSON/config).
+- pozo **does not** touch scientific parameters — no thresholds, no colour ranges.
+- fradiaz **does not** compute any geospatial quantity client-side; if a number isn't in an
+  artefact, it doesn't exist.
+
+### Definition of done
+
+- **yuls:** `meta.json` validates against the schema for all 3 cities; tiles load at z8–z14;
+  every layer carries `provenance`; velocity verified against GNSS where available.
+- **pozo:** demo URL serves all 5 routes with correct MIME types and cache headers < 200 ms TTFB;
+  CI reproduces artefacts from a clean checkout.
+- **fradiaz:** all 5 views reachable; URL restores exact state; shared/independent toggle
+  visibly changes all three maps; keyboard-navigable.
+
+### Bus factor
+
+Each member writes a 10-line `docs/handoff-<name>.md`: what they own, how to run it, and the one
+thing that will break. If someone can't make the final hour, the demo still ships.
+
+---
+
+## 5. Study areas
 
 | City | AOI | Role | Primary hazard |
 |---|---|---|---|
@@ -122,7 +225,7 @@ on_click(lon, lat):
 
 ---
 
-## 5. Data sources
+## 6. Data sources
 
 `✓` = live-checked. Open/free unless noted.
 
@@ -153,7 +256,7 @@ Open Buildings / OSM
 
 ---
 
-## 6. Science pipeline (offline build)
+## 7. Science pipeline (offline build)
 
 ```
 P0  Scope      AOI, EPSG:326xx, reference pixel
@@ -195,9 +298,9 @@ dV/dt = Σ_px v_up · A_px        compaction-driven storage loss [m³/yr]
 
 ---
 
-## 7. Pseudocode
+## 8. Pseudocode
 
-### A — build (offline, produces app artefacts)
+### A — build (offline, produces app artefacts) · *yuls*
 
 ```python
 for city in [MEXICO_CITY, JAKARTA, MALAGA]:
@@ -236,7 +339,7 @@ for city in [MEXICO_CITY, JAKARTA, MALAGA]:
 write_global_scale([c.velocity_range for c in cities], mode="shared")
 ```
 
-### B — app runtime (browser, no compute)
+### B — app runtime (browser, no compute) · *fradiaz*
 
 ```python
 state = parse_url_hash()                       # city, date, layer, scale mode
@@ -254,39 +357,41 @@ function set_scale(shared):
 
 ---
 
-## 8. Software stack
+## 9. Software stack
 
-**Processing (offline)**
+**Processing (offline)** · *yuls*
 `isce2` (`conda install -c conda-forge isce2`) · `snaphu` ·
 **`MintPy`** (`mintpy.readthedocs.io`) · `hyp3_sdk` · `opera-utils` ·
 `RAiDER` (`github.com/dbekaert/RAiDER`) · `asf_search` · `earthaccess`
 
-**Geospatial py**
+**Geospatial py** · *yuls*
 `xarray` · `dask` · `rioxarray` · `rasterio` · `geopandas` · `shapely` · `pyproj` ·
 `rasterstats` · `scipy.ndimage` · `GDAL` CLI · `pmtiles`
 
-**App**
+**App** · *fradiaz* (UI) · *pozo* (serving)
 - **Recommended:** `MapLibre GL JS` + `deck.gl` raster/point layers, `uPlot`/`Observable Plot`
   charts, Vite + TypeScript, **PMTiles** for single-file tile delivery
 - **Fastest to build:** Streamlit/Panel + `folium`/`pydeck` — trade polish and slider
   performance for speed
+- **Serving:** static host + CDN (Netlify/Pages/S3), GitHub Actions for the publish step
 - **QC / figures:** QGIS
 
 ---
 
-## 9. Risk & demo strategy
+## 10. Risk & demo strategy
 
-| Risk | Mitigation |
-|---|---|
-| NISAR urban coverage absent | Build-time fallback chain (§6 P1); badge shows the source used |
-| Live InSAR too slow | Never on the critical path; artefacts are pre-built |
-| Málaga signal ≤ noise | Render it flat **deliberately**; show the detection-limit band in the legend |
-| Slide-like demo (static maps) | Time scrub + click-to-query are the required interactions, not optional |
-| Judge asks "is this just pretty maps?" | Every pixel answers with a trend, a regime label, and a provenance badge |
+| Risk | Mitigation | Owner |
+|---|---|---|
+| NISAR urban coverage absent | Build-time fallback chain (§7 P1); badge shows source used | yuls |
+| Live InSAR too slow | Never on the critical path; artefacts pre-built | yuls / pozo |
+| Málaga signal ≤ noise | Render it flat **deliberately**; detection-limit band in legend | yuls / fradiaz |
+| Frontend blocked on data | Stub artefacts frozen at H0; contract never changes | pozo / fradiaz |
+| Demo URL dies | Static host + CI publish; rehearsal at H44 | pozo |
+| Judge: "just pretty maps?" | Every pixel answers with trend + regime + provenance | fradiaz |
 
 ---
 
-## 10. Validation
+## 11. Validation
 
 | Check | Method |
 |---|---|
@@ -300,7 +405,7 @@ Error budget, largest first: unwrapping ≫ troposphere ≫ orbital ≫ DEM ≫ 
 
 ---
 
-## 11. Limitations
+## 12. Limitations
 
 1. Málaga may sit at the detection floor — the bound *is* the result.
 2. CDMX is not coastal; don't claim a coastal framing across all three.
@@ -312,23 +417,25 @@ Error budget, largest first: unwrapping ≫ troposphere ≫ orbital ≫ DEM ≫ 
 
 ---
 
-## 12. Repo layout
+## 13. Repo layout
 
 ```
-pipeline/            offline build (produces artefacts)
+pipeline/            offline build — yuls
   ingest/  insar/  metrics/  emit/
+serve/               serving + build orchestration — pozo
+deploy/              static host config, CI — pozo
 data/raw/{city}/     downloads (gitignored)
 data/processed/{city}/
 app/
-  src/map/  src/charts/  src/state/
-  public/tiles/{city}/   PMTiles + series JSON
-deploy/              static host config
-docs/                methods, error budget, figures
+  src/map/           layer styling — yuls
+  src/ui/  src/state/  src/charts/   — fradiaz
+  public/tiles/{city}/   PMTiles + series JSON (generated)
+docs/                methods, error budget, handoff-<name>.md
 ```
 
 ---
 
-## 13. Key references
+## 14. Key references
 
 | Topic | Cite | DOI |
 |---|---|---|
