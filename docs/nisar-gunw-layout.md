@@ -92,6 +92,13 @@ same vertical conversion — they differ in the *east/north* terms (`u = [0.777,
 `[0.777, −0.616, −0.131]` at heading 192° vs 12°), which is why one pass cannot resolve the
 horizontal ambiguity.
 
+**What the pipeline does with that today:** nothing joint. `pipeline/process_case.py` refuses a stack
+that mixes flight directions (`_check_stack_identity` → `TrackMismatchError`) and inverts a **single**
+geometry, so the shipped vertical is `d_LOS/cosθ + tanθ·(cosα·v_east + sinα·v_north)` with
+`v_north = 0` unless a GNSS model is supplied. Ascending/descending decomposition is designed, not
+implemented (README §6, §15); the same numbers come out under either azimuth convention when the
+horizontals are zero, because `u_up = cosθ` does not depend on heading.
+
 Sanity anchor for the demo: Mexico City at −420 mm/yr moves **−13.8 mm vertical in a 12-day pair**,
 i.e. about **0.09 of a fringe**. A ninth of a fringe per pair is why unwrapping error, not noise,
 dominates the budget (README §13) — and why a single bad cycle slip outranks every other term.

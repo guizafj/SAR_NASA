@@ -504,10 +504,22 @@ def _build_derived(card: dict) -> dict[str, list[Derived]]:
                 Derived(float(limit), f"{case_id}.detection_limit_mm_yr (mm/yr)")
             )
         coverage = case.get("coverage") or {}
-        if coverage.get("fraction") is not None:
-            buckets["COVERAGE"].append(
-                Derived(float(coverage["fraction"]) * 100.0, f"{case_id}.coverage.fraction (as %)")
-            )
+        # Both denominators are derived values, and each is labelled: a figure quoted against the
+        # wrong one is exactly the claim this guard exists to catch (AIO % vs bbox envelope %).
+        for denominator in ("aoi", "bbox"):
+            block = coverage.get(denominator) or {}
+            if block.get("fraction") is not None:
+                buckets["COVERAGE"].append(
+                    Derived(
+                        float(block["fraction"]) * 100.0,
+                        f"{case_id}.coverage.{denominator}.fraction (as %)",
+                    )
+                )
+            for name in ("cells", "covered"):
+                if block.get(name) is not None:
+                    buckets["CELLS"].append(
+                        Derived(float(block[name]), f"{case_id}.coverage.{denominator}.{name}")
+                    )
         if coverage.get("warning_threshold") is not None:
             buckets["COVERAGE"].append(
                 Derived(
@@ -515,9 +527,6 @@ def _build_derived(card: dict) -> dict[str, list[Derived]]:
                     f"{case_id}.coverage.warning_threshold (as %)",
                 )
             )
-        for name in ("covered_cells", "aoi_cells"):
-            if coverage.get(name) is not None:
-                buckets["CELLS"].append(Derived(float(coverage[name]), f"{case_id}.coverage.{name}"))
         if case.get("cells") is not None:
             buckets["CELLS"].append(Derived(float(case["cells"]), f"{case_id}.cells"))
         for name, bucket in (
@@ -946,44 +955,106 @@ def test_null_result_states_the_detection_bound(card: dict) -> None:
     assert not failures, "null-result honesty beat missing:\n\n" + "\n\n".join(failures)
 
 
-def test_coverage_caveat_names_the_cases_below_the_threshold(card: dict) -> None:
-    """No city-wide claim where coverage is below the card's warning threshold."""
-    low = [
-        str(case["case_id"])
-        for case in card.get("cases", [])
-        if (case.get("coverage") or {}).get("below_warning_threshold")
-    ]
-    assert low, "no case is below the coverage threshold; the caveat has nothing to say"
+def _case_tokens(case_id: str) -> set[str]:
+    return {_fold(case_id), _fold(case_id.replace("-", " "))}
+
+
+def _lines_asserting_a_case_fails(card: dict) -> list[str]:
+    """Lines that name a case AND say its coverage is below / under the bar.
+
+    Deliberately narrow: a line must carry a case name, a coverage word and a failure word
+    (``below``/``under``/``fails``). That is the shape of the removed claim "48 in Jakarta, 35 in
+    Málaga: no city-wide claim where it is below half", which quoted the bbox envelope and thereby
+    declared two cases failed a bar they both clear.
+    """
+    case_ids = [str(case["case_id"]) for case in card.get("cases", [])]
+    failures: list[str] = []
+    for number, line in _lines():
+        text = _fold(_spoken(line))
+        if not re.search(r"coverage|percent|per cent|%", text):
+            continue
+        if not re.search(r"below|under|fails|fails\b|<", text):
+            continue
+        if not re.search(r"half|\b50\b|\bbar\b|threshold", text):
+            continue
+        named = [case_id for case_id in case_ids if _case_tokens(case_id) & {t for t in re.split(r"[^a-z0-9-]+", text) if t}]
+        if named:
+            failures.append(
+                f"docs/video-script.md:{number}: {named} named as under the bar. "
+                f"line: {line.strip()!r}"
+            )
+    return failures
+
+
+def test_coverage_caveat_uses_the_denominator_the_threshold_is_defined_on(card: dict) -> None:
+    """The 50 % bar is defined on the AOI H3 cells, so the caveat must speak about those.
+
+    `docs/first-granule-runbook.md` §4 and `pipeline/process_case.py` measure coverage as
+    ``|grid ∩ AOI cells| / |AOI cells|``. The card also prints the bbox envelope for context; a
+    caveat built on the envelope declares failures that do not exist (Jakarta 47.61 % bbox vs
+    55.41 % AOI, Málaga 34.83 % vs 57.26 %). This test therefore:
+
+    * pins the card's authoritative denominator to ``aoi`` and re-derives the below-bar list from
+      the per-case AOI fractions (a card that silently switches back to bbox fails here);
+    * requires every case that really is below to be named on a line that says so;
+    * forbids the script from naming any passing case as under the bar — the regression itself;
+    * still requires a city-wide caveat line, with its evidence (the bar or the MOCK badge).
+    """
+    summary = card.get("coverage_summary") or {}
+    assert summary.get("authoritative_denominator") == "aoi", (
+        "the card must declare which coverage denominator the 50 % bar is measured on; it now "
+        f"says {summary.get('authoritative_denominator')!r} (docs/first-granule-runbook.md §4 "
+        "measures the AOI's H3 cells, not the bbox envelope)"
+    )
+    cases = card.get("cases", [])
+    assert cases, "the card loaded no cases, so the coverage caveat cannot be checked"
     threshold = None
-    for case in card.get("cases", []):
-        value = (case.get("coverage") or {}).get("warning_threshold")
-        if value is not None:
-            threshold = float(value) * 100.0
-            break
+    below: list[str] = []
+    for case in cases:
+        coverage = case.get("coverage") or {}
+        aoi = coverage.get("aoi") or {}
+        assert aoi.get("fraction") is not None, (
+            f"{case.get('case_id')}: the card publishes no AOI coverage fraction"
+        )
+        if coverage.get("warning_threshold") is not None:
+            threshold = float(coverage["warning_threshold"])
+        if aoi["fraction"] < float(coverage.get("warning_threshold") or 0.5):
+            below.append(str(case["case_id"]))
     assert threshold is not None, "the card publishes no coverage warning threshold"
+    assert below == list(summary.get("below_warning_threshold") or []), (
+        f"the card's summary says {summary.get('below_warning_threshold')!r} are below the "
+        f"{threshold:.0%} bar but the per-case AOI fractions say {below!r}"
+    )
+
+    folded = [(number, _fold(_spoken(line))) for number, line in _lines()]
+    for case_id in below:
+        assert any(
+            _case_tokens(case_id) & {t for t in re.split(r"[^a-z0-9-]+", text) if t}
+            and re.search(r"below|under|fails", text)
+            for _, text in folded
+        ), (
+            f"{case_id} is below the {threshold:.0%} AOI coverage bar but the script never says so"
+        )
+
+    wrong = _lines_asserting_a_case_fails(card)
+    assert not wrong, (
+        f"{len(wrong)} line(s) in docs/video-script.md name a case as under the {threshold:.0%} "
+        "coverage bar while its AOI coverage is "
+        + ", ".join(f"{case['case_id']} {case['coverage']['aoi']['fraction']:.2%}" for case in cases)
+        + ". The bar is measured on the AOI H3 cells, not on the bbox envelope:\n\n"
+        + "\n\n".join(wrong)
+    )
 
     caveats = [
         (number, line)
         for number, line in _lines()
         if re.search(r"city-wide", _spoken(line), re.IGNORECASE)
-        and re.search(r"below|under", _spoken(line), re.IGNORECASE)
-        and re.search(r"claim|only above|no ", _spoken(line), re.IGNORECASE)
+        and re.search(r"coverage|bar|threshold|mock", _spoken(line), re.IGNORECASE)
     ]
     assert caveats, (
-        f"docs/video-script.md has no coverage caveat ('no city-wide claim where coverage is below "
-        f"{threshold:g} %') although {low} are below it"
+        "docs/video-script.md has no city-wide coverage caveat: it must say what the "
+        f"{threshold:.0%} AOI bar does and does not license"
     )
-    folded = [(number, _fold(_spoken(line))) for number, line in _lines()]
-    for case_id in low:
-        tokens = {_fold(case_id), _fold(case_id.replace("-", " "))}
-        assert any(
-            any(token in line for token in tokens)
-            and re.search(r"coverage|percent|%|city-wide", line)
-            for _, line in folded
-        ), (
-            f"the coverage caveat never names {case_id!r}, which is below the {threshold:g} % "
-            f"threshold — the caveat must be specific to be honest"
-        )
 
 
 def test_seasonal_window_caveat_is_present(card: dict) -> None:

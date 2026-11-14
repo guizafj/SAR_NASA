@@ -30,9 +30,11 @@ step "2/4 artefact regression suites"
     tests/test_config_consistency.py \
     tests/test_mock_expectations.py \
     tests/test_artefact_capabilities.py \
+    tests/test_honesty_claims.py \
     tests/test_repo_manifest.py \
     tests/test_readme_availability.py \
     tests/test_export_grid_geojson.py \
+    tests/test_docs_links.py \
     tests/test_validate_artifacts.py || fail=1
 
 step "3/4 artefact gate (data/processed)"

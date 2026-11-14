@@ -59,19 +59,31 @@ def case(request):
 
 
 def test_grid_is_dense_enough_but_has_real_nodata(case):
-    """A city with no gaps is a bug: the coverage ellipse must actually cut cells out."""
+    """A city with no gaps is a bug: the AOI's own extent must not be fully populated.
+
+    The denominator is the ring resolved by `pipeline.aoi` (GeoJSON override -> YAML ring -> bbox),
+    not the YAML rectangle: since the study AOIs became real QGIS polygons the rectangle is only an
+    envelope, so measuring against it would measure the envelope rather than the city.
+    """
     grid, cfg = case["grid"], case["cfg"]
     assert len(grid) > 200, f"{case['name']}: only {len(grid)} cells — is the AOI wrong?"
 
-    polygon = {"type": "Polygon", "coordinates": [cfg["aoi_polygon"]]}
+    from pipeline.aoi import load_aoi
     import h3
 
-    bbox_cells = h3.geo_to_cells(h3.geo_to_h3shape(polygon), CFG["processing"]["h3_resolution"])
-    # coverage ellipse is ~60-70% of the bbox in area; allow a wide band but require both sides
-    fraction = len(grid) / len(bbox_cells)
-    assert 0.2 < fraction < 0.95, (
-        f"{case['name']}: {fraction:.0%} of the AOI has data — either no nodata exists "
-        f"(suspicious) or the coverage ellipse is wrong"
+    ring = list(load_aoi(case["name"], cfg).ring)
+    polygon = {"type": "Polygon", "coordinates": [ring]}
+    aoi_cells = h3.geo_to_cells(h3.geo_to_h3shape(polygon), CFG["processing"]["h3_resolution"])
+
+    fraction = len(grid) / len(aoi_cells)
+    assert 0.5 < fraction <= 1.0, (
+        f"{case['name']}: {fraction:.0%} of the AOI cells carry data — the coverage mask is wrong, "
+        f"or the artefact predates the current AOI"
+    )
+    assert len(grid) < len(aoi_cells), (
+        f"{case['name']}: every one of the {len(aoi_cells)} AOI cells is populated — nodata should "
+        f"exist at the edges (water, low coherence); a fully dense grid usually means the artefacts "
+        f"and the AOI disagree"
     )
 
 
@@ -148,7 +160,12 @@ def test_timeseries_is_a_referenced_aoi_series(case):
 def test_meta_matches_the_case_config(case):
     meta, cfg = case["meta"], case["cfg"]
     assert meta["case_id"] == case["name"]
-    assert meta["bbox"] == cfg["bbox"], "meta bbox drifted from config/study_cases.yaml"
+    # With a GeoJSON AOI (`config/aoi/{case}.geojson`) the published bbox is derived from the ring
+    # at 6 dp, while `config/study_cases.yaml` keeps a hand-rounded 3 dp envelope — so the two agree
+    # only to within that rounding. Compare with that tolerance rather than demanding equality.
+    assert meta["bbox"] == pytest.approx(cfg["bbox"], abs=1e-3), (
+        "meta bbox drifted from config/study_cases.yaml (tolerance 1e-3 = the config's rounding)"
+    )
     assert meta["crs"] == C.CRS_OUTPUT
     assert meta["revisit_days"] == C.SENSOR_PROFILES[meta["product"]].revisit_days
     assert meta["thresholds"]["coherence_min"] == C.SENSOR_PROFILES[meta["product"]].coherence_min

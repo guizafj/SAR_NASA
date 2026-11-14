@@ -20,13 +20,10 @@ cases:
   mexico-city:
     name: "Mexico City, MX"
     role: "primary — extreme differential subsidence"
-    bbox: [-99.35, 19.20, -98.85, 19.65]          # [W, S, E, N], EPSG:4326
-    aoi_polygon:                                   # closed ring, lon/lat; bbox by default
-      - [-99.35, 19.20]
-      - [-98.85, 19.20]
-      - [-98.85, 19.65]
-      - [-99.35, 19.65]
-      - [-99.35, 19.20]
+    bbox: [-99.3649243, 19.0487186, -98.9403027, 19.5927574]   # AOI envelope (OSM CDMX boundary)
+    # The authoritative ring is `config/aoi/mexico-city.geojson` (OSM city limit, ~227 vertices).
+    # No inline aoi_polygon: duplicating the ring here invited the two copies to drift.
+    # ring lives in config/aoi/mexico-city.geojson
     crs_publish: EPSG:4326                         # artefacts are published in this CRS
     crs_analysis: EPSG:32614                       # UTM 14N — metric maths happens here
     reference_point: [-99.13, 19.43]               # InSAR reference pixel, lon/lat
@@ -56,13 +53,9 @@ cases:
   jakarta:
     name: "Jakarta, ID"
     role: "second site — coastal, mixed regime"
-    bbox: [106.70, -6.40, 107.00, -6.10]
-    aoi_polygon:
-      - [106.70, -6.40]
-      - [107.00, -6.40]
-      - [107.00, -6.10]
-      - [106.70, -6.10]
-      - [106.70, -6.40]
+    bbox: [106.6856359, -6.3744576, 106.9739751, -6.0699999]   # AOI envelope (OSM DKI, mainland)
+    # The authoritative ring is `config/aoi/jakarta.geojson` (city limit clipped to the city).
+    # ring lives in config/aoi/jakarta.geojson
     crs_publish: EPSG:4326
     crs_analysis: EPSG:32748                       # UTM 48S
     reference_point: [106.85, -6.21]
@@ -72,6 +65,7 @@ cases:
     limitations:
       - "Not the capital-planning case: ground truth is fragmented across agencies."
       - "Coastal: inundation, not just subsidence, drives the story."
+      - "GUNW posting 80 m: city scale, not building scale."
       - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
     mock:
       peak_velocity_mm_yr: -300
@@ -87,13 +81,9 @@ cases:
   malaga:
     name: "Málaga, ES"
     role: "control — declared null result (EU, EGMS-eligible)"
-    bbox: [-4.60, 36.60, -4.30, 36.85]
-    aoi_polygon:
-      - [-4.60, 36.60]
-      - [-4.30, 36.60]
-      - [-4.30, 36.85]
-      - [-4.60, 36.85]
-      - [-4.60, 36.60]
+    bbox: [-4.5878888, 36.6358376, -4.2604896, 36.8938733]   # AOI envelope (OSM Málaga mainland)
+    # The authoritative ring is `config/aoi/malaga.geojson` (municipality, mainland part).
+    # ring lives in config/aoi/malaga.geojson
     crs_publish: EPSG:4326
     crs_analysis: EPSG:32630                       # UTM 30N
     reference_point: [-4.42, 36.72]
@@ -106,6 +96,7 @@ cases:
     limitations:
       - "Rates are at or below the detection floor: the bound IS the result."
       - "Do not present flatness as absence of aquifer stress — it is a compressibility result."
+      - "GUNW posting 80 m: city scale, not building scale."
       - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
       # Opposite physics to Mexico City: a karst aquifer is elastic, so a real seasonal cycle of
       # recharge is expected to move the surface recoverably by an amount comparable to (or larger

@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import importlib.util
 import json
 import math
+import os
 import pathlib
 import shutil
 import subprocess
@@ -371,21 +373,25 @@ def test_aoi_series_refuses_unit_conversion(loaded: dict[str, R.Case], case_id: 
 
 
 @pytest.mark.parametrize("case_id", sorted(CASES))
-def test_kpis_reproduce_meta_stats_verbatim(loaded: dict[str, R.Case], case_id: str) -> None:
+def test_kpis_are_copied_from_meta_stats(loaded: dict[str, R.Case], case_id: str) -> None:
     case = loaded[case_id]
     stats = case.meta["stats"]
     cards = R.kpis(case)
 
     expected_keys = set(KPI_KEYS)
-    if "coverage_fraction" in stats:
-        expected_keys.add("coverage_fraction")
+    for optional in ("coverage_fraction", "detection_limit_mm_yr"):
+        if optional in stats:
+            expected_keys.add(optional)
     assert set(cards) == expected_keys
 
     assert cards["cells"] == stats["n_cells"] == len(R.grid_frame(case))
     assert cards["median_velocity_mm_yr"] == stats["median_velocity_mm_yr"]
     assert cards["p05"] == stats["p05_velocity_mm_yr"]
     assert cards["p95"] == stats["p95_velocity_mm_yr"]
-    assert cards["spread"] == cards["p95"] - cards["p05"]
+    # ``spread`` is the published statistic when it exists, otherwise the stated derivation.
+    assert cards["spread"] == stats.get(
+        "spread_mm_yr", stats["p95_velocity_mm_yr"] - stats["p05_velocity_mm_yr"]
+    )
     assert cards["dates"] == list(case.meta["dates"])
     assert cards["window_days"] == (
         dt.date.fromisoformat(case.meta["dates"][-1])
@@ -413,6 +419,33 @@ def test_kpis_only_report_coverage_fraction_when_published(
         case, meta={**case.meta, "stats": {**stats, "coverage_fraction": 0.8125}}
     )
     assert R.kpis(augmented)["coverage_fraction"] == 0.8125
+
+
+@pytest.mark.parametrize("case_id", sorted(CASES))
+def test_kpis_only_report_the_detection_limit_when_published(
+    loaded: dict[str, R.Case], case_id: str
+) -> None:
+    case = loaded[case_id]
+    stats = case.meta["stats"]
+    cards = R.kpis(case)
+    if "detection_limit_mm_yr" in stats:
+        assert cards["detection_limit_mm_yr"] == stats["detection_limit_mm_yr"]
+    else:
+        assert "detection_limit_mm_yr" not in cards
+
+    augmented = dataclasses.replace(
+        case, meta={**case.meta, "stats": {**stats, "detection_limit_mm_yr": 2.25}}
+    )
+    assert R.kpis(augmented)["detection_limit_mm_yr"] == 2.25
+
+
+def test_malaga_null_result_publishes_its_detection_floor(loaded: dict[str, R.Case]) -> None:
+    """Málaga's null result must render "below the detection floor", not as a missing card."""
+    cards = R.kpis(loaded["malaga"])
+    stats = loaded["malaga"].meta["stats"]
+    assert stats["detection_limit_mm_yr"] == 1.5
+    assert cards["detection_limit_mm_yr"] == 1.5
+    assert abs(cards["median_velocity_mm_yr"]) < 5.0, "this case is the declared null result"
 
 
 @pytest.mark.parametrize("case_id", sorted(CASES))
@@ -466,6 +499,47 @@ def test_loader_refuses_broken_delta_change(tmp_path: pathlib.Path) -> None:
     message = str(excinfo.value)
     assert case_id in message and "delta_change" in message
     assert "val_t2 - val_t1" in message
+
+
+def test_map_height_carries_the_stored_delta_change_not_delta_over_t(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Structural no-recompute proof: sabotage ``delta_change`` so ``delta/T != velocity``.
+
+    The committed artefacts satisfy ``delta_change / T == velocity_mm_yr`` to ~9e-13, so a loader
+    that substituted ``delta/T`` for the colour would pass any tolerance-based test. Here the
+    stored change is doubled (and ``val_t2`` moved with it, keeping the contract identity) and
+    the payload must still carry the mutated ``delta_change`` and the untouched stored
+    ``velocity_mm_yr`` **exactly**; a substitution is now visible by 100%, not by 13 digits.
+    """
+    case_id, root = _copy_case(tmp_path)
+
+    def mutate(frame: pd.DataFrame) -> None:
+        frame["delta_change"] = frame["delta_change"] * 2.0
+        frame["val_t2"] = frame["val_t1"] + frame["delta_change"]
+
+    _edit_grid(root, case_id, mutate)
+
+    case = R.load_case(case_id, processed=root)
+    stored = R.grid_frame(case).set_index("cell_id")
+    rows = R.map_payload(case)
+    assert len(rows) == len(stored)
+
+    for row in rows:
+        source = stored.loc[row["cell_id"]]
+        assert row["height"] == source["delta_change"], "height must be the stored cumulative mm"
+        assert row["color_value"] == source["velocity_mm_yr"], "colour must be the stored mm/yr"
+
+    dates = case.meta["dates"]
+    window_years = (
+        dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(dates[0])
+    ).days / 365.25
+    strongest = max(rows, key=lambda row: abs(row["color_value"]))
+    implied_ratio = abs(strongest["height"] / window_years) / abs(strongest["color_value"])
+    assert implied_ratio > 1.5, (
+        "the sabotage must make delta/T disagree with velocity, or it proves nothing: "
+        f"ratio {implied_ratio:.2f}"
+    )
 
 
 def test_loader_refuses_undeclared_enum(tmp_path: pathlib.Path) -> None:
@@ -550,14 +624,107 @@ def test_grid_frame_refuses_a_wrong_dtype(loaded: dict[str, R.Case]) -> None:
     assert case_id in message and "velocity_mm_yr" in message and "float64" in message
 
 
+
+# ---------------------------------------------------------------------------------------------
+# Location independence: the loader takes no guess about its own directory
+# ---------------------------------------------------------------------------------------------
+
+
+def _load_module_from(path: pathlib.Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_default_root_is_the_callers_cwd_not_the_module_location(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``processed`` defaults to ``<cwd>/data/processed``; the module's own path is irrelevant."""
+    case_id = sorted(CASES)[0]
+    root = tmp_path / "checkout" / "data" / "processed"
+    root.mkdir(parents=True)
+    shutil.copytree(CASES[case_id], root / case_id)
+
+    monkeypatch.chdir(tmp_path / "checkout")
+    case = R.load_case(case_id)
+    assert case.path == (root / case_id).resolve()
+    assert pathlib.Path(R.__file__).resolve().parent == EXAMPLES
+
+    monkeypatch.chdir(tmp_path)  # one directory off: the error names the path it actually tried
+    with pytest.raises(R.LoaderError) as excinfo:
+        R.load_case(case_id)
+    assert str((tmp_path / "data" / "processed" / case_id).resolve()) in str(excinfo.value)
+
+
+def test_a_copy_under_src_data_still_loads_the_repo_data_processed(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Finding 1: a copy at ``src/data/loaders.py`` must not resolve ``data/processed`` under src.
+
+    The copy is imported from its new location but the caller's cwd is still the repo root, so
+    ``load_case`` must find the same artefacts the ``examples/`` module finds.
+    """
+    copy = tmp_path / "src" / "data" / "loaders.py"
+    copy.parent.mkdir(parents=True)
+    shutil.copy(EXAMPLES / "reference_loader.py", copy)
+
+    copied = _load_module_from(copy, "reference_loader_copied")
+    case_id = sorted(CASES)[0]
+    case = copied.load_case(case_id)
+    assert case.path == CASES[case_id]
+    assert len(copied.map_payload(case)) == len(case.grid)
+
+
+def test_a_copied_module_loads_its_own_checkout_and_never_touches_sys_path(
+    tmp_path: pathlib.Path,
+) -> None:
+    """End-to-end copy: loader at ``src/data/loaders.py``, artefacts at ``data/processed/``.
+
+    The child interpreter runs with cwd at the temp checkout, so this is the layout the teammate
+    will have. It must load ``<tree>/data/processed/<case>`` (not ``<tree>/src/data/processed``)
+    and must leave ``sys.path`` untouched.
+    """
+    tree = tmp_path / "repo"
+    (tree / "src" / "data").mkdir(parents=True)
+    (tree / "src" / "__init__.py").write_text("", encoding="utf-8")
+    shutil.copytree(ROOT / "src" / "domain", tree / "src" / "domain")
+    shutil.copy(EXAMPLES / "reference_loader.py", tree / "src" / "data" / "loaders.py")
+    case_id = sorted(CASES)[0]
+    shutil.copytree(CASES[case_id], tree / "data" / "processed" / case_id)
+
+    script = textwrap.dedent(
+        f"""
+        import importlib.util
+        import pathlib
+        import sys
+
+        before = list(sys.path)
+        module_path = pathlib.Path({str(tree / 'src/data/loaders.py')!r})
+        spec = importlib.util.spec_from_file_location("copied_loader", module_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        assert sys.path == before, f"importing the loader edited sys.path: {{sys.path}}"
+
+        case = module.load_case({case_id!r})
+        expected = pathlib.Path({str(tree / 'data/processed' / case_id)!r})
+        assert case.path == expected, f"{{case.path}} != {{expected}}"
+        assert len(case.grid) > 0
+        print("cwd-resolution-ok")
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=tree, capture_output=True, text=True
+    )
+    assert completed.returncode == 0, f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+    assert "cwd-resolution-ok" in completed.stdout
+
 # ---------------------------------------------------------------------------------------------
 # No UI dependencies: the loader must import in a Streamlit-less environment
 # ---------------------------------------------------------------------------------------------
-
-
-def test_no_ui_module_is_imported_in_process() -> None:
-    assert "streamlit" not in sys.modules, "importing the reference loader must not import Streamlit"
-    assert "pydeck" not in sys.modules, "importing the reference loader must not import pydeck"
 
 
 def test_module_imports_without_streamlit_or_pydeck() -> None:

@@ -1,9 +1,9 @@
 {
   "bbox": [
-    -4.6,
-    36.6,
-    -4.3,
-    36.85
+    -4.5878887,
+    36.6358377,
+    -4.2604897,
+    36.8938732
   ],
   "case_id": "malaga",
   "crs": "EPSG:4326",
@@ -24,6 +24,7 @@
   "limitations": [
     "Rates are at or below the detection floor: the bound IS the result.",
     "Do not present flatness as absence of aquifer stress — it is a compressibility result.",
+    "GUNW posting 80 m: city scale, not building scale.",
     "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack.",
     "Elastic karst: the seasonal amplitude (3.5 mm) is larger than the ~3 mm/yr trend, so |trend| < A_seasonal and the motion is recoverable — this is the mirror image of the inelastic Mexico City case.",
     "MOCK: every number is synthesised by pipeline/generate_mock.py; validate the map and the schema, never the science.",
@@ -52,13 +53,13 @@
   "sensor": "nisar",
   "stats": {
     "detection_limit_mm_yr": 1.5,
-    "median_velocity_mm_yr": -1.36,
-    "n_cells": 2650,
+    "median_velocity_mm_yr": -1.358,
+    "n_cells": 2645,
     "n_context_features": 12,
     "n_dates": 12,
     "n_series_rows": 12,
-    "p05_velocity_mm_yr": -3.52,
-    "p95_velocity_mm_yr": 0.682,
+    "p05_velocity_mm_yr": -3.493,
+    "p95_velocity_mm_yr": 0.664,
     "per_cell_series": {
       "criterion": "aoi aggregate only (default): one row per date per case. Per-cell rows are opt-in (--per-cell-series) and capped at 3 MiB per case",
       "enabled": false,

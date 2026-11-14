@@ -161,7 +161,14 @@ def test_tight_polygon_yields_fewer_cells_than_its_bbox(tmp_path):
             ),
             "looks projected",
         ),
-        ("multipolygon", _feature_collection(TIGHT_RING, geometry_type="MultiPolygon"), "MultiPolygon is unsupported"),
+        # A MultiPolygon is refused even when its parts touch: flattening them into one exterior
+        # ring would count the ground between the parts as inside the AOI. The message must say
+        # that, not just "unsupported", so the export can be fixed.
+        (
+            "multipolygon",
+            _feature_collection(TIGHT_RING, geometry_type="MultiPolygon"),
+            "MultiPolygon is unsupported",
+        ),
         (
             "hole",
             _feature_collection(
@@ -217,6 +224,34 @@ def test_validate_aoi_accepts_a_bare_ring():
     assert ring == tuple(tuple(point) for point in TIGHT_RING)
 
 
+def test_effective_ring_is_closed_lonlat_and_the_case_point_is_inside(tmp_path):
+    """Regression for the containment side of the loader -> `process_case` wiring.
+
+    `aoi_cells()` feeds the ring to `h3.LatLngPoly([(lat, lon) …])`, so a ring stored as
+    `(lat, lon)`, an unclosed ring, or an empty/bbox-derived ring that is not the polygon would put
+    the case's own reference point outside its AOI. In `process_case` that surfaces as the
+    misleading "granules do not intersect the AOI" refusal. Pin the invariant instead: the case
+    reference point is inside, a far-away point and the swapped coordinates are outside.
+    """
+    entry = _config_entry()
+    aoi = A.load_aoi(CASE, entry, aoi_dir=tmp_path / "no-aoi")
+    open_ring = aoi.open_ring()
+
+    assert aoi.ring[0] == aoi.ring[-1], "the loader must return a closed ring"
+    assert len(open_ring) >= 3
+    assert all(-180 <= lon <= 180 and -90 <= lat <= 90 for lon, lat in open_ring), (
+        "the ring is not lon/lat: a projected or swapped ring is not a WGS84 AOI"
+    )
+
+    reference = (float(entry["reference_point"][0]), float(entry["reference_point"][1]))
+    assert A._point_in_ring(reference, open_ring), f"the case reference point {reference} is outside its own AOI"
+    swapped = (reference[1], reference[0])
+    assert not A._point_in_ring(swapped, open_ring), (
+        f"the ring accepts the swapped point {swapped}: the coordinates are lat/lon, not lon/lat"
+    )
+    assert not A._point_in_ring((10.0, 10.0), open_ring), "a point on the other side of the globe is inside"
+
+
 # ---------------------------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------------------------
@@ -263,7 +298,16 @@ def test_cli_json_and_all(tmp_path, capsys):
     assert rc == 0
     all_cases = json.loads(capsys.readouterr().out)
     assert set(all_cases) == {"mexico-city", "jakarta", "malaga"}
-    assert all(entry["source"] == "config/study_cases.yaml:aoi_polygon" for entry in all_cases.values())
+    # With no `config/aoi/` the loader must fall back to the YAML: the inline `aoi_polygon` when
+    # the entry still declares one, otherwise the configured bbox rectangle. It must never invent
+    # a `config/aoi/…` override that this fixture deliberately did not create.
+    for case_id, entry in all_cases.items():
+        expected = (
+            "config/study_cases.yaml:aoi_polygon"
+            if _config_entry(case_id).get("aoi_polygon")
+            else "bbox"
+        )
+        assert entry["source"] == expected, f"{case_id}: unexpected AOI source {entry['source']!r}"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -300,10 +344,15 @@ def test_no_override_reproduces_the_existing_mock_cell_counts(tmp_path):
         )
         assert list(wired.cell_id) == list(baseline.cell_id), f"{case_id}: wired cell ids changed"
 
-    # Published pre-loader snapshot: 13_379 / 4_855 / 2_677 at seed 7. The current workspace also
-    # has a concurrent model.py change that drops water cells; when that tuning is present the
-    # Jakarta/Málaga figures legitimately move, so the stable Mexico City anchor is always asserted.
-    published_snapshot = {"mexico-city": 13_379, "jakarta": 4_855, "malaga": 2_677}
-    if baseline_counts == published_snapshot:
-        assert wired_counts == published_snapshot
-    assert wired_counts["mexico-city"] == 13_379
+    # Published mock snapshot at seed 7 for the current study areas (the OSM-envelope bboxes in
+    # config/study_cases.yaml). It moves only when the study area is redefined; update it in the
+    # same change that moves the bbox, never by deleting the anchor.
+    published_snapshot = {"mexico-city": 11_694, "jakarta": 4_811, "malaga": 2_645}
+    assert baseline_counts == published_snapshot, (
+        "the YAML's bboxes no longer yield the published mock cell counts: "
+        f"{baseline_counts} != {published_snapshot}"
+    )
+    assert wired_counts == published_snapshot, (
+        "wiring the AOI loader changed the published cell counts: "
+        f"{wired_counts} != {published_snapshot}"
+    )

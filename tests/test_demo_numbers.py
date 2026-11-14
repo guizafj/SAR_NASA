@@ -382,3 +382,123 @@ def test_card_is_deterministic_and_fits_the_line_budget(processed: pathlib.Path)
     second = _as_text(processed)
     assert first == second
     assert len(first.splitlines()) <= 60, "the demo card must stay under 60 terminal lines"
+
+
+# ---------------------------------------------------------------------------------------------
+# 9. Coverage: two denominators, one of which the 50 % bar is actually defined on
+# ---------------------------------------------------------------------------------------------
+
+
+def _load_card_module():
+    """Import ``scripts/demo_numbers.py`` itself, for the pure functions the text only renders."""
+    import importlib.util
+
+    name = "demo_numbers_under_test"
+    if name in sys.modules:  # dataclasses needs the module registered to resolve its annotations
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_coverage_publishes_both_denominators_and_names_the_authoritative_one(
+    processed: pathlib.Path,
+) -> None:
+    """The card printed the bbox envelope alone and it was quoted as AOI coverage.
+
+    `docs/first-granule-runbook.md` §4 and `pipeline/process_case.py` measure coverage against the
+    AOI's H3 cells (`aoi_cells`), with h3's default centre containment (not ``'overlap'``). Both
+    figures are now published, each labelled, and the JSON says which one the bar uses.
+    """
+    document = _as_json(processed)
+    text = _as_text(processed)
+    summary = document["coverage_summary"]
+    assert summary["authoritative_denominator"] == "aoi"
+    assert summary["threshold"] == pytest.approx(0.5)
+
+    for case in document["cases"]:
+        coverage = case["coverage"]
+        assert coverage["authoritative_denominator"] == "aoi"
+        aoi, bbox = coverage["aoi"], coverage["bbox"]
+        # The AOI is a polygon inside the bbox envelope: strictly fewer cells, and every grid
+        # cell outside it is data the pipeline drops.
+        assert 0 < aoi["cells"] < bbox["cells"]
+        assert aoi["covered"] <= bbox["covered"]
+        assert aoi["fraction"] == pytest.approx(aoi["covered"] / aoi["cells"])
+        assert bbox["fraction"] == pytest.approx(bbox["covered"] / bbox["cells"])
+        assert coverage["covered_outside_aoi"] == bbox["covered"] - aoi["covered"]
+        assert aoi["below_warning_threshold"] == (aoi["fraction"] < summary["threshold"])
+        assert bbox["below_warning_threshold"] == (bbox["fraction"] < summary["threshold"])
+
+        # Both are on the card, each with an explicit denominator.
+        assert f"coverage_aoi={aoi['fraction']:.2%}" in text
+        assert f"coverage_bbox={bbox['fraction']:.2%}" in text
+        assert f"of {aoi['cells']:,} AOI H3 res-{coverage['h3_resolution']} cells" in text
+        assert f"of {bbox['cells']:,} bbox H3 res-{coverage['h3_resolution']} cells" in text
+
+    assert "COVERAGE VERDICT" in text
+    assert "NOT the threshold denominator" in text
+
+
+def test_the_aoi_denominator_is_the_pipelines_own_aoi_cells(processed: pathlib.Path) -> None:
+    """Re-derive the AOI cell set the same way ``pipeline.process_case`` does, and compare.
+
+    Same ring (`config/aoi/*.geojson` through `load_case_config`), same resolution, same h3
+    containment mode: ``h3.polygon_to_cells`` (centre containment — the pipeline never passes
+    ``contain='overlap'``). A card that quietly measured something else would fail here.
+    """
+    import h3
+
+    sys.path.insert(0, str(ROOT))
+    from pipeline.process_case import aoi_cells, load_case_config  # noqa: PLC0415
+
+    document = _as_json(processed)
+    for case in document["cases"]:
+        cfg = load_case_config(case["case_id"])
+        ring = h3.LatLngPoly([(lat, lon) for lon, lat in cfg.aoi_ring])
+        expected = set(h3.polygon_to_cells(ring, cfg.h3_resolution))
+        assert set(aoi_cells(case["case_id"])) == expected
+        overlap = set(
+            h3.polygon_to_cells_experimental(ring, cfg.h3_resolution, contain="overlap")
+        )
+        assert len(overlap) > len(expected), "the fixture is too small to tell the modes apart"
+        cells = pd.read_parquet(processed / case["case_id"] / "nisar_grid.parquet")["cell_id"]
+        grid = {str(value) for value in cells}
+        coverage = case["coverage"]
+        assert coverage["aoi"]["cells"] == len(expected)
+        assert coverage["aoi"]["covered"] == len(grid & expected)
+        assert coverage["aoi"]["fraction"] == pytest.approx(len(grid & expected) / len(expected))
+
+
+def test_no_city_wide_caveat_is_built_on_the_bbox_envelope(processed: pathlib.Path) -> None:
+    """The do-not-claim list must use the AOI fraction, never the envelope.
+
+    Called directly with a doctored case, because the shipped artefacts leave every case above
+    the bar on the AOI denominator: the failure being guarded is a caveat that names a case as
+    below the bar on the strength of its bbox coverage (Jakarta 47.61 %, Málaga 34.83 %).
+    """
+    import dataclasses
+
+    module = _load_card_module()
+    cases = module.load_case(processed / CASES[0])
+    # Same case, AOI coverage pushed below the bar: the caveat must quote the AOI figure.
+    doctored = dataclasses.replace(
+        cases, aoi_coverage_fraction=0.42, aoi_cells=1_000, covered_in_aoi=420
+    )
+    items = module._do_not_claim([doctored])
+    caveats = [item for item in items if "city-wide" in item]
+    assert caveats, "a case below the AOI bar must produce a city-wide caveat"
+    caveat = caveats[0]
+    assert f"{doctored.case_id} (42.00% of 1,000 AOI cells)" in caveat
+    assert "not the bbox envelope" in caveat
+    assert f"{cases.bbox_coverage_fraction:.2%}" not in caveat
+
+    # And it must stay silent while the AOI coverage clears the bar, whatever the envelope says.
+    assert not [
+        item
+        for item in module._do_not_claim([cases])
+        if "city-wide" in item and (cases.aoi_coverage_fraction >= 0.5)
+    ]

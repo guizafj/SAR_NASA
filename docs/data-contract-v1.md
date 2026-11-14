@@ -276,9 +276,9 @@ manera de escribir "umbral único": el perfil es la única puerta.
 
 | Fuente | CDMX | Jakarta | Málaga |
 |---|---|---|---|
-| NISAR GUNW (ASF) | 102 gránulos, 2025-10 → 2026-10 | 24 gránulos, 2026-06 → 2026-10 | 26 gránulos, 2026-06 → 2026-10 |
+| NISAR GUNW (ASF) | 69 gránulos, 2025-10 → 2026-10 | 25 gránulos, 2026-06 → 2026-10 | 26 gránulos, 2026-06 → 2026-10 |
 | OPERA DISP-S1 (ASF) | **0** | **0** | **0** |
-| Sentinel-1 SLC (5 años) | 250+ gránulos, ~1 TB | 250+ gránulos, ~1.2 TB | 250+ gránulos, ~0.97 TB |
+| Sentinel-1 SLC (5 años) | 250+ gránulos, ~1.07 TB | 250+ gránulos, ~1.18 TB | 250+ gránulos, ~0.96 TB |
 | EGMS | no aplica | no aplica | descarga manual en portal |
 
 Consecuencia: el `product` real de la primera integración es `nisar-gunw` (con la advertencia de

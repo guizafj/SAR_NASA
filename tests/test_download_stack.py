@@ -201,7 +201,8 @@ def test_derive_stacks_groups_by_track_and_flight_direction():
         ("078", "DESCENDING", 3),
         ("012", "ASCENDING", 2),
     ]
-    # min/max reference dates, not the response order
+    # min/max reference dates, not the response order (the epoch window: each granule's secondary
+    # is the partner of an earlier epoch, so it does not extend the range)
     oldest = f"{BASE:%Y-%m-%d}T01:13:29Z"
     assert stacks[0]["date_range"] == [oldest, "2025-12-24T01:13:29Z"]
     assert stacks[2]["date_range"] == [oldest, "2025-11-06T01:13:29Z"]
@@ -473,7 +474,10 @@ def test_33_granule_stack_recommends_a_contiguous_chain():
     references = [parsed.reference_start for parsed in sampled]
     assert references == sorted(references)
     assert recommended["date_range"] == [references[0], references[-1]]
-    assert recommended["full_date_range"] == [ordered_reference(ordered, 0), ordered_reference(ordered, -1)]
+    assert recommended["full_date_range"] == [
+        ordered_reference(ordered, 0),
+        ordered_reference(ordered, -1),
+    ]
     assert local_chain_epochs(recommended["granule_ids"]) == epochs
 
 

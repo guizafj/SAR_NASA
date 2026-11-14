@@ -23,13 +23,13 @@ Reproduce with:
 ```
 
 Raw JSON: `data/processed/_availability/{case}.json` (probe run 2026-11-14, unauthenticated ASF
-SearchAPI, AOI = the bbox of `config/study_cases.yaml`).
+SearchAPI, AOI = the authoritative `config/aoi/{case}.geojson` polygon — 1,498 / 748 / 394 km²).
 
 | Source | Mexico City | Jakarta | Málaga |
 |---|---|---|---|
-| NISAR GUNW | 102 granules · 2025-10-25 → 2026-10-08 | 24 granules · 2026-06-26 → 2026-10-01 | 26 granules · 2026-06-20 → 2026-10-06 |
+| NISAR GUNW | 69 granules · 2025-10-25 → 2026-10-08 | 25 granules · 2026-06-26 → 2026-10-01 | 26 granules · 2026-06-20 → 2026-10-06 |
 | OPERA DISP-S1 | **0** | **0** | **0** |
-| Sentinel-1 SLC (5 y) | 250+ granules · ~1.1 TB | 250+ granules · ~1.2 TB | 250+ granules · ~0.97 TB |
+| Sentinel-1 SLC (5 y) | 250+ granules · ~1.07 TB | 250+ granules · ~1.18 TB | 250+ granules · ~0.96 TB |
 | EGMS | not eligible (non-EU) | not eligible (non-EU) | eligible, manual portal download |
 
 Two facts drive the decision:

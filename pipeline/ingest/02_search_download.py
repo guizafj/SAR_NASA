@@ -42,6 +42,7 @@ import re
 import statistics
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -225,7 +226,9 @@ def _run_epochs(run: list[tuple[str, ParsedGranule]]) -> int:
     return len(epochs)
 
 
-def _connected_runs(members: list[tuple[str, ParsedGranule]]) -> list[list[tuple[str, ParsedGranule]]]:
+def _connected_runs(
+    members: list[tuple[str, ParsedGranule]],
+) -> list[list[tuple[str, ParsedGranule]]]:
     """Split chronologically ordered members into maximal chained runs.
 
     Adjacent members belong to the same run iff the earlier granule's secondary acquisition and
@@ -250,7 +253,9 @@ def _connected_runs(members: list[tuple[str, ParsedGranule]]) -> list[list[tuple
     return runs
 
 
-def _best_download_run(members: list[tuple[str, ParsedGranule]]) -> tuple[list[tuple[str, ParsedGranule]], int]:
+def _best_download_run(
+    members: list[tuple[str, ParsedGranule]],
+) -> tuple[list[tuple[str, ParsedGranule]], int]:
     """The contiguous chain a download should fetch, and how many epochs it gives.
 
     Selection rule. Only *connected* runs count (each granule's secondary acquisition is the next
@@ -275,7 +280,7 @@ def _best_download_run(members: list[tuple[str, ParsedGranule]]) -> tuple[list[t
     runs = _connected_runs(members)
     best = max(
         runs,
-        key=lambda run: (len(run), run[-1][1].reference_start or run[-1][0]),
+        key=lambda run: (_run_epochs(run), run[-1][1].reference_start or run[-1][0]),
     )
     if len(best) > STACK_GRANULE_LIMIT:
         best = best[-STACK_GRANULE_LIMIT:]
@@ -386,6 +391,9 @@ def _download_sample(stack: dict, stacks: list[dict]) -> dict:
     ]
     run, epochs = _best_download_run(members)
     run_ids = [granule_id for granule_id, _ in run]
+    # `date_range` is the EPOCH window: the sequence of reference acquisitions. A granule is a
+    # pair, so its secondary is the partner of an earlier epoch and does not extend the window —
+    # `n_epochs` counts distinct reference days for the same reason.
     starts = [parsed.reference_start for _, parsed in run if parsed.reference_start]
     sample = _public(stack)
     sample.update(
@@ -419,7 +427,10 @@ def _epoch_warning(stack: dict, epochs: int, stacks: list[dict]) -> str | None:
         if other_epochs >= MIN_FIT_POINTS:
             usable.append((other_epochs, other))
     if not usable:
-        return f"{head}. No stack in this report reaches the threshold; re-run `search` over a longer window."
+        return (
+            f"{head}. No stack in this report reaches the threshold; re-run `search` over a "
+            "longer window."
+        )
     other_epochs, other = max(
         usable,
         key=lambda item: (item[0], (item[1].get("date_range") or ["", ""])[1]),
@@ -542,6 +553,16 @@ def summarise(granules: list[dict], requested: int) -> dict:
     published.sort(key=lambda stack: (stack["date_range"] or ["", ""])[1], reverse=True)
     published.sort(key=lambda stack: stack["n_granules"], reverse=True)
     stacks = published[:MAX_STACKS]
+    if chosen is not None and not any(
+        stack.get("sample_purpose") == "download" for stack in stacks
+    ):
+        # Never publish a recommendation that `stacks[]` does not contain: replace the lowest
+        # ranked entry with it (it ranked below the cut, so descending order is preserved) so
+        # the evidence and `download` always resolve to the same granules.
+        recommended_entry = next(
+            stack for stack in published if stack.get("sample_purpose") == "download"
+        )
+        stacks = [*stacks[: max(MAX_STACKS - 1, 0)], recommended_entry]
 
     # Bound the persisted id list without ever dropping a published stack id: each stack keeps
     # its own sample, so its ids span its window and `download` has a url+size record for
@@ -1072,8 +1093,13 @@ def select_stack_granules(
             "no `stacks`/`recommended_stack` in the availability report (legacy schema)",
             "Re-run `search` to persist stacks and bound the fetch to one geometry",
         ]
-        stacks = derive_stacks(all_records)
-        recommended = recommend_stack(stacks)
+        # A legacy report only has the first-three preview: it carries no derived pairing
+        # evidence, so keep the even-sampled preview rather than narrowing to a chain we cannot
+        # vouch for. The connected-run selection applies to reports `search` derived itself.
+        derived = derive_stacks(all_records)
+        stacks = [_public(stack) for stack in derived]
+        chosen = _choose_stack(derived)
+        recommended = _public(chosen) if chosen is not None else None
 
     if not all_records and not stacks:
         raise StackSelectionError(
@@ -1348,6 +1374,91 @@ def sha256(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
+# =============================================================================================
+# Size preflight: the availability report cannot always answer "how many GB?"
+# =============================================================================================
+# ASF's SearchAPI carries `sizeMB` for the archive missions — every Sentinel-1 record in
+# `data/processed/_availability/*.json` has a size, and `total_gb` is populated — but not for
+# NISAR GUNW: all 69 mexico-city NISAR records have `size_mb: null`, hence `total_gb: null`, so
+# the cumulative `--max-gb` preflight summed 0 MB and could never fire (a fail-open guard).
+# The parser is not dropping a field: both sources are read through the same `g.get("sizeMB")`
+# path in `summarise`, only the payloads differ. The size IS still obtainable without
+# credentials: one unauthenticated HEAD on a planned granule URL answers `Content-Length`
+# (verified: HTTP 200, 2 344 615 936 B ≈ 2.34 GB for a NISAR_L2_PR_GUNW PROVISIONAL_V1 file).
+# `--probe-sizes` therefore spends one HEAD per planned granule so the guard can refuse BEFORE
+# the transfer instead of detecting the overrun mid-stream, after bytes have flowed.
+PROBE_LIMIT = STACK_GRANULE_LIMIT  # at most one stack's worth of HEADs, never a crawl
+PROBE_PAUSE_S = 0.2  # politeness between probes; 0 in tests
+
+
+def head_content_length(url: str) -> tuple[int, int | None]:
+    """One unauthenticated `HEAD`; returns `(status, content_length_bytes_or_None)`.
+
+    No credentials, no `Range`, no retry: a 401/403 means the granule is account-gated, so
+    asking again is both useless and impolite. A transport failure is data (`status` 0), not a
+    crash — the budget must never fail open *or* refuse on a probe error.
+    """
+    request = urllib.request.Request(
+        url, method="HEAD", headers={"User-Agent": "SAR_NASA/1.0 ingest"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            raw = response.headers.get("Content-Length")
+            return response.status, int(raw) if raw and raw.isdigit() else None
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        return exc.code, None
+    except Exception:  # noqa: BLE001 - offline/DNS/timeout degrades the plan, never aborts it
+        return 0, None
+
+
+def probe_plan_sizes(plan: list[dict], limit: int = PROBE_LIMIT) -> int:
+    """Fill `size_mb` from `Content-Length` for planned granules the report left sizeless.
+
+    Bounded (accepted items only, at most `limit`), sequential and paused; returns how many
+    URLs were probed. A 401/403 stops the probe instead of hammering the remaining granules.
+    """
+    targets = [
+        item
+        for item in plan
+        if item["size_mb"] is None and item["url"] and item["decision"].accepted
+    ]
+    if not targets:
+        print("  probe: every accepted granule already carries a size; no request made")
+        return 0
+    print(f"  probing sizes: {len(targets)} HEAD request(s), none retried ...")
+    attempted = 0
+    for item in targets[:limit]:
+        status, length = head_content_length(item["url"])
+        attempted += 1
+        label = f"HTTP {status}" if status else "no response"
+        if length:
+            item["size_mb"] = length / 1e6  # ASF's sizeMB is decimal MB; GB = MB / 1000
+            item["size_source"] = "HEAD Content-Length"
+            print(f"  probe {item['granule_id']}: {label}, {length / 1e6:.1f} MB")
+        else:
+            item["size_source"] = "unavailable"
+            print(f"  probe {item['granule_id']}: {label}, no Content-Length — size unknown")
+        if status in (401, 403):
+            print(
+                f"  probe stopped at {label}: these granules are account-gated, so no size can "
+                "be learned without credentials; not retrying"
+            )
+            return attempted
+        if PROBE_PAUSE_S:
+            time.sleep(PROBE_PAUSE_S)
+    if len(targets) > limit:
+        print(
+            f"  probe: {len(targets) - limit} granule(s) not probed (limit {limit}); their size "
+            "stays unknown"
+        )
+    return attempted
+
+
+def _fmt_gb(mb: float) -> str:
+    return f"{mb / 1000:.2f} GB"
+
+
 def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list[dict],
                 max_gb: float) -> None:
     print(f"Download plan for {city} / {source}")
@@ -1355,6 +1466,7 @@ def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list
     for note in notes:
         print(f"  note: {note}")
 
+    unknown = [item for item in plan if item["size_mb"] is None]
     known_mb = sum((item["size_mb"] or 0) for item in plan)
     cumulative_mb = 0.0
     for index, item in enumerate(plan, start=1):
@@ -1369,9 +1481,11 @@ def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list
             f"secondary={decision.parsed.secondary_start}"
         )
         size = item["size_mb"]
-        cumulative_mb += size or 0.0
-        size_text = f"{size:.1f} MB" if size is not None else "unknown size"
-        print(f"        size={size_text}  cumulative={cumulative_mb / 1000:.2f} GB")
+        if size is None:
+            print("        size=UNKNOWN (no size for this granule in the availability report)")
+        else:
+            cumulative_mb += size
+            print(f"        size={size:.1f} MB  cumulative known={_fmt_gb(cumulative_mb)}")
         status = "ACCEPT" if decision.accepted else "REJECT"
         suffix = "" if decision.accepted else f" — {decision.reason}"
         print(f"        status: {status}{suffix}")
@@ -1379,11 +1493,38 @@ def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list
             print(f"        warning: {decision.warning}")
 
     geometry_count = len(plan_geometries(plan))
+    sized = len(plan) - len(unknown)
+    if not sized:
+        known_text = "known size: NONE — no granule in this plan carries a size"
+    elif unknown:
+        known_text = (
+            f"known size {_fmt_gb(known_mb)} — only {sized} of {len(plan)} granule(s); "
+            f"{len(unknown)} UNKNOWN"
+        )
+    else:
+        known_text = f"known size {_fmt_gb(known_mb)}"
     print(
-        f"  plan: {len(plan)} granule(s), {known_mb / 1000:.2f} GB known size, "
-        f"{geometry_count} geometry/geometries, --max-gb {max_gb:.2f} (cumulative, "
-        f"checked before any transfer)"
+        f"  plan: {len(plan)} granule(s), {geometry_count} geometry/geometries, {known_text}"
     )
+    if unknown:
+        print(
+            "  BUDGET CANNOT BE PREFLIGHTED: no size is known for "
+            f"{len(unknown)} of {len(plan)} granule(s), so --max-gb {max_gb:g} will NOT "
+            "refuse before transfer."
+        )
+        print(
+            "  Enforcement is mid-stream only: the transfer stops once a single granule passes "
+            "--max-gb — i.e. AFTER bytes have flowed — and leaves a .part file behind."
+        )
+        print(
+            "  Add --probe-sizes to resolve sizes first: one unauthenticated HEAD per planned "
+            "granule URL, reading Content-Length (NISAR GUNW answers it)."
+        )
+    else:
+        print(
+            f"  budget: --max-gb {max_gb:g} checked against the whole "
+            f"{_fmt_gb(known_mb)} plan before any transfer"
+        )
 
 
 def cmd_download(args: argparse.Namespace) -> int:
@@ -1417,6 +1558,13 @@ def cmd_download(args: argparse.Namespace) -> int:
         )
         return RC_USAGE
 
+    geometries = plan_geometries(plan)
+    plan_is_mixed = len(geometries) > 1 and not args.allow_mixed_geometry
+    if args.probe_sizes and not plan_is_mixed:
+        # After the product/geometry verdicts (never HEAD a granule that will be refused) and
+        # before the budget verdict (so the guard can refuse on a real size, not on 0).
+        probe_plan_sizes(plan)
+
     _print_plan(args.city, args.source, label, notes, plan, args.max_gb)
 
     rejected = [item for item in plan if not item["decision"].accepted]
@@ -1430,8 +1578,7 @@ def cmd_download(args: argparse.Namespace) -> int:
             print(f"  {item['granule_id']}: {item['decision'].reason}", file=sys.stderr)
         return RC_PRODUCT_GUARD
 
-    geometries = plan_geometries(plan)
-    if len(geometries) > 1 and not args.allow_mixed_geometry:
+    if plan_is_mixed:
         print(
             f"REFUSED: this plan mixes acquisition geometries ({len(geometries)} tracks/flight "
             f"directions); relative displacement cannot be compared across them"
@@ -1447,11 +1594,20 @@ def cmd_download(args: argparse.Namespace) -> int:
         )
         return RC_PRODUCT_GUARD
 
+    # Refuse on a KNOWN size only: an unknown size is never a refusal (NISAR GUNW always starts
+    # sizeless, and blocking that would block the real run).
     known_mb = sum((item["size_mb"] or 0) for item in plan)
     if known_mb / 1000 > args.max_gb:
+        unknown_count = sum(1 for item in plan if item["size_mb"] is None)
+        extra = (
+            f" ({unknown_count} granule(s) have no size, so the real total can only be larger)"
+            if unknown_count
+            else ""
+        )
         print(
-            f"planned size {known_mb / 1000:.2f} GB exceeds --max-gb {args.max_gb:g}; "
-            f"refusing before any transfer (raise --max-gb deliberately to fetch it)",
+            f"planned size {known_mb / 1000:.2f} GB exceeds --max-gb "
+            f"{args.max_gb:g}; refusing before any transfer (raise --max-gb deliberately to "
+            f"fetch it){extra}",
             file=sys.stderr,
         )
         return RC_BUDGET_GUARD
@@ -1498,7 +1654,10 @@ def cmd_download(args: argparse.Namespace) -> int:
         if dest.exists():
             print(f"  skip (complete) {dest.name}")
         else:
-            print(f"  get {dest.name} ({item['size_mb']} MB)")
+            size_text = (
+                f"{item['size_mb']:.1f} MB" if item["size_mb"] is not None else "unknown size"
+            )
+            print(f"  get {dest.name} ({size_text})")
             try:
                 written = download_one(url, dest, max_bytes, user, pwd, session=session)
             except AuthError as exc:
@@ -1527,6 +1686,7 @@ def cmd_download(args: argparse.Namespace) -> int:
                 "city": args.city,
                 "source": args.source,
                 "max_gb": args.max_gb,
+                "size_probe": args.probe_sizes,
                 "stack": label,
                 "retrieved_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "earthdata_user": user,
@@ -1587,7 +1747,19 @@ def main(argv: list[str] | None = None) -> int:
         help="recommended (largest single geometry) | a track number | all (mixes tracks, "
         "refused by the geometry guard)",
     )
-    p_dl.add_argument("--max-gb", type=float, default=2.0)
+    p_dl.add_argument(
+        "--max-gb",
+        type=float,
+        default=2.0,
+        help="budget in GB: refuses a plan whose KNOWN size exceeds it, before any transfer; an "
+        "unknown size never refuses (add --probe-sizes to make the preflight real)",
+    )
+    p_dl.add_argument(
+        "--probe-sizes",
+        action="store_true",
+        help="resolve sizes the availability report lacks with one unauthenticated HEAD per "
+        "planned granule (Content-Length), so --max-gb can refuse before any transfer",
+    )
     p_dl.add_argument("--raw", default="data/raw")
     p_dl.add_argument("--availability", default="data/processed/_availability")
     p_dl.add_argument(

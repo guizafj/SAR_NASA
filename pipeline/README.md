@@ -52,7 +52,7 @@ Per case under `data/processed/<case>/` (contract §1 names `data/processed/{cas
 Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path), never `.venv/bin/python`.
 
 ```bash
-# 1 regenerate the mock (seed 7, all cases, 1.61 MB total)
+# 1 regenerate the mock (seed 7, all cases, 1.458 MB total)
 ./scripts/python.sh pipeline/generate_mock.py
 # 2 validate the artefacts on disk (fail-closed: zero cases is a FAIL)
 ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed
@@ -74,7 +74,7 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 ./scripts/check_phase_a.sh
 ```
 
-Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.610 MB.
+Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.458 MB.
 
 ## 5. Provenance chain
 
@@ -99,17 +99,17 @@ hashes sorted granule file stems — neither hashes file bytes.
 
 Reproduce it: `./scripts/python.sh -c "import math; from pipeline.science import transforms as V; print(round(V.vertical_from_los(0.2384/(4*math.pi)*1e3,39,192),2))"` → `24.41`.
 
-Mexico City at −420 mm/yr is −13.8 mm LOS (≈ −17.8 mm vertical) in a 12-day pair, ≈ 0.12 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13).
+Mexico City at −420 mm/yr is −13.8 mm vertical in a 12-day pair, ≈ 0.09 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13).
 
 Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprinted by `./scripts/check_phase_a.sh`; seed 7, 12 dates 2026-07-02 → 2026-11-11, product `mock`):
 
 | case | cells | median mm/yr | p05 | size |
 |---|---:|---:|---:|---:|
-| `mexico-city` | 13,379 | −54.7 | −223.3 | 1.01 MB |
+| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.86 MB |
 | `jakarta` | 4,811 | −25.4 | −141.9 | 0.38 MB |
-| `malaga` | 2,650 | −1.4 | −3.5 | 0.22 MB |
+| `malaga` | 2,645 | −1.4 | −3.5 | 0.22 MB |
 
-Coherence 0.35–0.95 (0.43–0.95 in Mexico City) and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
+Coherence 0.35–0.95 (0.44–0.95 in Mexico City) and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
 
 ## 7. Known limits and unverified parts
 
@@ -120,7 +120,7 @@ Coherence 0.35–0.95 (0.43–0.95 in Mexico City) and 6 `land_use` classes in e
 5. **Sign and heading conventions need GNSS validation**: ISCE2, MintPy and SNAP disagree on azimuth origin and on which LOS direction is positive (README §6, `transforms.los_to_vertical`); target < 5 mm/yr RMSE (README §13). `process_case` writes "NOT yet validated against GNSS" into `provenance.method` on purpose.
 6. **One geometry only**: `v_north ≈ 0` is an assumption, residual `tanθ·sinα·v_north`, east unconstrained, no asc/desc pairing (`transforms.los_to_vertical`).
 7. **Nothing has run on real data**: no download (no credentials), no real granule read, no coverage number; real-path evidence is synthetic fixtures only.
-8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor and returned spans are ~12 months (Málaga 2025-10-18 → 2026-11-08), not 5 years.
+8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor and returned spans are ~12 months (Málaga 2025-11-18 → 2026-11-13), not 5 years. The window slides with every probe, so treat those endpoints as an example rather than a fact about the archive.
 
 ## 8. Where to look next
 

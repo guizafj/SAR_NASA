@@ -1,9 +1,9 @@
 {
   "bbox": [
-    106.7,
-    -6.4,
-    107.0,
-    -6.1
+    106.685636,
+    -6.3744575,
+    106.973975,
+    -6.069999999999999
   ],
   "case_id": "jakarta",
   "crs": "EPSG:4326",
@@ -24,6 +24,7 @@
   "limitations": [
     "Not the capital-planning case: ground truth is fragmented across agencies.",
     "Coastal: inundation, not just subsidence, drives the story.",
+    "GUNW posting 80 m: city scale, not building scale.",
     "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack.",
     "MOCK: every number is synthesised by pipeline/generate_mock.py; validate the map and the schema, never the science.",
     "Mock geography (coastline, lake, river, corridor, POIs) is invented in pipeline/mock/geography.py and labelled as mock in every context feature."
