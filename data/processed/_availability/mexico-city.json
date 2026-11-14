@@ -1,0 +1,173 @@
+{
+  "contract_version": "1.0",
+  "city": "mexico-city",
+  "name": "Mexico City, MX",
+  "aoi_bbox": [
+    -99.35,
+    19.2,
+    -98.85,
+    19.65
+  ],
+  "crs": "EPSG:32614",
+  "generated_utc": "2026-11-14T14:36:07Z",
+  "sources": {
+    "nisar_gunw": {
+      "attempted": true,
+      "endpoint": "https://api.daac.asf.alaska.edu/services/search/param",
+      "query": {
+        "platform": "NISAR",
+        "processingLevel": "GUNW"
+      },
+      "http_status": 200,
+      "available": true,
+      "error": null,
+      "coverage_note": "NISAR GUNW is provisional and cryosphere-derived; urban coverage is NOT guaranteed (README \u00a77). An intersecting granule must be verified visually before use.",
+      "n_granules": 102,
+      "n_granules_truncated": false,
+      "date_range": [
+        "2025-10-25T01:13:29Z",
+        "2026-10-08T01:13:29Z"
+      ],
+      "total_bytes": null,
+      "total_gb": null,
+      "sample_granules": [
+        {
+          "id": "NISAR_L2_PR_GUNW_032_113_D_079_033_4000_SH_20261008T011329_20261008T011403_20261020T011329_20261020T011403_P05023_N_F_J_001",
+          "start": "2026-10-08T01:13:29Z",
+          "stop": "2026-10-20T01:14:03Z",
+          "size_mb": null,
+          "url": "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GUNW_PROVISIONAL_V1/NISAR_L2_PR_GUNW_032_113_D_079_033_4000_SH_20261008T011329_20261008T011403_20261020T011329_20261020T011403_P05023_N_F_J_001/NISAR_L2_PR_GUNW_032_113_D_079_033_4000_SH_20261008T011329_20261008T011403_20261020T011329_20261020T011403_P05023_N_F_J_001.h5",
+          "flight_direction": "DESCENDING",
+          "polarization": null
+        },
+        {
+          "id": "NISAR_L2_PR_GUNW_032_113_D_078_033_4000_SH_20261008T011255_20261008T011330_20261020T011255_20261020T011330_P05023_N_F_J_001",
+          "start": "2026-10-08T01:12:55Z",
+          "stop": "2026-10-20T01:13:30Z",
+          "size_mb": null,
+          "url": "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GUNW_PROVISIONAL_V1/NISAR_L2_PR_GUNW_032_113_D_078_033_4000_SH_20261008T011255_20261008T011330_20261020T011255_20261020T011330_P05023_N_F_J_001/NISAR_L2_PR_GUNW_032_113_D_078_033_4000_SH_20261008T011255_20261008T011330_20261020T011255_20261020T011330_P05023_N_F_J_001.h5",
+          "flight_direction": "DESCENDING",
+          "polarization": null
+        },
+        {
+          "id": "NISAR_L2_PR_GUNW_032_091_A_012_033_4000_SH_20261006T115752_20261006T115826_20261018T115752_20261018T115827_P05023_N_F_J_001",
+          "start": "2026-10-06T11:57:52Z",
+          "stop": "2026-10-18T11:58:27Z",
+          "size_mb": null,
+          "url": "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GUNW_PROVISIONAL_V1/NISAR_L2_PR_GUNW_032_091_A_012_033_4000_SH_20261006T115752_20261006T115826_20261018T115752_20261018T115827_P05023_N_F_J_001/NISAR_L2_PR_GUNW_032_091_A_012_033_4000_SH_20261006T115752_20261006T115826_20261018T115752_20261018T115827_P05023_N_F_J_001.h5",
+          "flight_direction": "ASCENDING",
+          "polarization": null
+        }
+      ],
+      "platforms": [
+        "NISAR"
+      ],
+      "deltas_available": true
+    },
+    "opera_disp_s1": {
+      "attempted": true,
+      "endpoint": "https://api.daac.asf.alaska.edu/services/search/param",
+      "query": {
+        "platform": "OPERA-S1",
+        "processingLevel": "DISP-S1"
+      },
+      "http_status": 200,
+      "available": false,
+      "error": null,
+      "coverage_note": "OPERA DISP-S1 is the calibrated, ready-made velocity product when it exists; it is the preferred build-time fallback for city-scale displacement.",
+      "n_granules": 0,
+      "n_granules_truncated": false,
+      "date_range": null,
+      "total_bytes": null,
+      "total_gb": null,
+      "sample_granules": [],
+      "platforms": [],
+      "deltas_available": false
+    },
+    "sentinel1_slc": {
+      "attempted": true,
+      "endpoint": "https://api.daac.asf.alaska.edu/services/search/param",
+      "query": {
+        "platform": "SENTINEL-1A,SENTINEL-1B,SENTINEL-1C",
+        "processingLevel": "SLC",
+        "start": "2019-01-01T00:00:00Z",
+        "end": "2035-12-31T23:59:59Z"
+      },
+      "http_status": 200,
+      "available": true,
+      "error": null,
+      "coverage_note": "SLC here means an HyP3 on-demand InSAR stack is *possible* (needs an Earthdata login and credits); 5-year window, S1C included.",
+      "n_granules": 250,
+      "n_granules_truncated": true,
+      "date_range": [
+        "2025-12-09T12:34:00Z",
+        "2026-11-11T12:33:15Z"
+      ],
+      "total_bytes": 1122133785322,
+      "total_gb": 1095.83,
+      "sample_granules": [
+        {
+          "id": "S1C_IW_SLC__1SDV_20261111T123315_20261111T123342_010289_0148C5_6171",
+          "start": "2026-11-11T12:33:15Z",
+          "stop": "2026-11-11T12:33:42Z",
+          "size_mb": 4433.0596380233765,
+          "url": "https://datapool.asf.alaska.edu/SLC/SC/S1C_IW_SLC__1SDV_20261111T123315_20261111T123342_010289_0148C5_6171.zip",
+          "flight_direction": "DESCENDING",
+          "polarization": "VV+VH"
+        },
+        {
+          "id": "S1C_IW_SLC__1SDV_20261109T003930_20261109T003957_010253_0147A1_46D0",
+          "start": "2026-11-09T00:39:30Z",
+          "stop": "2026-11-09T00:39:57Z",
+          "size_mb": 4421.894760131836,
+          "url": "https://datapool.asf.alaska.edu/SLC/SC/S1C_IW_SLC__1SDV_20261109T003930_20261109T003957_010253_0147A1_46D0.zip",
+          "flight_direction": "ASCENDING",
+          "polarization": "VV+VH"
+        },
+        {
+          "id": "S1C_IW_SLC__1SDV_20261106T122511_20261106T122538_010216_01466B_A4C3",
+          "start": "2026-11-06T12:25:11Z",
+          "stop": "2026-11-06T12:25:38Z",
+          "size_mb": 4412.095500946045,
+          "url": "https://datapool.asf.alaska.edu/SLC/SC/S1C_IW_SLC__1SDV_20261106T122511_20261106T122538_010216_01466B_A4C3.zip",
+          "flight_direction": "DESCENDING",
+          "polarization": "VV+VH"
+        }
+      ],
+      "platforms": [
+        "Sentinel-1A",
+        "Sentinel-1C"
+      ],
+      "deltas_available": false
+    },
+    "egms": {
+      "attempted": false,
+      "endpoint": "https://egms.land.copernicus.eu",
+      "query": null,
+      "http_status": null,
+      "available": null,
+      "n_granules": null,
+      "date_range": null,
+      "total_bytes": null,
+      "sample_granules": [],
+      "deltas_available": false,
+      "coverage_note": "not eligible: EGMS covers EU member states only.",
+      "error": null,
+      "manual": true
+    }
+  },
+  "chosen_source": "NISAR_L2_GUNW",
+  "chosen_reason": "nisar_gunw: 102 granules intersecting the AOI",
+  "provenance": {
+    "source": "NISAR_L2_GUNW",
+    "processing": "NISAR L2 GUNW (unwrapped interferogram) > MintPy network inversion",
+    "atmosphere": "none",
+    "retrieved_utc": "2026-11-14T14:36:07Z",
+    "reference": "Herrera-Garc\u00eda et al. 2021, doi:10.1126/science.abb8549"
+  },
+  "recommendations": [
+    "NISAR GUNW intersects the AOI (102 granules, 2025-10-25T01:13:29Z .. 2026-10-08T01:13:29Z); verify the interferogram actually covers the urban footprint before committing to a 12-day coherence threshold.",
+    "No OPERA DISP-S1 for this AOI: fall back to HyP3 SLC pairs or the mock layer.",
+    "Sentinel-1 SLC archive present (250 granules in the 5-y window) \u2192 an HyP3 on-demand stack is feasible (6-day revisit: do NOT pool coherence thresholds with NISAR's 12-day)."
+  ]
+}
