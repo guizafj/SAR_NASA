@@ -1,24 +1,34 @@
 # Three Cities, One Pump
 
-**An interactive SAR change & subsidence explorer — NISAR + Sentinel-1.**
+**An interactive SAR subsidence & land-change explorer — NISAR + Sentinel-1.**
 
-NASA Space Apps Challenge 2026 — *Dancing with the SARs*
+NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 **Deliverable: a deployed web application**, not a report.
+
+> **Status — 2026-11-14, hour 0 of 48.** Data contract **v1.0 frozen** and enforced by tests.
+> Real-source availability **verified against ASF** (see §5). Mock artefacts, the artifact
+> validator and the app shell are the next three blockers.
+>
+> **Language.** This README is the entry point (English). The operative role/workflow document
+> [`flujo_trabajo_y_responsabilidades.md`](flujo_trabajo_y_responsabilidades.md) is in Spanish and
+> prevails on anything about responsibilities, branches and phases; the data contract itself lives
+> in [`docs/data-contract-v1.md`](docs/data-contract-v1.md) and `src/domain/contracts.py`.
 
 ---
 
 ## 1. What it is
 
-A browser app that lets anyone scrub through time, watch three cities sink, and see what else is
-changing on that ground — then understand why one city barely moves at all.
+A web app that lets anyone scrub through time, watch three cities sink, and understand why one of
+them barely moves at all.
 
 | Capability | What the user does |
 |---|---|
-| **Time scrub** | Drag a slider across acquisition dates; backscatter and velocity layers animate |
-| **Before/after** | Swipe-compare two dates in the same viewport |
-| **Click to interrogate** | Click any pixel → displacement time series, regime label, quality |
-| **Compare mode** | Three cities side-by-side on **one shared colour scale** |
-| **Change pins** | Auto-detected, vectorized disturbance events — clickable evidence cards |
+| **Time scrub** | Drag a date slider; maps, KPIs and charts update together |
+| **Click to interrogate** | Click a cell → displacement series, trend, quality |
+| **Compare mode** | Three cities on **one shared colour scale** |
+| **Filter** | Coherence, land use, risk level, critical-velocity threshold |
+| **Evidence** | Every layer shows its unit, source, date range and revisit interval |
+| **Learn** | An educational tab explains NISAR, what SAR measures, and what it cannot |
 
 ### The thesis the app must make visible
 
@@ -28,328 +38,185 @@ Subsidence is set by **interbed compressibility**, not by how much water is pump
 |---|---|---|---|
 | Aquifer | Lacustrine clay, closed basin | Deltaic soft clay, coastal | Thin detrital cover, confined karst |
 | Regime | Mostly **inelastic** | Mixed | Mostly **elastic** |
-| Subsidence | **−45 cm/yr** | ~5 cm/yr avg; >1 m cumulative | mm–cm/yr |
+| Subsidence | **−45 cm/yr** (published) | ~5 cm/yr avg; >1 m cumulative | mm–cm/yr |
 | Failure mode | Land loss, faulting, drainage inversion | Inundation, capital relocation | Salinization, reservoir depletion |
 
-> **The product insight:** with a shared legend, Málaga renders nearly flat. **That blankness is
-> the finding** — and it is a UI decision, not a paragraph.
+> **The product insight:** on a shared legend, Málaga renders nearly flat. **That blankness is the
+> finding** — and it is a data decision (one scale, honest units, published detection limit), not a
+> paragraph of prose.
 
 ---
 
-## 2. App specification
+## 2. Scope: what we build in 48 h, and what we refuse to build
 
-### Views
+### In scope
 
-| # | View | Content | Key interaction |
-|---|---|---|---|
-| 1 | **Compare** (hero) | 3 city maps, synchronized | Shared/independent legend toggle; one global date slider |
-| 2 | **City** | Velocity map + sampled time series | Click-to-sample; layer toggles; opacity |
-| 3 | **Flipbook** | Raw SAR backscatter (GCOV) per date | Date scrub, swipe divider, play/pause |
-| 4 | **Trends** | Secular vs seasonal decomposition; reservoir + head charts | Linked brushing across charts and map |
-| 5 | **Change** | Coherence-loss / amplitude-change **event pins** | Click pin → evidence card; filter by type; table view |
+- **One primary case executed properly** (+ a second site pre-loaded if time allows); Málaga is the
+  declared **negative control**, and its null result ships with its detection limit.
+- A **documented, reproducible offline Python pipeline** that uses real NISAR L2 products, or a
+  **declared fallback source** recorded in `provenance`.
+- A **modular Streamlit app**: 2D/3D map, reactive KPIs, time series, filters, educational tab.
+- **Full traceability**: every number carries source, sensor, product, unit, dates and method.
 
-### Interaction contract
+### Out of scope (do not spend time here)
 
-- **Every visual encodes a number with a stated unit and source.** No unlabelled colour.
-- **Provenance badge on every layer** — dataset, date range, method, revisit interval.
-- **Shareable state** via URL hash: `#city=jakarta&layer=velocity&t=2026-03-04&scale=shared`
-- **Deterministic demo** — no live compute on the critical path (see §3).
+- ❌ Live HDF5 download/processing on click or on app start.
+- ❌ Raw L1 (`RSLC`) InSAR processing with ISCE2 when L2 or a processed product exists.
+- ❌ **PMTiles, CDN, MapLibre/deck.gl** as MVP requirements. The static Option B architecture is
+  documented and reproducible later (`docs/route-contract.md`) because the data contract does not
+  change when we migrate — but it is **not** on the critical path tonight.
+- ❌ PostgreSQL/PostGIS, a separate FastAPI backend, user authentication.
 
----
+### Cut lines, in order
 
-## 3. Architecture — precompute everything, ship static
-
-The highest-risk failure in a 48 h demo is *live InSAR processing*. So the pipeline runs
-**offline**, emits static artefacts, and the app is a static site.
-
-```
-┌──────────────────────────┐        ┌────────────────────┐        ┌──────────────────┐
-│  Offline pipeline (py)   │  ───▶  │  Static artefacts  │  ───▶  │  Browser (SPA)   │
-│  ASF/HyP3 → ISCE2/MintPy │        │  COG · PMTiles     │        │  MapLibre+deck   │
-│  → velocity, events, ts  │        │  JSON · PNG chips  │        │  no backend      │
-└──────────────────────────┘        └────────────────────┘        └──────────────────┘
-```
-
-**Why:** no server, no CORS pain, no cold-start, no token expiry mid-judging. Deploys to
-GitHub Pages / Netlify / S3.
-
-### Artefacts emitted per city
-
-```jsonc
-// meta.json
-{
-  "city": "mexico-city",
-  "bbox": [-99.35, 19.20, -98.85, 19.65],
-  "crs": "EPSG:32614",
-  "dates": ["2026-01-12", "2026-01-24", "..."],
-  "reference_point": [-99.13, 19.43],
-  "revisit_days": 12,                 // 12 = NISAR, 6 = Sentinel-1
-  "layers": {
-    "velocity":  { "src": "pmtiles://vel.pmtiles", "unit": "mm/yr", "range": [-450, 50],
-                   "provenance": "Sentinel-1 PS-InSAR 2015-2020, 6-day" },
-    "coherence": { "src": "pmtiles://coh.pmtiles", "unit": "-", "range": [0, 1] },
-    "backscatter": { "src": "pmtiles://bs/{date}.pmtiles", "unit": "dB", "range": [-25, 5] },
-    "change":    { "src": "pmtiles://chg.pmtiles", "unit": "-", "range": [0, 1] },
-    "events":    { "src": "pmtiles://events.pmtiles", "geom": "polygon",
-                   "thresholds": { "k_gamma": 2.5, "min_ddB": 3.0, "mmu_m2": 500 } }
-  },
-  "series": "series/{z}/{x}/{y}.json",
-  "stats": { "median_vel": -128, "p95_vel": -450, "compaction_m3_yr": 6.0e7,
-             "n_events": 412 }
-}
-```
-
-**Tiling rule of thumb.** A 50 × 50 km city at 10 m ≈ 5000² px. Do **not** ship one raster:
-pre-generate a tile pyramid at **z8–z14**, and encode velocity as quantised int16 with the
-`range` from `meta.json` so tiles stay small and the legend stays honest.
+1. Change-event pins → 2. third city → 3. everything except Málaga via EGMS.
+**Never cut:** `provenance`.
 
 ---
 
-## 4. Change detection & event pins
+## 3. Architecture — compute offline, ship artefacts, render in Streamlit
 
-Coherence tells you *something changed*; amplitude change tells you *what kind*. Together they
-form a small, physically-defensible classifier — no unexplainable model.
-
-### The two observables
+The highest-risk failure mode in a 48 h demo is *live InSAR*. So the heavy work happens **before**
+the app starts, and the app only reads small local artefacts.
 
 ```
-coherence   γ = |Σ s₁s₂*| / sqrt(Σ|s₁|² · Σ|s₂|²)        (L looks)
-amplitude   ΔdB = 10·log₁₀(A₂/A₁)
+┌──────────────────────────────────────────────────────────────┐
+│ LAYER 1 — OFFLINE PIPELINE            (yuls, Rol 3)          │
+│                                                              │
+│  ASF / EGMS / HyP3                                           │
+│        ↓  discover + download (resumable, size-guarded)      │
+│  clip → reproject → physical conversion → quality filter     │
+│        ↓  H3 res 9 aggregation, GIS enrichment               │
+│  nisar_grid.parquet · timeseries.csv                         │
+│  context_layers.geojson · meta.json        ← FROZEN contract │
+└──────────────────────────┬───────────────────────────────────┘
+                           │  stable, versioned data interface
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ LAYER 2 — STREAMLIT APP      (pozo Rol 1 + fradiaz Rol 2)    │
+│                                                              │
+│  loaders → validation → filters → map → KPIs → charts        │
+│                                                              │
+│  No NASA downloads. No heavy processing. No science in the UI │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Joint classification
+**Why this shape:** no server to fall over, no cold start mid-judging, no token expiry, and the
+frontend never blocks on the pipeline — the mock respects the same schema, so swapping mock for
+real data is a file replacement, not a code change.
 
-| Δγ | ΔdB | Type | In a city, means |
-|---|---|---|---|
-| ↓↓ | ↑↑ | `construction` | new buildings, extensions, corner reflectors |
-| ↓↓ | ↓↓ | `demolition` / `flood` | cleared plots, excavation, inundation |
-| ↓↓ | ↔ | `tillage` / `veg_change` | surface reorganisation, same roughness |
-| ↔ | ↑↑ | `densification` | gradual infill, geometry stable |
-| ↑ | ↑ | `stabilisation` | freshly built → settled |
+### Layer rules (enforced by the contract and by review)
 
-### Detection pipeline
+- `app.py` only composes; no science, no file parsing logic inline.
+- The pipeline **never** imports Streamlit.
+- The UI **never** computes a geospatial quantity: if a number is not in an artefact, it does not
+  exist.
+- Scientific parameters (thresholds, units, revisit intervals) live in `src/domain/contracts.py`
+  and `meta.json`, never duplicated in a component.
 
-```
-1. Co-register; common-band filter if mixing sensors
-2. Coherence, bias-corrected:  γ_corr = sqrt((L·γ̂² − 1)/(L − 1)),  valid for γ̂ > 1/√L
-3. Robust per-pixel z-score vs own temporal distribution:
-       z = (γ_t − median_t γ) / (1.4826 · MAD_t γ)
-4. Flag:   (z_γ < −k)  AND  (|ΔdB| > a)
-5. Persistence: flagged in ≥ m of n consecutive pairs      ← main false-positive killer
-6. Morph open/close → connected components → drop < MMU (~500 m²)
-7. Polygonize → classify → emit events.pmtiles + chips
-```
+---
 
-**Never threshold absolute γ.** Urban γ varies with perpendicular baseline, season, humidity and
-land cover. Per-pixel robust z-scores self-calibrate.
+## 4. Data contract v1.0 — frozen
 
-### Event record (per pin)
+Four artefacts per case, under `data/processed/`. This is the whole interface between pipeline and
+app; it is versioned, validated in code and locked by a regression suite.
 
-```jsonc
-{
-  "id": "mex-00312",
-  "type": "construction",
-  "area_m2": 1840,
-  "centroid": [-99.0412, 19.5127],
-  "first_date": "2026-02-05", "last_date": "2026-03-17", "n_dates": 3,
-  "d_gamma": -0.42, "d_amp_db": 5.8, "confidence": 0.81,
-  "landcover": "urban", "buildings_overlap": 2,
-  "chips": ["chips/mex-00312_pre.png", "chips/mex-00312_post.png"],
-  "series_cell": [12, 1145, 1650]
-}
-```
-
-**Chips are pre-rendered PNG crops** — the popup loads instantly with zero client-side raster work.
-
-### The click → evidence card
-
-| Element | Source |
+| Artefact | Contents |
 |---|---|
-| Before/after SAR chips | `chips` |
-| Δγ, ΔdB with units + thresholds | `d_gamma`, `d_amp_db`, `meta.thresholds` |
-| Type + confidence | classifier |
-| Date range + persistence | `first_date`, `n_dates` |
-| Mini displacement series for that cell | `series_cell` → §3 query path |
-| "2 buildings inside" | `buildings_overlap` |
-| Provenance + revisit interval | `meta.json` |
+| `nisar_grid.parquet` | One row per H3 res-9 cell (~200 m): `cell_id`, `lat`, `lon`, `val_t1`, `val_t2`, `delta_change` (mm, cumulative), `velocity_mm_yr`, `coherence`, `land_use`, `risk_level`, `case_id`, `sensor`, `product`, `unit`, `velocity_unit`, `source`, `acquisition_date`, `provenance_id` |
+| `timeseries.csv` | `case_id`, `cell_id` (`"aoi"` = aggregate, H3 index = drill-down), `date`, `value` (mm), `unit`, `sensor`, `product`, `quality`, `provenance_id` |
+| `context_layers.geojson` | `FeatureCollection` in EPSG:4326: land use, infrastructure, hydrology, boundaries — each feature carries `layer`, `class`, `case_id`, `crs`, `source`, `provenance_id` |
+| `meta.json` | `schema_version`, `case_id`, `name`, `bbox`, `crs`, `reference_point`, `dates`, `revisit_days`, `sensor`, `product`, `thresholds`, `provenance`, `stats`, `limitations`, `null_policy` (nested objects `thresholds{}`/`provenance{}`/`stats{}`; `limitations` is a list) |
 
-Pin colour = `type`, size = `area_m2`, clustered at low zoom. Click → fly-to + side panel, and the
-URL becomes `#event=mex-00312`. Keyboard-focusable pins with `aria-label`; **table fallback view**
-so the dataset is queryable and accessible.
+Normative details: **[`docs/data-contract-v1.md`](docs/data-contract-v1.md)**.
+Source of truth (code): **[`src/domain/contracts.py`](src/domain/contracts.py)**.
 
-### False positives to suppress
+### What "frozen" costs and buys
 
-| Cause | Mitigation |
+| | |
 |---|---|
-| Moisture / rainfall | persistence + amplitude sign |
-| Crop phenology | mask by land cover (exclude cropland) |
-| Baseline decorrelation | keep B⊥ < critical/2 |
-| Layover / shadow | mask by common layover-shadow layer |
-| Thermal dilation | require ΔdB; low confidence for single-date |
+| Version | `1.0`, revision 1, frozen 2026-11-14 |
+| Fingerprint | `049376b0…` (`contract_fingerprint()`) |
+| Changing it | bump `SCHEMA_VERSION` + `CHANGELOG` entry + PR section `Impacto sobre el contrato:` + review by all three roles |
+| Enforced by | 61 tests; any silent rename, retype or enum drift fails CI |
 
-Validate ~50 events against OSM edits / historical imagery / Copernicus EMS and report precision.
+Four rules that exist because they were ambiguous in the source documents:
 
-> **⚠️ NISAR recalibration.** NISAR's **12-day** revisit yields systematically lower coherence
-> than Sentinel-1's 6-day. **Every threshold above must be re-tuned per sensor** — a
-> `k=2.5, γ=0.4` setting derived from Sentinel-1 will behave differently on NISAR. L-band's win
-> is penetration: 24 cm detects change *under* canopy (Axarquía groves, CDMX conservation land)
-> where C-band decorrelates entirely.
+1. **Cumulative vs rate.** `delta_change` is cumulative **mm**; the rate lives in `velocity_mm_yr`.
+   One field cannot honestly be both.
+2. **Product is declared, not assumed.** Closed enum, and it must be the product actually used —
+   `nisar-gunw` or `mock` tonight (§5). Labelling mock data `opera-disp-s1` would be a lie.
+3. **Nothing is pooled across sensors.** Thresholds and `revisit_days` are per
+   `(sensor, product)`; NISAR's 12-day coherence is not Sentinel-1's 6-day coherence.
+4. **No sentinel values.** A cell without data is **absent**; it is never written as `0`. In
+   Málaga, zero is a legitimate velocity and confusing it with nodata destroys the message.
+
+### Validate it
+
+```bash
+./scripts/python.sh -m src.domain.contracts           # self-check: positives + negatives
+./scripts/python.sh -m pytest tests -q                # 61 tests, ~1.3 s
+./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed   # step 2, planned
+```
 
 ---
 
-## 5. Team & labour division
+## 5. Data sources — and what we actually verified
 
-Three people, three verticals, one shared contract. The architecture (§3) is what makes the split
-clean: **yuls produces artefacts, pozo serves them, fradiaz renders them.**
+`✓` = live-checked. All open/free unless noted.
 
-| Member | Role | Owns | Ships |
-|---|---|---|---|
-| **yuls** | Geospatial & visualization lead | SAR ingest, InSAR, metrics, tiles, **change detection**, cartography, colour scales | `pipeline/`, all artefacts, layer styling + legend |
-| **pozo** | Backend & infrastructure | Serving, build orchestration, CI/CD, caching, deploy, route contract | `serve/`, `deploy/`, CI, publish step |
-| **fradiaz** | Frontend & interaction | SPA shell, map wiring, slider, charts, **pins + evidence card**, URL state, a11y | `app/src/{ui,state,charts}`, the 5 views |
-
-### Ownership detail
-
-**yuls — geospatial**
-- `asf_search` → HyP3/OPERA/EGMS ingest; ISCE2+MintPy where needed
-- LOS→vertical, harmonic decomposition, velocity/gradient/volume metrics
-- Coherence/amplitude z-scores, persistence, MMU, event polygons, chips
-- COG + PMTiles pyramids at z8–z14; series JSON tiling
-- Colour scale design — incl. the **global shared scale** that makes Málaga look flat
-
-**pozo — backend**
-- Static artefact hosting + CDN/cache headers
-- Build orchestration: run `pipeline/` on CI, publish on success
-- The **route contract** and its validation
-- Deployment, uptime, "does the demo URL work at 4 a.m."
-
-**fradiaz — frontend**
-- MapLibre GL JS + deck.gl layer hierarchy; raster re-tiling on zoom
-- Date slider, swipe divider, play/pause; charts (uPlot/Observable Plot)
-- Event pins, popup/evidence card, type filters, table view
-- URL-hash state; linked brushing; the **shared/independent legend toggle**
-- Keyboard access, mobile layout, loading/empty/error states
-
-### Interface contracts — freeze on Day 0
-
-**1. `meta.json`** — yuls defines → pozo serves → fradiaz consumes (§3)
-
-**2. `series/{z}/{x}/{y}.json`** — yuls produces → fradiaz renders
-
-```jsonc
-{
-  "city": "mexico-city", "cell": [12, 1145, 1650], "n_pixels": 842,
-  "dates": ["2026-01-12", "2026-01-24", "2026-02-05"],
-  "displacement_mm": [0, -3.1, -7.4],
-  "coherence": [0.82, 0.79, 0.81],
-  "fit": { "trend_mm_yr": -128, "seasonal_amp_mm": 9.4, "r2": 0.91 },
-  "regime": "inelastic", "quality": "good"
-}
-```
-
-**3. HTTP routes** — pozo defines → fradiaz consumes
-
-```
-GET /{city}/meta.json
-GET /{city}/vel.pmtiles
-GET /{city}/coh.pmtiles
-GET /{city}/bs/{date}.pmtiles
-GET /{city}/events.pmtiles          # vector, polygon geom
-GET /{city}/series/{z}/{x}/{y}.json
-GET /{city}/chips/{event_id}_{pre|post}.png
-GET /global-scale.json
-```
-
-**4. Event attributes** — the property table baked into `events.pmtiles` (§4)
-
-### Build order
-
-| Window | yuls | pozo | fradiaz |
-|---|---|---|---|
-| **H0–2** | Write `meta.json` + `series` + event schemas; commit **stubs** | Static host + routes | Scaffold SPA against stubs |
-| **H2–20** | Ingest → velocity → tiles | CI auto-publish | Map + slider + charts on stubs |
-| **H20–30** | Metrics, shared scale, **event detection + chips** | Cache headers, size audit | Wire real artefacts; pins + popup |
-| **H30–40** | QC, validation table, figures | Deploy hardening | Polish, a11y, table view |
-| **H40–48** | Provenance badges, docs | Final deploy | Demo script, rehearsal |
-
-**The stub rule:** fradiaz never blocks on yuls. Ship three fake `series` files, one fake
-`meta.json`, and a hand-authored `events.geojson` in H0 — build the whole UI against them.
-
-### Explicit non-overlaps
-- yuls writes no app UI code (layer styles as JSON config only).
-- pozo touches no scientific parameters — no thresholds, no colour ranges.
-- fradiaz computes no geospatial quantity client-side; if a number isn't in an artefact, it
-  doesn't exist.
-
-### Definition of done
-- **yuls:** `meta.json` validates for all 3 cities; tiles load z8–z14; every layer carries
-  `provenance` + `revisit_days`; events pass MMU; precision reported on a 50-event sample.
-- **pozo:** all 8 routes serve with correct MIME + `pmtiles` range-request support; TTFB < 200 ms;
-  CI reproduces artefacts from clean checkout.
-- **fradiaz:** 5 views reachable; URL restores exact state; shared/independent toggle visibly
-  changes all three maps; pins keyboard-navigable; table view works.
-
-### Bus factor
-Each member writes `docs/handoff-<name>.md` — what they own, how to run it, the one thing that
-will break.
-
----
-
-## 6. Study areas
-
-| City | AOI | Role | Primary hazard |
-|---|---|---|---|
-| Mexico City, MX | 19.43 N, −99.13 W | Case A (extreme) | Differential subsidence → infrastructure, drainage inversion |
-| Jakarta, ID | −6.21 S, 106.85 E | Case B (coastal) | Inundation; 64% piped-water coverage drives well pumping |
-| Málaga, ES | 36.72 N, −4.42 W | **Control / negative** | Seawater intrusion; reservoir depletion |
-
----
-
-## 7. Data sources
-
-`✓` = live-checked. Open/free unless noted.
-
-### SAR / deformation
 | Source | URL | Status |
 |---|---|---|
 | NISAR product summary (ASF) | `asf.alaska.edu/datasets/daac/nisar` | ✓ |
 | NISAR Data User Guide | `nisar-docs.asf.alaska.edu` | ✓ |
-| ASF Vertex | `search.asf.alaska.edu` | ✓ |
+| ASF Search API / Vertex | `api.daac.asf.alaska.edu` · `search.asf.alaska.edu` | ✓ |
 | **HyP3** (on-demand cloud InSAR) | `hyp3-docs.asf.alaska.edu` | ✓ |
-| OPERA DISP-S1 | `displacement.asf.alaska.edu` | ✓ |
-| **Copernicus EGMS** (EU, mm/yr) | `egms.land.copernicus.eu` | ✓ |
-| COMET-LiCSAR | `comet.nerc.ac.uk/comet-lics-portal` | ✓ |
+| OPERA DISP-S1 | `displacement.asf.alaska.edu` | ✓ (absent for our AOIs) |
+| **Copernicus EGMS** (EU, mm/yr) | `egms.land.copernicus.eu` | ✓ (Málaga only) |
+| Hydrology | GRACE-FO mascons (PO.DAAC ✓) · GLDAS ✓ · IGRAC ✓ · USGS NWIS ✓ · SAIH · CONAGUA/SACMEX |
+| Urban context | GHSL ✓ · WorldPop ✓ · DLR WSF 2019 ✓ · Copernicus EMS ✓ · Overture/OSM |
 
-> **NISAR constraint.** Documented interferometry products (RIFG/RUNW/GOFF/ROFF, and **GUNW**,
-> derived from RUNW) are **cryosphere-generated**; SME2 excludes urban areas. Verify coverage in
-> Vertex before relying on NISAR for city-wide displacement. Build-time fallbacks: HyP3
-> Sentinel-1 → OPERA DISP-S1 → EGMS → local ISCE2+MintPy from GSLC. Record which won in
-> `provenance`.
+### Availability probe — 2026-11-14 (reproducible, no credentials needed)
 
-### Hydrology
-`GRACE-FO TELLUS mascons` (PO.DAAC ✓) · `GLDAS` (✓) · `IGRAC GGIS` (✓) · `USGS NWIS API` (✓) ·
-Junta de Andalucía SAIH · CONAGUA/SACMEX
+`pipeline/ingest/02_search_download.py search` → `data/processed/_availability/{case}.json`
 
-### Urban context
-`GHSL` (✓) · `WorldPop` (✓) · `DLR WSF 2019` (✓) · `Copernicus EMS` (✓) · Overture / Google
-Open Buildings / OSM *(also the validation source for events)*
+| Source | Mexico City | Jakarta | Málaga |
+|---|---|---|---|
+| **NISAR GUNW** (ASF) | 102 granules, 2025-10-25 → 2026-10-08 | 24 granules, 2026-06-26 → 2026-10-01 | 26 granules, 2026-06-20 → 2026-10-06 |
+| **OPERA DISP-S1** | **0** | **0** | **0** |
+| Sentinel-1 SLC (5 y window) | 250+ granules, ~1.1 TB | 250+ granules, ~1.2 TB | 250+ granules, ~0.97 TB |
+| EGMS | not eligible | not eligible | manual portal download |
+
+**Consequences, decided now and written into the contract:**
+
+- `meta.product` for the first integration is **`nisar-gunw`** (with an explicit urban-coverage
+  caveat) **or `mock`** — never `opera-disp-s1`.
+- NISAR GUNW is provisional and **cryosphere-derived**; SME2 excludes urban areas. An intersecting
+  granule must be visually verified before we claim city-wide displacement. If it fails, the
+  fallback chain is HyP3 Sentinel-1 → OPERA DISP-S1 → EGMS → local ISCE2+MintPy from GSLC, and
+  **the badge shows which one won**.
+- Sentinel-1 archives are deep enough that an HyP3 on-demand stack is always feasible — at 6-day
+  revisit, so its coherence thresholds must never be pooled with NISAR's.
+
+> **The badge rule.** `provenance.source` is displayed in the UI on every layer. If the demo runs on
+> mock data, the app says so. Judges reward that; they punish the alternative.
 
 ---
 
-## 8. Science pipeline (offline build)
+## 6. Science pipeline (offline)
 
 ```
-P0  Scope      AOI, EPSG:326xx, reference pixel
-P1  Ingest     asf_search → HyP3/DISP/EGMS (record provenance + revisit)
-P2  Interfero  ISCE2 + SNAPHU → GUNW/RUNW
+P0  Scope      AOI polygon, EPSG:326xx, reference pixel
+P1  Ingest     asf_search → NISAR GUNW / HyP3 / DISP-S1 / EGMS   (record provenance + revisit)
+P2  Interfero  only if needed: ISCE2 + SNAPHU → GUNW/RUNW
 P3  Correct    RAiDER/GACOS troposphere; MintPy DEM error + ramps
 P4  Series     network inversion → cumulative displacement cube
 P5  Decompose  LOS → vertical (asc+desc, v_north≈0; else assume purely vertical)
 P6  Separate   trend + seasonal harmonics + steps → secular vs seasonal
 P7  Metrics    velocity, |∇v|, compaction volume, S* = Δb/Δh
-P8  Events     coherence/amplitude z-scores → persistence → polygons (§4)
-P9  Join       buildings, population, reservoirs, head
-P10 Emit       COG/PMTiles + series JSON + events + chips + meta.json  ← app contract
+P8  Aggregate  H3 res 9 mean, coherence filter, land use + risk join
+P9  Join       buildings, population, reservoirs, groundwater head
+P10 Emit       nisar_grid.parquet · timeseries.csv · context_layers.geojson · meta.json
 ```
 
 ### Equations
@@ -359,16 +226,18 @@ P10 Emit       COG/PMTiles + series JSON + events + chips + meta.json  ← app c
 ```
 d_LOS = u · [v_up, v_east, v_north]ᵀ ,   u = [cosθ, −sinθ·cosα, −sinθ·sinα]
 ```
+
 Two geometries → 2 equations, 3 unknowns → assume `v_north ≈ 0` or constrain with GNSS.
 **Axis/sign conventions differ between ISCE2, MintPy and SNAP — validate against GNSS before
 publishing numbers.**
 
-**Time-series model** (drives the Trends view):
+**Time-series model** (drives the trend/seasonal split):
 
 ```
 v(t) = v₀ + ṫ·t + Σₖ [Aₖcos(2πkt/T) + Bₖsin(2πkt/T)] + Σⱼ Δᵥⱼ·H(t−tⱼ)
 ```
-`ṫ` → inelastic/permanent; `A_seasonal` → elastic/recoverable. Regime index `R = |ṫ|/A_seasonal`.
+
+`ṫ` → inelastic/permanent; `A_seasonal` → elastic/recoverable. Regime index `R = |ṫ| / A_seasonal`.
 
 **Storage loss:**
 
@@ -377,173 +246,234 @@ S_skv = Δb / (b₀·Δh)            skeletal specific storage
 dV/dt = Σ_px v_up · A_px        compaction-driven storage loss [m³/yr]
 ```
 
+**Risk band** (frozen in `contracts.py`, sign-agnostic): `|v| < 5` → `estable`, `5–25` →
+`moderado`, `≥ 25 mm/yr` → `critico`.
+
 ---
 
-## 9. Pseudocode
+## 7. Roles & responsibilities
 
-### A — build (offline, produces app artefacts) · *yuls*
+Three people, three verticals, one frozen contract. Source of truth (Spanish, prevails):
+[`flujo_trabajo_y_responsabilidades.md`](flujo_trabajo_y_responsabilidades.md).
 
-```python
-for city in [MEXICO_CITY, JAKARTA, MALAGA]:
-    aoi = load_aoi(city)
+| | **Rol 3 — yuls** | **Rol 1 — pozo** | **Rol 2 — fradiaz** |
+|---|---|---|---|
+| Scope | SAR science, GIS, product | Geospatial backend & maps | Frontend & interaction |
+| Produces | `pipeline/`, the four artefacts, provenance, narrative | `src/data/*`, `src/domain/{filters,metrics}.py`, CI/CD, deployment | `app.py`, `src/ui/*`, `.streamlit/config.toml` |
+| Never | writes UI components | changes scientific parameters | computes geospatial quantities |
 
-    # P1 ingest, with provenance fallback chain
-    src = first_available([
-        lambda: asf_search.search(dataset="NISAR", processingLevel="GUNW", intersects=aoi),
-        lambda: hyp3_s1_stack(aoi),                 # Sentinel-1 on-demand
-        lambda: opera_disp_s1(aoi),
-        lambda: egms_ortho(aoi),                    # EU only, already velocity
-    ])
-    provenance[city] = src.name
+### Handoffs
 
-    # P2–P4
-    ifg  = src.interferograms()                     # or isce2 + snaphu locally
-    ts   = mintpy.network_inversion(raider.correct(ifg), reference=ref_pixel(city))
+- **Rol 3 → Rol 1:** four artefacts + `meta.json` + provenance ids. Rol 1 guarantees schema,
+  units, CRS and null handling via loaders/validation.
+- **Rol 1 ↔ Rol 2:** map-ready datasets (coordinates, H3 geometry, colour value, column height,
+  risk category, context layers) and the interaction contract. The UI style never decides a
+  threshold; the backend never decides a colour.
+- **Rol 3 ↔ Rol 2:** legends, wording, and the rule that results are not over-interpreted —
+  Málaga must read as a negative control, not as a failure.
 
-    # P5–P6
-    v_up   = to_vertical(ts, assume_vnorth=0)
-    fit    = fit_harmonics(v_up, period=365.25, n=2)
-    regime = where(abs(fit.trend) > 2*fit.seasonal_amp, "inelastic", "elastic")
+### Shared duties
 
-    # P7 metrics
-    vel    = fit.trend * 365.25
-    grad   = np.hypot(*sobel(vel))
-    volume = np.nansum(fit.trend[mask] * pixel_area)
+- Define and review the data schema; validate units, CRS and provenance.
+- Agree field names and types before coding against them.
+- Keep `main` runnable; review every contract change as a group.
+- Confirm PyDeck can render each layer before promising it.
 
-    # P8 change events
-    gamma  = coherence(ifg, looks=L)                    # bias-corrected
-    z      = (gamma - gamma.median("time")) / (1.4826 * mad(gamma, "time"))
-    ddb    = 10*log10(amp_t / amp_t0)
-    flagged = (z < -K) & (abs(ddb) > MIN_DDB)
-    keep   = persistence(flagged, m=2, n=3)
-    events = classify(connected_components(morphology(keep)),
-                      min_area_m2=500, rules=DELTA_GAMMA_DB_TABLE)
-    chips  = render_chips(events, pre=first_date, post=last_date)
+---
 
-    # P10 emit artefacts
-    write_cog(vel,          f"{city}/velocity.tif", quantise=(-450, 50))
-    write_pmtiles(vel,      f"{city}/vel.pmtiles",   zooms=(8, 14))
-    write_pmtiles(events,   f"{city}/events.pmtiles")
-    write_series_json(fit,  f"{city}/series/")
-    write_meta(city, provenance=provenance[city], revisit=src.revisit_days,
-               thresholds=dict(k_gamma=K, min_ddB=MIN_DDB, mmu_m2=500),
-               stats=dict(median=..., volume=volume, n_events=len(events)))
+## 8. Repository layout
 
-# app-global legend: ONE shared scale, or Málaga's flatness is invisible
-write_global_scale([c.velocity_range for c in cities], mode="shared")
+```
+├── README.md                          ← this file (entry point)
+├── flujo_trabajo_y_responsabilidades.md   ← operative doc: roles, branches, phases (Spanish)
+├── docs/
+│   ├── data-contract-v1.md            ← FROZEN contract, normative for the four artefacts
+│   └── route-contract.md              ← post-MVP Option B: PMTiles routes (not built yet)
+├── src/
+│   ├── domain/contracts.py            ← frozen schema, enums, thresholds, validators
+│   ├── domain/{filters,metrics}.py    ← Rol 1 (planned)
+│   ├── data/{loaders,validation}.py   ← Rol 1 (planned)
+│   └── ui/{map_view,charts,kpi_cards,educational}.py  ← Rol 2 (planned)
+├── app.py                             ← Rol 2 (planned): composition only
+├── pipeline/
+│   ├── ingest/02_search_download.py   ← availability probe + resumable download (done)
+│   ├── ingest/aois.json               ← AOI bboxes, CRS, reference points (done)
+│   ├── generate_mock.py               ← Rol 3 (next): mock respecting the contract
+│   ├── validate_artifacts.py          ← Rol 3 (next): file-level contract gate
+│   └── README.md                      ← provenance + limitations for judges (planned)
+├── tests/test_contracts.py            ← 61 tests pinning the contract (done)
+├── scripts/python.sh                  ← run Python through the project venv (done)
+├── data/
+│   ├── raw/                           ← downloads, gitignored
+│   └── processed/                     ← the four artefacts + `_availability/` evidence
+└── config/study_cases.yaml            ← primary case + AOI polygon (planned)
 ```
 
-### B — app runtime (browser, no compute) · *fradiaz*
+`data/raw/` never enters Git. `data/processed/` stays under **15 MB**.
 
-```python
-state = parse_url_hash()                       # city, date, layer, scale, event
+---
 
-map.on("load",  lambda: add_layers(state))
-map.on("click", lambda p: chart.render(fetch_series(state.city, p)))
-slider.on("input", lambda d: set_date(d))      # swap pre-tiled backscatter layer
-toggle.on("change", lambda: set_scale(shared if on else independent))
+## 9. Getting started
 
-pin.on("click", lambda e: open_card({
-    "chips":   load_chips(e.id),               # pre-rendered PNGs
-    "deltas":  (e.d_gamma, e.d_amp_db),
-    "series":  fetch_series_cell(e.series_cell),
-    "thresh":  meta["layers"]["events"]["thresholds"],
-}))
+```bash
+# 1. Environment (Python 3.11+; this repo's dev box runs 3.14 in a venv)
+python3 -m venv .venv
+./scripts/python.sh -m pip install -r requirements.txt
+#   on NixOS you may prefer: nix shell nixpkgs#uv -c uv pip install --python .venv/bin/python -r requirements.txt
 
-function set_scale(shared):
-    legend = global_range if shared else city_range
-    map.layers.forEach(l -> l.colorScale = legend)
-    legend.render(legend)
+# 2. Prove the contract is intact
+./scripts/python.sh -m src.domain.contracts
+./scripts/python.sh -m pytest tests -q
+
+# 3. Ask ASF what actually exists for our three AOIs (no credentials needed)
+./scripts/python.sh pipeline/ingest/02_search_download.py search
+./scripts/python.sh pipeline/ingest/02_search_download.py report
+
+# 4. Download a chosen source (needs Earthdata credentials; fails closed without them)
+export EARTHDATA_USER=... EARTHDATA_PASS=...
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city malaga --source nisar_gunw --max-gb 2
 ```
 
----
-
-## 10. Software stack
-
-**Processing (offline)** · *yuls*
-`isce2` (`conda install -c conda-forge isce2`) · `snaphu` ·
-**`MintPy`** (`mintpy.readthedocs.io`) · `hyp3_sdk` · `opera-utils` ·
-`RAiDER` (`github.com/dbekaert/RAiDER`) · `asf_search` · `earthaccess`
-
-**Geospatial py** · *yuls*
-`xarray` · `dask` · `rioxarray` · `rasterio` · `geopandas` · `shapely` · `pyproj` ·
-`rasterstats` · `scipy.ndimage` (z-scores, morphology, Sobel) · `skimage.measure`
-(connected components) · `GDAL` CLI · `pmtiles`
-
-**App** · *fradiaz* (UI) · *pozo* (serving)
-- **Recommended:** `MapLibre GL JS` + `deck.gl`, `uPlot`/`Observable Plot` charts,
-  Vite + TypeScript, **PMTiles** (raster + vector) for single-file delivery
-- **Fastest to build:** Streamlit/Panel + `pydeck` — trade polish and slider performance for speed
-- **Serving:** static host + CDN (Netlify/Pages/S3), GitHub Actions for publish
-- **QC / figures:** QGIS
+`scripts/python.sh` exists because the Nix interpreter does not put `libstdc++`/`libz` on the
+default search path that pip wheels expect. **Use it instead of `.venv/bin/python`** so everyone
+gets identical behaviour. Register at <https://urs.earthdata.nasa.gov> and accept the ASF EULA
+before downloading anything.
 
 ---
 
-## 11. Risk & demo strategy
+## 10. Git workflow
+
+Short branches off `main`, one objective each, merged by PR (full detail in the flujo doc §6).
+`main` must always run.
+
+```
+main
+├── feat/data-contract          ✅ frozen v1.0
+├── feat/pipeline-mock          ← next: unblocks the app
+├── feat/gis-context
+├── feat/backend-map-data
+├── feat/ui-shell → feat/ui-map → feat/ui-charts
+├── feat/pipeline-real-source
+├── chore/ci-validation
+└── release/mvp
+```
+
+Merge order (flujo §6.2): `data-contract` → `pipeline-mock` → `gis-context` → `backend-map-data` →
+`ui-shell` → `ui-map`/`ui-charts` → `pipeline-real-source` → `ci-validation` → `release/mvp`.
+Nothing merges ahead of the mock: it is what lets Rol 1 and Rol 2 work in parallel.
+
+Commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`. Every PR states **Objetivo / Archivos /
+Dependencias nuevas / Impacto sobre el contrato / Validaciones ejecutadas / Riesgos**. Contract
+changes need all three roles; backend+data needs Rol 1 + Rol 3; UI needs Rol 2 + Rol 1.
+
+---
+
+## 11. Plan & definition of done
+
+| Phase | Goal | Exit criterion |
+|---|---|---|
+| **0 — sync** (H0) | case, source, contract, branches | ✅ contract frozen; all three can run the tests |
+| **1 — mock** (H0–2) | the four artefacts, fake values, real schema | app starts locally on mock only |
+| **2 — parallel build** (H2–30) | loaders/filters (Rol 1), UI (Rol 2), real source + physics (Rol 3) | map, KPIs and filters react to mock data |
+| **3 — real data** (H30–40) | replace mock with real, same schema | app runs unchanged on real artefacts |
+| **4 — validate & deploy** (H40–46) | clean-room run, sizes, cache, public URL | pipeline reproducible from scratch; URL up |
+| **5 — freeze** (H46+) | code freeze, docs, video | only critical fixes after this point |
+
+**Tonight's checklist** (flujo §10, condensed)
+
+- [x] Contract frozen; all three can run `./scripts/python.sh -m pytest tests -q`
+- [x] NISAR / OPERA / Sentinel-1 / EGMS coverage confirmed and written to `_availability/`
+- [ ] Mock artefacts committed, and the app boots on them alone
+- [ ] `config/study_cases.yaml` with the primary case and the AOI polygon
+- [ ] CI runs the contract tests and `pipeline/validate_artifacts.py`
+- [ ] Local install verified by each member, independently of the others
+- [ ] Units, thresholds and `provenance` confirmed **before** real data replaces the mock
+
+**Definition of done**
+
+- **Rol 3:** `meta.json` validates for all published cases; artefacts < 15 MB; every artefact
+  carries `provenance` + `revisit_days`; limitations documented; Málaga ships with its detection
+  limit.
+- **Rol 1:** loaders + validation reject malformed artefacts before the UI sees them; filters and
+  metrics computed once, server-side; CI reproduces artefacts from a clean checkout.
+- **Rol 2:** five views reachable; **the app starts with no NASA credentials**; URL restores the
+  exact state; units and sources always visible; keyboard-navigable; works on a phone.
+- **Everyone:** `main` runnable, PR reviewed, `./scripts/python.sh -m pytest tests -q` green.
+
+---
+
+## 12. Risks & mitigations
 
 | Risk | Mitigation | Owner |
 |---|---|---|
-| NISAR urban coverage absent | Build-time fallback chain (§8 P1); badge shows source used | yuls |
+| NISAR urban coverage absent | Verified fallback chain (§5); badge shows the source that won | yuls |
 | Live InSAR too slow | Never on the critical path; artefacts pre-built | yuls / pozo |
-| Málaga signal ≤ noise | Render flat **deliberately**; detection-limit band in legend | yuls / fradiaz |
-| Change pins noisy | Persistence m-of-n + MMU + land-cover mask; report precision | yuls |
-| Thresholds wrong after NISAR swap | `revisit_days` in `meta.json`; re-tune per sensor (§4) | yuls |
-| Frontend blocked on data | Stub artefacts frozen at H0; contract never changes | pozo / fradiaz |
-| Demo URL dies | Static host + CI publish; rehearsal at H44 | pozo |
-| Judge: "just pretty maps?" | Every pixel answers with trend + regime + provenance; pins give evidence | fradiaz |
+| Málaga signal ≤ noise | Render flat **deliberately**; publish the detection limit | yuls / fradiaz |
+| Frontend blocked on data | Mock frozen at H0; contract never changes to unblock a UI | yuls / pozo |
+| Thresholds wrong after a sensor swap | `revisit_days` + per-product profiles in the contract | yuls |
+| Demo URL dies | Static artefacts + CI publish; rehearsal before presenting | pozo |
+| "Just pretty maps?" | Every number carries trend, regime, unit and provenance | fradiaz |
+| Silent schema drift | 61 contract tests + `validate_artifacts.py` in CI | pozo |
 
 ---
 
-## 12. Validation
+## 13. Validation & limitations
 
 | Check | Method |
 |---|---|
 | Velocity accuracy | GNSS / levelling; target < 5 mm/yr RMSE |
 | Unwrapping | closure phase on redundant triplets |
 | Atmosphere | diff against GACOS/ERA5-corrected run |
-| Event precision | 50-event sample vs OSM edits / historical imagery / Copernicus EMS |
-| Change masks | Copernicus EMS activation maps |
+| Event precision (post-MVP) | 50-event sample vs OSM edits / historical imagery / Copernicus EMS |
 | Málaga null | detection-limit analysis — publish the upper bound |
 
-Error budget, largest first: unwrapping ≫ troposphere ≫ orbital ≫ DEM ≫ noise.
+Error budget, largest first: **unwrapping ≫ troposphere ≫ orbital ≫ DEM ≫ noise**.
 
----
-
-## 13. Limitations
+**Limitations** (also shipped inside `meta.limitations`):
 
 1. Málaga may sit at the detection floor — the bound *is* the result.
-2. CDMX is not coastal; don't claim a coastal framing across all three.
-3. GUNW posting is 80 m — city scale, not building scale.
-4. Urban SAR flood mapping is confounded by double-bounce and shadow; use coherence-loss change
+2. CDMX is not coastal; do not claim a coastal framing across all three cities.
+3. NISAR GUNW posting is 80 m — city scale, not building scale.
+4. NISAR urban coverage is not guaranteed (§5).
+5. Urban SAR flood mapping is confounded by double-bounce and shadow; use coherence-loss change
    detection, not thresholding.
-5. "Changes in imagery" ≠ "changes on the ground" — layover/shadow move with acquisition geometry.
-   Label the Flipbook accordingly.
-6. Coherence depends on revisit interval; **NISAR 12-day ≠ Sentinel-1 6-day**. Never pool the two
-   in one threshold.
-7. Event detection is a **supporting layer**, not the headline metric — velocity is the
-   calibrated, GNSS-validated claim.
+6. Coherence depends on revisit interval; **NISAR 12-day ≠ Sentinel-1 6-day**. Never pool them.
+7. "Changes in imagery" ≠ "changes on the ground" — layover/shadow move with acquisition geometry.
+8. Velocity is the calibrated claim; change detection is a supporting layer, not the headline.
 
 ---
 
-## 14. Repo layout
+## 14. Study areas
 
-```
-pipeline/            offline build — yuls
-  ingest/  insar/  metrics/  events/  emit/
-serve/               serving + build orchestration — pozo
-deploy/              static host config, CI — pozo
-data/raw/{city}/     downloads (gitignored)
-data/processed/{city}/
-app/
-  src/map/           layer styling — yuls
-  src/ui/  src/state/  src/charts/  src/events/   — fradiaz
-  public/tiles/{city}/   PMTiles + series JSON + chips (generated)
-docs/                methods, error budget, handoff-<name>.md
-```
+| Case | City | bbox `[W,S,E,N]` | Publication CRS | Projected CRS | Reference point |
+|---|---|---|---|---|---|
+| `mexico-city` | Mexico City, MX | −99.35, 19.20, −98.85, 19.65 | EPSG:4326 | EPSG:32614 | −99.13, 19.43 |
+| `jakarta` | Jakarta, ID | 106.70, −6.40, 107.00, −6.10 | EPSG:4326 | EPSG:32748 | 106.85, −6.21 |
+| `malaga` | Málaga, ES | −4.60, 36.60, −4.30, 36.85 | EPSG:4326 | EPSG:32630 | −4.42, 36.72 |
+
+Primary case is a **configuration** decision (`config/study_cases.yaml`), not part of the contract.
+Recommendation: `mexico-city` primary (strongest, most legible signal) with `malaga` as the explicit
+negative control; the informe suggests the opposite emphasis, so confirm as a team.
 
 ---
 
-## 15. Key references
+## 15. Post-MVP roadmap
+
+Documented now so the MVP is not designed against it:
+
+1. **Static Option B site** — PMTiles + MapLibre/deck.gl, range requests, CDN caching; route
+   contract already written in [`docs/route-contract.md`](docs/route-contract.md).
+2. **Change-event pins** — coherence/amplitude z-scores → persistence → polygons → pre-rendered
+   chips, with the Δγ/ΔB classifier table (each type's evidence card).
+3. **EGMS cross-check** for Málaga, and a fourth city.
+4. **GNSS validation** run, and a published error budget per case.
+5. **Sensor cross-calibration** note: what changes when the same city is measured by NISAR L-band
+   and Sentinel-1 C-band.
+
+---
+
+## 16. Key references
 
 | Topic | Cite | DOI |
 |---|---|---|
@@ -554,11 +484,9 @@ docs/                methods, error budget, handoff-<name>.md
 | Method review | Galloway & Burbey 2011, *Hydrogeol J* | 10.1007/s10040-011-0775-5 |
 | Indonesia sinking cities | Chaussard et al. 2013, *RSE* | 10.1016/j.rse.2012.10.015 |
 | Jakarta 2017–22 multi-track SBAS | 2024, *Geocarto Int* | 10.1080/10106049.2024.2364726 |
-| Jakarta piped water → abstraction | 2022, *Water* | 10.3390/w14203197 |
+| Jakarta: piped water → abstraction | 2022, *Water* | 10.3390/w14203197 |
 | Málaga/Torremolinos | Ruiz-Constán et al. 2018, *STOTEN* | 10.1016/j.scitotenv.2018.04.280 |
 | Axarquía water crisis | Junquera et al. 2025, *PNAS* | 10.1073/pnas.2508055122 |
 | NISAR Data User Guide | Kristenson et al. 2026 | 10.5281/ZENODO.20075813 |
 
----
-
-*Draft. Jakarta rates vary by method and period — quote the source used in the provenance badge.*
+*Jakarta rates vary by method and period — quote the source actually used in the provenance badge.*
