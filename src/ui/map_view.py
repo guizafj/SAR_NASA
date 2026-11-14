@@ -323,17 +323,18 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
         else:
             records = frame.to_dict(orient="records") if frame is not None and hasattr(frame, "to_dict") else []
             extrude = bool(active.get("extrude_3d"))
-            # Flat mode must not keep loader heights: non-zero elevation still
-            # produces z-fighting that reads as overlapping hexes.
+            elevation_field = "extrude_m" if (records and "extrude_m" in records[0]) else "height"
+            # Flat mode must not keep visual column elevations: non-zero elevation still
+            # produces z-fighting that reads as overlapping hexes. Signed `height` stays intact.
             if not extrude and records:
-                records = [{**row, "height": 0} for row in records]
+                records = [{**row, elevation_field: 0} for row in records]
             layer = pdk.Layer(
                 "H3HexagonLayer",
                 data=records,
                 id=LAYER_ID,
                 get_hexagon="cell_id",
                 get_fill_color="color",
-                get_elevation="height",
+                get_elevation=elevation_field,
                 pickable=True,
                 auto_highlight=True,
                 extruded=extrude,

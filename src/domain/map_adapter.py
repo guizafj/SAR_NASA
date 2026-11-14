@@ -500,6 +500,8 @@ def build_map_payload(
         for extra_col in (
             "fill_color",
             "line_color",
+            "height",
+            "motion_direction",
             "elevation_m",
             "is_selected",
             "tooltip_velocity",
@@ -552,8 +554,10 @@ def build_map_payload(
         rgb_arr = _interpolate_rgb(vel_arr, anchors)
 
     if extrude_3d:
-        # Per docs/handoff-mock.md §2: bind 3D column height to |delta_change| [mm], normalised
-        # on "shared" by 425 mm/yr * window_years so every city shares one physical rate ceiling.
+        # O-07 resolution: `height` carries exact stored signed `delta_change` [mm]; 3D column
+        # `elevation_m` extrudes ONLY downward subsidence (-delta_change > 0) so uplift (+delta)
+        # never rises identically to subsidence (-delta).
+        subsidence_mm = np.maximum(0.0, -delta_arr)
         if scale_mode == "shared":
             dates_raw = meta.get("dates") or ()
             span_years = 0.3614
@@ -566,8 +570,8 @@ def build_map_payload(
                     span_years = 0.3614
             denom = abs(GLOBAL_VELOCITY_RANGE_MM_YR[0]) * span_years
         else:
-            denom = max(3.5, float(np.max(np.abs(delta_arr))))
-        elev_arr = np.clip(np.abs(delta_arr) / denom, 0.0, 1.0) * MAX_EXTRUDE_METERS
+            denom = max(3.5, float(np.max(subsidence_mm)) if len(subsidence_mm) else 3.5)
+        elev_arr = np.clip(subsidence_mm / denom, 0.0, 1.0) * MAX_EXTRUDE_METERS
     else:
         elev_arr = np.zeros(n_rows, dtype=np.float64)
 
@@ -585,6 +589,7 @@ def build_map_payload(
     records: list[dict[str, Any]] = []
     fill_colors_col: list[list[int]] = []
     line_colors_col: list[list[int]] = []
+    directions_col: list[str] = []
     is_selected_col: list[bool] = []
     tooltip_vel_col: list[str] = []
     tooltip_delta_col: list[str] = []
@@ -600,6 +605,7 @@ def build_map_payload(
 
         v_val = float(vel_arr[idx])
         d_val = float(delta_arr[idx])
+        direction = "subsidence" if d_val < 0.0 else ("uplift" if d_val > 0.0 else "zero")
         c_val = float(coh_arr[idx])
         e_val = round(float(elev_arr[idx]), 2)
         lat_val = float(lats[idx])
@@ -616,6 +622,8 @@ def build_map_payload(
             "val_t1": float(val_t1s[idx]),
             "val_t2": float(val_t2s[idx]),
             "delta_change": d_val,
+            "height": d_val,
+            "motion_direction": direction,
             "velocity_mm_yr": v_val,
             "coherence": c_val,
             "land_use": land_uses[idx],
@@ -642,6 +650,7 @@ def build_map_payload(
         records.append(rec)
         fill_colors_col.append(fill_rgba)
         line_colors_col.append(line_rgba)
+        directions_col.append(direction)
         is_selected_col.append(is_sel)
         tooltip_vel_col.append(t_vel)
         tooltip_delta_col.append(t_delta)
@@ -650,6 +659,8 @@ def build_map_payload(
     map_df = grid.copy()
     map_df["fill_color"] = fill_colors_col
     map_df["line_color"] = line_colors_col
+    map_df["height"] = map_df["delta_change"]
+    map_df["motion_direction"] = directions_col
     map_df["elevation_m"] = np.round(elev_arr, 2)
     map_df["is_selected"] = is_selected_col
     map_df["tooltip_velocity"] = tooltip_vel_col

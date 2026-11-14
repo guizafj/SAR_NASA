@@ -455,6 +455,14 @@ candidate rather than assuming that old branch snapshot is still current.
 **Close when.** The integrated frontend has a parity test for height sign and magnitude, and any
 purely visual exaggeration is applied without discarding the physical direction.
 
+**Answered 2026-11-14 — closed.** `src/domain/map_adapter.py` and `src/data/ui_bridge.py` keep
+`height` bit-for-bit equal to stored signed `delta_change` [mm] (plus explicit
+`motion_direction` ∈ `subsidence` | `uplift` | `zero`), while separating PyDeck's upward-only
+column exaggeration into `extrude_m` (`elevation_m`), computed from `max(0.0, -delta_change)` so
+only downward subsidence rises as a 3-D hazard column and uplift (`+delta_change`) stays at `0.0 m`
+in blue on the `RdBu` ramp (`src/ui/map_view.py`). Enforced across all three cities and symmetric
+`±50 mm` pairs by `tests/test_height_sign_parity.py`.
+
 ### O-08 — Reconcile the LOS phase sign with the projection convention
 The default phase conversion is labelled `away-from-sensor` and uses
 `d_LOS = -lambda/(4*pi)*phi`, with prose claiming that positive LOS is motion away and subsidence

@@ -58,12 +58,16 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     }
     df_map = loaders.get_map_layer_df("mexico-city", filters)
     assert not df_map.empty
-    assert {"cell_id", "lat", "lon", "delta_change", "color", "height"} <= set(df_map.columns)
-    assert (df_map["height"] > 0.0).any()
+    assert {"cell_id", "lat", "lon", "delta_change", "color", "height", "extrude_m"} <= set(
+        df_map.columns
+    )
+    assert (df_map["height"] == df_map["delta_change"]).all()
+    assert (df_map["extrude_m"] > 0.0).any()
 
-    # Default when extrude_3d is omitted must be flat (height == 0.0) per docs/requests.md
+    # Default when extrude_3d is omitted must be flat (extrude_m == 0.0) per docs/requests.md
     df_flat = loaders.get_map_layer_df("mexico-city", {"case_id": "mexico-city"})
-    assert (df_flat["height"] == 0.0).all()
+    assert (df_flat["extrude_m"] == 0.0).all()
+    assert (df_flat["height"] == df_flat["delta_change"]).all()
 
     counts = loaders.get_layer_counts("mexico-city", filters)
     assert 0 < counts["shown"] < counts["total"] == 11694

@@ -160,13 +160,18 @@ def get_map_layer_df(
         "velocity_unit",
         "color",
         "height",
+        "extrude_m",
+        "motion_direction",
     ]
     if payload.is_empty:
         return pd.DataFrame(columns=columns)
 
     df = payload.grid_frame.copy()
     df["color"] = df["fill_color"]
-    df["height"] = df["elevation_m"]
+    # O-07: `height` preserves exact stored signed `delta_change` [mm]; `extrude_m` carries
+    # visual 3D column height for downward subsidence only (0.0 for uplift and flat mode).
+    df["height"] = df["delta_change"]
+    df["extrude_m"] = df["elevation_m"]
     return df[columns]
 
 

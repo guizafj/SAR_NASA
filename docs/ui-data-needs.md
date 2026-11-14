@@ -21,7 +21,7 @@ Reglas de presentación del stub (no copiar a loaders reales):
 ## Mapa (Rol 2)
 
 - `src/ui/map_view.py` remonta el deck con `key=f"h3-map-{case_id}"` para aplicar `initial_view_state` al cambiar de caso.
-- Con extrusión off, la UI fuerza `height=0` y `elevation_scale=0` aunque el loader traiga elevación (evita z-fighting / hexes “apilados”).
+- Con extrusión off, la UI fuerza `extrude_m=0` y `elevation_scale=0` sin alterar `height` (que conserva siempre `delta_change` con signo, O-07).
 - Colores y dominio vienen de `get_color_scale` / fila `color`; la UI no recalcula magnitudes.
 
 ## Mock y umbral
