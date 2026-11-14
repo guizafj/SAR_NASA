@@ -12,8 +12,10 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     payload = loader() if loader is not None else None
     if not payload:
         st.markdown(
-            '<div class="cockpit-card"><p class="kicker">Contexto</p>'
-            "<p>Sin context_layers.geojson. El Rol 3 no lo ha entregado.</p></div>",
+            '<div class="cockpit-card is-empty">'
+            '<p class="kicker">Contexto</p>'
+            '<p class="empty-prompt">Sin context_layers.geojson. El Rol 3 no lo ha entregado.</p>'
+            "</div>",
             unsafe_allow_html=True,
         )
         return

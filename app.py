@@ -10,6 +10,7 @@ import streamlit as st
 from src.ui.charts import render_series_tab
 from src.ui.context_view import render_hazard_tab
 from src.ui.educational import render_physics_tab
+from src.ui.formatters import format_dates_span
 from src.ui.map_view import render_map_tab
 from src.ui.theme import inject_css
 
@@ -70,12 +71,9 @@ def telemetry_line(meta: dict[str, Any] | None) -> str:
         if value is None or value == "" or value == []:
             continue
         if key == "dates":
-            if not isinstance(value, list):
-                continue
-            shown = [str(item) for item in value if item not in (None, "")]
-            if not shown:
-                continue
-            parts.append("dates " + " … ".join(shown))
+            span = format_dates_span(value if isinstance(value, list) else None)
+            if span:
+                parts.append(span)
             continue
         parts.append(f"{key} {value}")
     return " · ".join(parts)
@@ -108,7 +106,7 @@ def render_header(meta: dict[str, Any] | None) -> None:
     telemetry = f'<p class="telemetry">{html.escape(line)}</p>' if line else ""
     st.markdown(
         '<header class="mission-bar">'
-        f"<h1>{html.escape(TITLE)}</h1>"
+        f'<p class="mission-title">{html.escape(TITLE)}</p>'
         f"{telemetry}"
         "</header>",
         unsafe_allow_html=True,
@@ -186,7 +184,10 @@ def _render_map(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | No
 def render_pending(note: str, filters: dict[str, Any]) -> None:
     del filters
     st.markdown(
-        f'<div class="cockpit-card"><p class="kicker">Pendiente</p><p>{html.escape(note)}</p></div>',
+        '<div class="cockpit-card is-empty">'
+        '<p class="kicker">Pendiente</p>'
+        f'<p class="empty-prompt">{html.escape(note)}</p>'
+        "</div>",
         unsafe_allow_html=True,
     )
 
