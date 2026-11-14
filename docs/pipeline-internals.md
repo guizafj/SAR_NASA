@@ -19,44 +19,51 @@ another set of copied tables.*
 ### 1.1 What a granule is
 
 A **granule** is one product file covering one footprint at one time — the smallest thing a data
-archive (a DAAC, such as ASF) will hand you. Naming is a grammar, and the grammar is load-bearing: it carries the level, the
-product type, the track/frame and the flight direction. There are **two** parsers in the tree and
-they do not agree on which token is the track (a known, unfixed discrepancy — flagged below). The
-science layer's parse is `parse_granule_identity` / `_check_stack_identity`:
+archive (a DAAC, such as ASF) will hand you. Naming is a grammar, and the grammar is load-bearing: it
+carries the level, the product type, the repeat-cycle bin, the track, the flight direction and the
+frame. **Both parsers in the tree get that order wrong** (an open defect, not a settled mapping). The
+science layer's parse is `parse_granule_identity` / `_check_stack_identity`.
 
-```
-NISAR_L2_PR_GUNW_023_087_A_020_…
-|     |  |  |    |   |   | |
-|     |  |  |    |   |   | +---> relative orbit ("020"); the ingest parser calls this the track
-|     |  |  |    |   |   +-----> direction: A ascending, D descending
-|     |  |  |    |   +---------> frame
-|     |  |  |    +-------------> track
-|     |  |  +------------------> product (GUNW + variants)
-|     |  +---------------------> product class token (PR)
-|     +------------------------> level (L2)
-+------------------------------> mission
-```
+Token indices are 0-based after splitting an ASF name on `_` (20 tokens), e.g.
+`NISAR_L2_PR_GUNW_025_010_A_174_026_4000_SH_20260720T223920_…`:
 
-`_GRANULE_RE` takes `level`, `product`, `track`, `frame` and `direction`; the ingest module's
-`parse_granule` takes `level`, `product`, `track` and `direction` (no frame). Anything unparseable
-is reported with what was parsed, never guessed. A name that parses but is **not** `L2/GUNW` is
-refused by the download guard, not silently reinterpreted.
+| Field | Token | Evidence (census of the 120 committed ASF names) |
+|---|---|---|
+| level | 1 | `L2` in every name |
+| product | 3 | `GUNW` in every name (token 2 is the class, `PR`) |
+| repeat-cycle bin of the reference acquisition | 4 | 29 values, `003`–`032`; a bin, not a date |
+| track | 5 | varies where token 7 does not: Málaga ascending carries `015` and `087` on frame `020` |
+| direction | 6 | `A` ascending, `D` descending |
+| frame | 7 | 9 values, constant per (case, direction) except three adjacent-frame pairs |
+| secondary cycle bin | 8 | `token[8] − token[4] = ⌈Δdays/12⌉` in 120/120 names |
+| reference start timestamp | 11 | `YYYYMMDDThhmmss`; the 72 reference dates are read from it |
 
-> **Known discrepancy (2026-11-14): the two parsers disagree — and the science parser's "track" is
-> not a track.** `pipeline/process_case.py:_GRANULE_RE` takes `track = tokens[4]` (`023` above) and
-> `direction = tokens[6]` (`A`), while the ingest parser's `track = tokens[7]` (`020` above). A census
-> of all 120 committed ASF names settles what token 4 is: **it is the repeat-cycle index of the
-> reference acquisition, a pure function of the reference date — not a per-acquisition counter.**
-> 72 distinct reference dates map to exactly one token-4 value each, with zero conflicts across three
-> cities and both directions (`025` = `20260709` appears in Málaga ascending, Jakarta descending *and*
-> Mexico City ascending); 120 granules collapse to only 29 distinct values (`003`–`032`), up to 9
-> sharing one. Token 8 is its companion: `token[8] − token[4] = ⌈Δdays/12⌉` in 120/120 ids, so the
-> pair reads "reference cycle, secondary cycle". Token 7 is constant per *(case, footprint,
-> direction)* — the candidate relative orbit — except where two parallel series 32–34 s apart exist on
-> the same date (Mexico City descending `078`/`079`, Jakarta `091`/`092` and `174`/`175`).
-> Consequence: **any multi-date real stack would be refused by `_check_stack_identity` as "stack mixes
-> relative orbits"** — including the runbook's Step 2→Step 5 path. The runbook's rule applies: fix both
-> tables together, in the same commit as the first real granule.
+Neither parser matches that table. `pipeline/process_case.py:_GRANULE_RE` reads `track = tokens[4]`
+and `frame = tokens[5]`, both shifted one token left, so its "track" is the cycle bin;
+`pipeline/ingest/02_search_download.py:parse_granule` reads `track = tokens[7]` — the frame — and has
+no frame field at all. O-06 in `docs/decisions.md` records the disagreement and is still **unfixed**;
+it gates the first real stack. Nothing published depends on it: the mock path never parses a granule
+name, and its provenance digest hashes `case|product|seed`.
+
+Anything unparseable is reported with what was parsed, never guessed. A name that parses but is
+**not** `L2/GUNW` is refused by the download guard, not silently reinterpreted.
+
+> **Known discrepancy (2026-11-14, still open): both parsers disagree with the census, and the
+> science parser's "track" is a cycle bin.** Token 4 is the 12-day repeat-cycle bin of the reference
+> acquisition, not a date: 72 distinct reference dates map to exactly one token-4 value each, with
+> zero conflicts across three cities and both directions — yet `025` alone covers `20260708`,
+> `20260709`, `20260714` and `20260716` (Málaga, Jakarta, Mexico City; ascending and descending).
+> 120 granules collapse to 29 distinct bins (`003`–`032`, `027` absent), up to 9 sharing one (`024`,
+> `025`). Token 8 is its companion: `token[8] − token[4] = ⌈Δdays/12⌉` in 120/120 ids, so the pair
+> reads "reference cycle, secondary cycle". Token 7 has 9 values and is constant per
+> *(case, direction)* except three pairs 32–34 s apart on the same pass — **adjacent frames, not
+> parallel orbits**: Jakarta ascending `174`/`175` on `20260720` (22:39:20 → 22:39:53), Jakarta
+> descending `091`/`092` on every dated pass (+33 s), Mexico City descending `078`/`079` on
+> `20260411`, `20260704` and `20260716` (+34 s).
+> Consequence: **any multi-date real stack spanning more than one cycle bin would be refused by
+> `_check_stack_identity` as "stack mixes relative orbits"** — including the runbook's Step 2→Step 5
+> path — because the parser counts each token-4 bin as a separate track. The runbook's rule applies:
+> fix both tables together, in the same commit as the first real granule.
 
 Two concepts that are constantly confused:
 
