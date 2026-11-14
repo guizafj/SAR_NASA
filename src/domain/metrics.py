@@ -96,6 +96,10 @@ class CaseKPIs:
     detection_limit_mm_yr: float | None
     expected_regime: str | None
     is_mock: bool
+    # Optional, always None under schema v1.0: the seasonal/regime trio was evaluated and rejected
+    # (docs/decisions.md D-28 / O-05 — the annual harmonic is not identifiable over 132 days), so
+    # no artefact publishes it. Kept as an explicit `None` slot so a future schema can fill it
+    # without every consumer changing shape; never render it as "missing data".
     median_seasonal_amp_mm: float | None = None
     median_ratio_R: float | None = None
     dominant_regime: str | None = None

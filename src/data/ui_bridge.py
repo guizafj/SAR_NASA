@@ -320,9 +320,11 @@ def get_cell_detail(
             else None
         ),
     }
-    for v11_float in ("seasonal_amp_mm", "ratio_R"):
-        if v11_float in row and pd.notna(row[v11_float]):
-            detail[v11_float] = float(row[v11_float])
+    # Forward tolerance only: the rejected schema 1.1 (D-28/O-05) fields are surfaced when an
+    # artefact happens to carry them, and never required. With v1.0 data they are simply absent.
+    for optional_field in ("seasonal_amp_mm", "ratio_R"):
+        if optional_field in row and pd.notna(row[optional_field]):
+            detail[optional_field] = float(row[optional_field])
     if "regime" in row and pd.notna(row["regime"]):
         detail["regime"] = str(row["regime"])
     cell_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == str(cell_id)]
