@@ -461,6 +461,29 @@ def load_all_available_bundles(
     return bundles
 
 
+# Re-export the exact Rol 1 -> Rol 2 UI bridge functions expected by `app.py._loaders()`.
+from src.data.ui_bridge import (  # noqa: E402
+    get_case_series,
+    get_cell_detail,
+    get_color_scale,
+    get_land_use_bars,
+    get_layer_counts,
+    get_map_kpis,
+    get_map_layer_df,
+    get_scale_comparison,
+    get_series_kpis,
+    get_signal_status,
+    get_view_state,
+    load_context_layers,
+    load_documented_limits,
+    load_land_use_options,
+    load_meta,
+    load_risk_levels,
+    load_study_cases,
+    load_timeseries,
+)
+
+
 __all__ = [
     "ArtifactValidationError",
     "Case",
@@ -475,13 +498,31 @@ __all__ = [
     "StudyCasesConfig",
     "aoi_series",
     "clear_loader_cache",
+    "get_case_series",
+    "get_cell_detail",
+    "get_color_scale",
+    "get_land_use_bars",
+    "get_layer_counts",
+    "get_map_kpis",
+    "get_map_layer_df",
+    "get_scale_comparison",
+    "get_series_kpis",
+    "get_signal_status",
+    "get_view_state",
     "grid_frame",
     "kpis",
     "list_available_cases",
     "load_all_available_bundles",
     "load_case",
     "load_case_bundle",
+    "load_context_layers",
+    "load_documented_limits",
+    "load_land_use_options",
+    "load_meta",
+    "load_risk_levels",
+    "load_study_cases",
     "load_study_cases_config",
+    "load_timeseries",
     "map_payload",
     "resolve_case_dir",
 ]
