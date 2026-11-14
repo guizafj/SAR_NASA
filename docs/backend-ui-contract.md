@@ -121,7 +121,7 @@ def render_map(payload: MapPayload) -> None:
 | `"independent"` | Seeded from `meta.stats.p05_velocity_mm_yr` / `p95_velocity_mm_yr` (at least `[-8, +8] mm/year`) | `[-detection_limit, +detection_limit]` (e.g. `±1.5 mm/year` in Málaga) | Normalised to city peak `\|delta_change\|` | Reveals local spatial structure while keeping sub-detection noise grey |
 
 When `kpis.is_null_result` is `True`, the UI **must** display `kpis.detection_limit_mm_yr`
-(e.g. *"Málaga median velocity −1.2 mm/year — within detection limit ±1.5 mm/year"*).
+(e.g. *"Málaga median velocity −1.4 mm/year — within detection limit ±1.5 mm/year"*).
 
 ---
 

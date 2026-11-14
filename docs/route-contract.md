@@ -207,6 +207,12 @@ This is the click → time-series path: the browser converts a click to `z/x/y`,
 `len(dates)` long. Empty tiles (ocean, no data) return `404` — the client shows the
 "no coverage here" state, which is honest and demo-safe.
 
+`fit.seasonal_amp_mm` and `regime` above are post-MVP design fields and are **not available at
+contract v1.0**: `transforms.harmonic_fit` computes both, but no artefact column transports them
+(`HarmonicFit` is a diagnostic, `regime` is derived not stored) and the 132-day window is below the
+0.75 yr identifiability gate anyway. A build from today's `data/processed/` must omit those two keys
+or label them unavailable — never derive them.
+
 Only tiles containing data are emitted. The build writes a `series/index.json` (non-contract,
 debug only) listing emitted `z/x/y`, so pozo can assert "every `series_cell` in events.pmtiles
 resolves".

@@ -119,4 +119,3 @@ def test_real_pydeck_deck_serialises_all_layer_modes(tmp_path: pathlib.Path):
         assert "GeoJsonLayer" in layer_types
         expected_cell_layer = "PolygonLayer" if use_poly else "H3HexagonLayer"
         assert expected_cell_layer in layer_types
-

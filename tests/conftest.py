@@ -81,6 +81,7 @@ def write_synthetic_case(
                 "val_t2": val_t2,
                 "delta_change": delta,
                 "velocity_mm_yr": float(vel),
+                # Contract v1.0 grid: no seasonal_amp_mm / ratio_R / regime columns.
                 "coherence": coh,
                 "land_use": land_uses[idx % len(land_uses)],
                 "risk_level": C.risk_level_from_velocity(vel),
@@ -109,6 +110,8 @@ def write_synthetic_case(
                 "cell_id": "aoi",
                 "date": iso_date,
                 "value": round(median_vel * frac, 4),
+                "trend_mm_yr": median_vel,
+                "seasonal_mm": 0.0,
                 "unit": C.UNIT,
                 "sensor": sensor,
                 "product": product,
@@ -128,6 +131,8 @@ def write_synthetic_case(
                     "cell_id": target_cid,
                     "date": iso_date,
                     "value": round(target_vel * frac, 4),
+                    "trend_mm_yr": target_vel,
+                    "seasonal_mm": 0.0,
                     "unit": C.UNIT,
                     "sensor": sensor,
                     "product": product,
@@ -142,6 +147,7 @@ def write_synthetic_case(
         "n_cells": len(grid_df),
         "n_dates": len(dates),
         "median_velocity_mm_yr": round(median_vel, 3),
+        # Contract v1.0 stats: no median_seasonal_amp_mm / median_ratio_R / dominant_regime.
         "p05_velocity_mm_yr": round(float(np.percentile(vel_np, 5)), 3),
         "p95_velocity_mm_yr": round(float(np.percentile(vel_np, 95)), 3),
     }
