@@ -461,8 +461,9 @@ recorded in **[`docs/decisions.md`](docs/decisions.md)**.
 │   ├── make_figures.py                ← the three pitch figures, straight from the artefacts
 │   ├── demo_numbers.py                ← every number the presenter may say, derived not typed
 │   ├── export_grid_geojson.py         ← grid → GeoJSON points for QGIS / kepler.gl
+│   ├── style_qgis_layers.py           ← the same palette as generated QGIS .qml styles (no colour declared here)
 │   └── rehearse_first_granule.py      ← runs the runbook's offline steps on a synthetic stack
-├── requirements.txt                   ← pipeline + contract deps (app deps commented out until Rol 2)
+├── requirements.txt                   ← full workspace: pipeline + backend + Streamlit app + tests
 ├── pytest.ini
 ├── data/
 │   ├── raw/                           ← downloads, gitignored
