@@ -1,36 +1,25 @@
-# Python dependencies — NASA Space Apps 2026, "Dancing with the SARs"
+# Python dependencies — Runtime, Backend (Rol 1), Streamlit UI (Rol 2) & CI
+# NASA Space Apps 2026 — "Dancing with the SARs"
 #
-# Install through the repo wrapper so the NixOS shared-library quirk is handled:
+# Install through the repo wrapper so NixOS / Linux shared libraries work identically:
 #   ./scripts/python.sh -m pip install -r requirements.txt
-# or, faster:
-#   nix shell nixpkgs#uv -c uv pip install --python .venv/bin/python -r requirements.txt
 #
-# Python 3.11+ is the target (the test box runs 3.14). Some ingest packages below lag on
-# very new interpreters; if a wheel is missing, install that section in a 3.11 conda env
-# (`environment.yml`) instead of fighting it during the hackathon.
+# NOTE: Heavy offline SAR/GIS ingestion packages (rasterio, h5py, earthaccess, asf_search,
+# geopandas) live in `requirements-pipeline.txt` so cloud deployment (Streamlit Community
+# Cloud / Docker) stays fast, deterministic and free of GDAL build failures.
 
-# --- core: frozen contract, its tests, and everything that touches the artefacts ---------
+# --- core data & frozen contract validation (Rol 1 + Rol 3 + CI) -------------------------
 numpy>=2.0
 pandas>=2.2
-pyarrow>=16.0          # parquet
-shapely>=2.0
-geopandas>=1.0
-h3>=4.1                # H3 res 9 cells = the parquet's primary key
-requests>=2.31         # ASF SearchAPI probe (unauthenticated)
+pyarrow>=16.0          # parquet artefacts
+pyyaml>=6.0            # config/study_cases.yaml
+h3>=4.1                # H3 res 9 cell indexing, area & boundaries
+requests>=2.31         # unauthenticated ASF availability probe
 
-# --- ingest: real SAR retrieval (Rol 3) -------------------------------------------------
-# The availability probe only needs `requests`; these are for actual downloads/processing.
-asf_search>=7.1
-earthaccess>=0.9
-h5py>=3.11
-xarray>=2024.6
-rioxarray>=0.17
-rasterio>=1.3
+# --- Streamlit web application (Rol 1 map payloads + Rol 2 UI) ---------------------------
+streamlit>=1.37
+pydeck>=0.9
+plotly>=5.22
 
-# --- app (Rol 2): uncomment when the Streamlit shell lands -------------------------------
-# streamlit>=1.37
-# pydeck>=0.9
-# plotly>=5.22
-
-# --- dev --------------------------------------------------------------------------------
-pytest>=8
+# --- test & CI gate ----------------------------------------------------------------------
+pytest>=8.0
