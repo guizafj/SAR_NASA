@@ -21,10 +21,12 @@ What it writes (default ``data/staging/qgis/styles/``)
 ``aoi_ring.qml``         dashed no-fill outline for ``config/aoi/*.geojson``
 ``styles_manifest.json`` which file styles which field, with the renderer and class count
 
-Every symbol is a **hexagon marker sized in map units (300 m)** because the artefact is H3
-resolution 9: ~0.105 km² per cell, ~301 m centre-to-centre. In map units the cells tile
-edge-to-edge, which is the point — a fixed millimetre size hides interleaving and overlap, and
-the tiling *is* the geometry check.
+Every grid symbol is a **fill**, because the exported geometry is the H3 cell polygon itself
+(``map_adapter._cell_polygon_lonlat``). This is load-bearing, not a preference: an earlier
+version drew hexagon *markers* sized in map units, and QGIS map units follow the project CRS —
+with the project in EPSG:4326 the unit is **degrees**, so a 349-unit hexagon spanned 349 degrees
+of longitude and the whole world fit inside three of them. Polygons need no size, tile exactly,
+and cannot be misread by a CRS change.
 
 Rules this file will not break
 ------------------------------
@@ -45,7 +47,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import pathlib
 import subprocess
@@ -54,72 +55,16 @@ import tempfile
 import uuid
 import xml.sax.saxutils as sax
 
-import numpy as np
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.domain import map_adapter as MA  # noqa: E402
 
-#: Fallback marker width in map units, used only when no staged grid exists to measure.
-#: The real value is measured from the data (see `measured_hex_size`), because the artefact's
-#: lattice is ~7% wider than canonical H3 res-9 geometry and a guessed constant leaves gaps.
-HEX_SIZE_MAP_UNITS = 300.0
-
 #: QML written by QGIS 3.x is still read by QGIS 4; declare a 3.x version so both open it.
 QGIS_QML_VERSION = "3.40.0"
 
 _NS = uuid.UUID("6f6d1e2a-1c1b-4a7e-9d3f-0c5a8b1e4d70")  # stable namespace for generated keys
-
-
-def hex_spacing_by_case() -> dict[str, float]:
-    """Median nearest-centroid spacing per case, in metres.
-
-    Per case, because the mock lattices are *not* one global H3 tessellation: measured spacing is
-    ~341.8 m for Jakarta and ~372.1 m for Mexico City, while canonical H3 res-9 geometry predicts a
-    single 347.8 m everywhere. Cells are placed on a per-case lattice, so no single marker width
-    tiles all three exactly.
-    """
-    spacings: dict[str, float] = {}
-    for case in _cases():
-        path = ROOT / f"data/staging/qgis/{case}.geojson"
-        if not path.exists():
-            continue
-        features = json.loads(path.read_text())["features"]
-        if not features:
-            continue
-        points = np.array(
-            [[f["geometry"]["coordinates"][0], f["geometry"]["coordinates"][1]] for f in features]
-        )
-        mean_lat = float(points[:, 1].mean())
-        metres = points * np.array([111320.0 * math.cos(math.radians(mean_lat)), 111132.0])
-        rng = np.random.default_rng(0)
-        sample = rng.choice(len(metres), min(400, len(metres)), replace=False)
-        squared = ((metres[sample][:, None, :] - metres[None, :, :]) ** 2).sum(-1)
-        squared[np.arange(len(sample)), sample] = np.inf
-        spacings[case] = round(float(np.median(np.sqrt(squared.min(axis=1)))), 1)
-    return spacings
-
-
-def measured_hex_size() -> float:
-    """A single marker width for all cases: the median of the per-case spacings.
-
-    A shared style cannot tile every case exactly (see `hex_spacing_by_case`), so this picks the
-    median and the manifest records each case's own spacing. Hairline seams in one city are the
-    honest cost of one comparable style; exact tiling would need per-case styles, which would then
-    stop being comparable at a glance.
-    """
-    spacings = sorted(hex_spacing_by_case().values())
-    if not spacings:
-        return HEX_SIZE_MAP_UNITS
-    middle = len(spacings) // 2
-    median = (
-        spacings[middle]
-        if len(spacings) % 2
-        else round((spacings[middle - 1] + spacings[middle]) / 2, 1)
-    )
-    return float(median)
 
 
 def _key(*parts: str) -> str:
@@ -152,15 +97,15 @@ def marker_symbol(
     name: str,
     color_rgba: str,
     *,
-    shape: str = "hexagon",
-    size: float = HEX_SIZE_MAP_UNITS,
-    size_unit: str = "MapUnit",
+    shape: str = "circle",
+    size: float = 3.2,
+    size_unit: str = "MM",
     stroke_rgba: str = "255,255,255,0",
     stroke_width: float = 0.0,
     stroke_style: str = "no",
     opacity: float = 1.0,
 ) -> str:
-    """A single-layer marker symbol; hexagon in map units by default."""
+    """A single-layer marker symbol. Points only — grid cells are polygons, never markers."""
     options = "".join(
         [
             _opt("angle", "0"),
@@ -270,18 +215,14 @@ def line_symbol(
 # --------------------------------------------------------------------------------------------
 
 
-def graduated_renderer(
-    field: str, classes: tuple[tuple[float, float, str], ...], *, size: float
-) -> str:
+def graduated_renderer(field: str, classes: tuple[tuple[float, float, str], ...]) -> str:
     """Graduated renderer from explicit ``(lower, upper, colour)`` classes — never recomputed."""
     ranges = "".join(
         f'        <range lower="{lo:g}" upper="{hi:g}" symbol="{i}" label="{lo:g} – {hi:g}" '
         f'render="true" uuid="{_key("range", field, str(i))}"/>\n'
         for i, (lo, hi, _) in enumerate(classes)
     )
-    symbols = "".join(
-        marker_symbol(str(i), _hex_to_rgba(hexv), size=size) for i, (_, _, hexv) in enumerate(classes)
-    )
+    symbols = "".join(fill_symbol(str(i), _hex_to_rgba(hexv)) for i, (_, _, hexv) in enumerate(classes))
     return (
         f'  <renderer-v2 type="graduatedSymbol" attr="{_attr(field)}" gradtype="0" '
         f'symbollevels="0" enableorderby="0" forceraster="0" referencescale="-1">\n'
@@ -291,16 +232,14 @@ def graduated_renderer(
     )
 
 
-def categorized_renderer(field: str, values: tuple[tuple[str, str], ...], *, size: float) -> str:
+def categorized_renderer(field: str, values: tuple[tuple[str, str], ...]) -> str:
     """Categorised renderer over text values, one marker symbol each."""
     categories = "".join(
         f'        <category value="{_attr(cat)}" symbol="{i}" label="{_attr(cat)}" '
         f'render="true" uuid="{_key("cat", field, cat)}"/>\n'
         for i, (cat, _) in enumerate(values)
     )
-    symbols = "".join(
-        marker_symbol(str(i), _hex_to_rgba(hexv), size=size) for i, (_, hexv) in enumerate(values)
-    )
+    symbols = "".join(fill_symbol(str(i), _hex_to_rgba(hexv)) for i, (_, hexv) in enumerate(values))
     return (
         f'  <renderer-v2 type="categorizedSymbol" attr="{_attr(field)}" symbollevels="0" '
         f'enableorderby="0" forceraster="0" referencescale="-1">\n'
@@ -400,17 +339,10 @@ def risk_categories() -> tuple[tuple[str, str], ...]:
     return tuple((stop.label.split(" (")[0], stop.color_hex) for stop in spec.stops)
 
 
-def quality_rules(size: float) -> tuple[tuple[str, str, str], ...]:
+def quality_rules() -> tuple[tuple[str, str, str], ...]:
     """The one-map honest view: confidence first, then band colours."""
     risk = dict(risk_categories())
-    degraded = marker_symbol(
-        "0",
-        "100,116,139,110",
-        size=size,
-        stroke_rgba="148,163,184,180",
-        stroke_width=0.1,
-        stroke_style="solid",
-    )
+    degraded = fill_symbol("0", "100,116,139,110")
     return (
         (
             '"coherence" < 0.5',
@@ -420,14 +352,14 @@ def quality_rules(size: float) -> tuple[tuple[str, str, str], ...]:
         (
             '\"risk_level\" = \'critico\'',
             "critico",
-            marker_symbol("0", _hex_to_rgba(risk["critico"]), size=size),
+            fill_symbol("0", _hex_to_rgba(risk["critico"])),
         ),
         (
             '\"risk_level\" = \'moderado\'',
             "moderado",
-            marker_symbol("0", _hex_to_rgba(risk["moderado"]), size=size),
+            fill_symbol("0", _hex_to_rgba(risk["moderado"])),
         ),
-        ("ELSE", "estable", marker_symbol("0", _hex_to_rgba(risk["estable"]), size=size)),
+        ("ELSE", "estable", fill_symbol("0", _hex_to_rgba(risk["estable"]))),
     )
 
 
@@ -506,13 +438,13 @@ def aoi_symbol() -> str:
     )
 
 
-def build_styles(meta: dict, *, size: float = HEX_SIZE_MAP_UNITS) -> dict[str, tuple[str, dict]]:
+def build_styles(meta: dict) -> dict[str, tuple[str, dict]]:
     """All styles as ``filename -> (qml_text, manifest_entry)``."""
     styles: dict[str, tuple[str, dict]] = {}
 
     velocity = velocity_classes(meta)
     styles["grid_velocity.qml"] = (
-        wrap_qml(graduated_renderer("velocity_mm_yr", velocity, size=size)),
+        wrap_qml(graduated_renderer("velocity_mm_yr", velocity)),
         {
             "applies_to": "grid",
             "field": "velocity_mm_yr",
@@ -527,7 +459,7 @@ def build_styles(meta: dict, *, size: float = HEX_SIZE_MAP_UNITS) -> dict[str, t
 
     delta = delta_classes(meta)
     styles["grid_delta.qml"] = (
-        wrap_qml(graduated_renderer("delta_change", delta, size=size)),
+        wrap_qml(graduated_renderer("delta_change", delta)),
         {
             "applies_to": "grid",
             "field": "delta_change",
@@ -542,7 +474,7 @@ def build_styles(meta: dict, *, size: float = HEX_SIZE_MAP_UNITS) -> dict[str, t
 
     coherence = coherence_classes(meta)
     styles["grid_coherence.qml"] = (
-        wrap_qml(graduated_renderer("coherence", coherence, size=size)),
+        wrap_qml(graduated_renderer("coherence", coherence)),
         {
             "applies_to": "grid",
             "field": "coherence",
@@ -557,7 +489,7 @@ def build_styles(meta: dict, *, size: float = HEX_SIZE_MAP_UNITS) -> dict[str, t
 
     risk = risk_categories()
     styles["grid_risk.qml"] = (
-        wrap_qml(categorized_renderer("risk_level", risk, size=size)),
+        wrap_qml(categorized_renderer("risk_level", risk)),
         {
             "applies_to": "grid",
             "field": "risk_level",
@@ -567,7 +499,7 @@ def build_styles(meta: dict, *, size: float = HEX_SIZE_MAP_UNITS) -> dict[str, t
         },
     )
 
-    quality = quality_rules(size)
+    quality = quality_rules()
     styles["grid_quality.qml"] = (
         wrap_qml(rule_renderer(quality)),
         {
@@ -619,14 +551,11 @@ def _meta() -> dict:
 
 
 def emit(out_dir: pathlib.Path) -> int:
-    size = measured_hex_size()
-    styles = build_styles(_meta(), size=size)
+    styles = build_styles(_meta())
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "qgis_qml_version": QGIS_QML_VERSION,
-        "hex_size_map_units": size,
-        "hex_size_basis": "median of the per-case nearest-centroid spacings, metres",
-        "hex_spacing_by_case": hex_spacing_by_case(),
+        "cell_geometry": "H3 polygon ring from map_adapter._cell_polygon_lonlat",
         "styles": {},
     }
     for filename, (text, entry) in styles.items():

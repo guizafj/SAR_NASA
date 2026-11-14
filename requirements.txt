@@ -13,7 +13,7 @@ pyarrow>=16.0          # parquet artefacts
 shapely>=2.0
 geopandas>=1.0
 pyproj>=3.6            # CRS handling in enrich_context/process_case
-h3>=4.1                # H3 res 9 cells = the parquet's primary key
+h3>=4.4                # H3 res 9 cells = the parquet's primary key
 requests>=2.31         # ASF SearchAPI probe (unauthenticated)
 pyyaml>=6.0            # config/study_cases.yaml
 

@@ -17,13 +17,16 @@ Two distinct failures are covered, and they are not the same test:
 
 The styling decisions that carry scientific meaning get their own assertions: the |v| <= 5 mm/yr
 band is a single flat class rather than a gradient, coherence is cut only at the app's own anchors
-(no invented 0.85 break), the admin boundary keeps its transparent fill, and every grid marker is a
-hexagon sized in map units — because at a fixed millimetre size the H3 tiling cannot be inspected.
+(no invented 0.85 break), the admin boundary keeps its transparent fill, and every grid symbol is
+a plain **fill** — because the geometry exported for QGIS is the cell polygon itself.
 
 Rendering is verified by QGIS itself, not here: each emitted style was loaded onto a real layer
-offscreen (`qgis --code`, `loadNamedStyle`) and read back — 9 ranges, hexagon, size 300, map units,
-mode 5, the risk hexes and the 180/75/220/40/0 context alphas all as specified. This suite keeps
-that true without needing QGIS installed, so CI stays hermetic.
+offscreen (`qgis --code`, `loadNamedStyle`) and read back, and a 1600x900 render was inspected.
+The first attempt drew markers sized in map units, which QGIS reads in the *project* CRS: with
+EPSG:4326 that unit is degrees, so the map was three hexagons spanning the globe. Hence
+`test_no_symbol_is_sized_in_map_units` — that failure is invisible in the XML and obvious on the
+canvas, which is exactly the kind of thing that needs a test rather than a habit of looking.
+This suite keeps it true without needing QGIS installed, so CI stays hermetic.
 """
 
 from __future__ import annotations
@@ -143,11 +146,7 @@ def test_emits_every_style_with_a_manifest(styled: pathlib.Path) -> None:
     manifest = json.loads((styled / STYLES_MANIFEST).read_text())
     on_disk = sorted(p.name for p in styled.glob("*.qml"))
     assert sorted(manifest["styles"]) == on_disk, "manifest and emitted files disagree"
-    size = manifest["hex_size_map_units"]
-    assert 300.0 < size < 450.0, (
-        f"marker width {size} m is not a plausible H3 res-9 lattice spacing; it is measured from "
-        f"the staged grid, so this means the export or the lattice changed"
-    )
+    assert "cell_geometry" in manifest, "the manifest must state what geometry the styles expect"
     for name, entry in manifest["styles"].items():
         assert entry["renderer"], f"{name}: manifest entry needs a renderer"
         assert "note" in entry, f"{name}: an undocumented style is a style nobody can defend"
@@ -237,24 +236,31 @@ def test_aoi_ring_is_an_unfilled_dashed_outline(styled: pathlib.Path) -> None:
     assert options["outline_style"] == "dash"
 
 
-def test_grid_markers_are_hexagons_sized_in_map_units(styled: pathlib.Path) -> None:
-    """In map units the H3 cells tile edge-to-edge, so the geometry is inspectable on the map.
-
-    The width is measured from the staged grid rather than hardcoded: the artefact's lattice is
-    ~372 m, not the 348 m canonical H3 res-9 geometry predicts, and a guessed constant leaves a
-    gap that looks like a styling bug. Every class must carry that same measured width, or the
-    grid develops seams between risk bands.
-    """
-    manifest = json.loads((styled / STYLES_MANIFEST).read_text())
-    expected = manifest["hex_size_map_units"]
+def test_grid_symbols_are_polygon_fills(styled: pathlib.Path) -> None:
+    """Cells are drawn as the exported polygon, so a fill is the only symbol that can be correct."""
     root = ET.parse(styled / "grid_velocity.qml").getroot()
     symbols = root.findall(".//renderer-v2/symbols/symbol")
     assert symbols, "no symbols emitted"
     for symbol in symbols:
-        options = _options(symbol)
-        assert options["name"] == "hexagon"
-        assert float(options["size"]) == expected
-        assert options["size_unit"] == "MapUnit"
+        assert symbol.get("type") == "fill", "a grid cell must be filled, not drawn as a marker"
+        assert "size" not in _options(symbol), "a fill needs no marker size"
+
+
+def test_no_symbol_is_sized_in_map_units(styled: pathlib.Path) -> None:
+    """Regression guard for the world-of-giant-hexagons bug.
+
+    `size_unit="MapUnit"` means map units of the *project CRS*. In EPSG:4326 that is degrees, so a
+    marker meant to be 349 m became 349 degrees of longitude and three hexagons covered the globe.
+    Symbol sizes must be in millimetres (screen) — geometry carries the scale, not the symbol.
+    """
+    for qml in styled.glob("*.qml"):
+        root = ET.parse(qml).getroot()
+        for symbol in root.findall(".//renderer-v2/symbols/symbol"):
+            unit = _options(symbol).get("size_unit")
+            assert unit != "MapUnit", (
+                f"{qml.name}: marker sized in map units — this is degrees under an EPSG:4326 "
+                f"project, and it renders the world as a handful of giant hexagons"
+            )
 
 
 def test_quality_rule_puts_confidence_before_risk(styled: pathlib.Path) -> None:
