@@ -2,12 +2,43 @@
 .github
 .venv
 venv
+ENV
 __pycache__
 *.pyc
 .pytest_cache
 .mypy_cache
 .ruff_cache
+.tox
+.nox
+.hypothesis
+.coverage
+coverage.xml
+htmlcov
+*.prof
+
+# Development-only content is not needed in the runtime image
+# (`examples/` IS kept because `src.data.loaders` re-exports `examples.reference_loader`)
 data/raw
+data/staging
+*.h5
+*.hdf5
+*.he5
+*.SAFE
+pipeline
+
+# Local tooling and editor state
+.agents
+.copilot
+.opencode
+.impeccable
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Local secrets and overrides
 .env
 .env.*
 .streamlit/secrets.toml

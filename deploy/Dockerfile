@@ -24,6 +24,7 @@ RUN python -m venv /app/.venv \
 
 # Copy application code, config and pre-computed <15 MiB processed artefacts
 COPY config ./config
+COPY examples ./examples
 COPY scripts ./scripts
 COPY src ./src
 COPY data/processed ./data/processed
