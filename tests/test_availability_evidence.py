@@ -535,7 +535,16 @@ def test_stack_consistency(case: str) -> None:
             )
 
             mean_interval = stack.get("mean_interval_days")
-            if not is_number(mean_interval) or mean_interval <= 0:
+            n_granules = stack.get("n_granules")
+            if is_number(n_granules) and n_granules < 2:
+                # A single pair has no consecutive gap to measure, so null is the honest value —
+                # but the field must be present and must not be a zero or a made-up number.
+                if mean_interval is not None:
+                    problems.append(
+                        f"{stack_path}.mean_interval_days: a single-granule stack has no gap, so "
+                        f"this must be null, got {mean_interval!r}"
+                    )
+            elif not is_number(mean_interval) or mean_interval <= 0:
                 problems.append(
                     f"{stack_path}.mean_interval_days: expected a number > 0, got {mean_interval!r}"
                 )

@@ -99,6 +99,22 @@ def grid_coordinates(center_lonlat: tuple[float, float] | None = None) -> tuple[
     return x, y
 
 
+def east_aoi_edge_lon(cfg: P.CaseConfig, lat: float) -> float:
+    """Longitude where the effective AOI ring crosses `lat`, on the eastern (larger-lon) side.
+
+    Derived from the ring the pipeline actually uses (`cfg.aoi_ring`, i.e. the QGIS drop-in when
+    present), never from a rectangle written down separately: a fixture pinned to a retired bbox
+    edge silently moves outside the AOI the day the footprint is refined.
+    """
+    ring = list(cfg.aoi_ring)
+    crossings: list[float] = []
+    for (lon1, lat1), (lon2, lat2) in zip(ring, ring[1:] + ring[:1], strict=True):
+        if (lat1 > lat) != (lat2 > lat):
+            crossings.append(lon1 + (lon2 - lon1) * (lat - lat1) / (lat2 - lat1))
+    assert crossings, f"the AOI ring never crosses latitude {lat}"
+    return max(crossings)
+
+
 def velocity_field() -> np.ndarray:
     """Injected secular velocity (mm/yr), exactly 0 at the reference pixel."""
     columns = np.arange(NX)[None, :]
@@ -669,7 +685,12 @@ def test_granules_outside_the_case_aoi_are_refused(tmp_path):
 
 def test_cells_outside_the_aoi_are_dropped_not_published(tmp_path):
     cfg = P.load_case_config(CASE)
-    shifted = (cfg.reference_lonlat[0] + 0.28, cfg.reference_lonlat[1])  # over the east edge
+    # Straddle the *effective* AOI's east boundary at the reference latitude. This used to be a
+    # hard-coded +0.28° shift, which targeted the retired YAML rectangle's east edge (-98.85);
+    # once `config/aoi/mexico-city.geojson` became the authoritative footprint its east edge moved
+    # ~29 km west, so the whole fixture fell outside the AOI. Deriving the edge from the ring keeps
+    # the fixture honest when the study area is refined.
+    shifted = (east_aoi_edge_lon(cfg, cfg.reference_lonlat[1]), cfg.reference_lonlat[1])
     stack = build_stack(tmp_path / "granules", center_lonlat=shifted)
     out = tmp_path / "out"
     processed = P.process_case(stack.granules, CASE, out_dir=out)
@@ -677,6 +698,7 @@ def test_cells_outside_the_aoi_are_dropped_not_published(tmp_path):
     grid = pd.read_parquet(out / "nisar_grid.parquet")
 
     assert processed.coverage.covered_outside_aoi > 0, "fixture must straddle the AOI boundary"
+    assert processed.coverage.covered_in_aoi > 0, "fixture must also have cells inside the AOI"
     assert set(grid["cell_id"]) <= P.aoi_cells(CASE)
     assert processed.coverage.covered_in_aoi == len(grid)
     assert any("outside the mexico-city AOI" in warning for warning in processed.warnings)

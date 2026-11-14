@@ -22,9 +22,13 @@ What is derived (everything else is an input)
   is ``ceil(max|velocity| / 25 mm/yr) * 25 mm/yr`` — a presentation granularity, not a measurement.
 * the phase→mm scale check is recomputed through the library:
   ``nisar_gunw.phase_to_los_displacement_mm`` then ``transforms.vertical_from_los``.
-* coverage is ``|grid cells ∩ bbox H3 cells| / |bbox H3 cells|`` at the resolution of the grid's
-  own ``cell_id`` strings, and is compared with the documented
-  ``COVERAGE_WARNING_FRACTION`` from ``pipeline/process_case.py``.
+* coverage is printed against **two** denominators at the resolution of the grid's own
+  ``cell_id`` strings: the authoritative one, ``|grid cells ∩ AOI H3 cells| / |AOI H3 cells|``,
+  where the AOI cell set is ``pipeline.process_case.aoi_cells`` (the AOI polygon, centre
+  containment — exactly the denominator the pipeline's ``COVERAGE_WARNING_FRACTION`` warns on),
+  and ``|grid cells ∩ bbox H3 cells| / |bbox H3 cells|``, which is the *envelope* of the AOI and
+  is **not** the threshold denominator. Both are published because the bbox figure used to be
+  printed alone and was then quoted as if it were the AOI coverage.
 * the mock warning is triggered by ``product == "mock"`` in the artefacts, never by a filename.
 
 The only literals below are formatting constants (2 decimals, 25 mm/yr legend granularity, 60-line
@@ -35,7 +39,9 @@ documented ``DEFAULT_WAVELENGTH_M``; no physical number is typed here.
 
 Reading rules
 -------------
-* Only ``data/processed/`` is read (``--processed`` exists so tests can point at a copy).
+* Only ``data/processed/`` is read for the measurements, plus ``config/`` through
+  ``pipeline.process_case.aoi_cells`` / ``load_case_config`` for the authoritative AOI cell set
+  (``--processed`` exists so tests can point at a copy).
 * No clock, no RNG, no sampling, no network: two runs on the same tree produce identical text.
 * A case whose artefacts are missing or internally inconsistent is skipped with a note and the
   run still exits 0. Notes go to stderr when ``--json`` keeps stdout parseable.
@@ -63,6 +69,8 @@ from pipeline.ingest import nisar_gunw as G  # noqa: E402
 from pipeline.process_case import (  # noqa: E402
     COVERAGE_WARNING_FRACTION,
     DEFAULT_WAVELENGTH_M,
+    aoi_cells,
+    load_case_config,
 )
 from pipeline.science import transforms as V  # noqa: E402
 from src.domain import contracts as C  # noqa: E402
@@ -149,10 +157,17 @@ class CaseNumbers:
     detection_limit_mm_yr: float | None
     posting_m: int | None
     h3_resolution: int
-    coverage_fraction: float
-    covered_cells: int
+    #: Authoritative denominator: ``pipeline.process_case.aoi_cells`` (the AOI polygon).
     aoi_cells: int
+    covered_in_aoi: int
+    aoi_coverage_fraction: float
+    #: Envelope denominator: the cells inside ``meta.bbox``. Published, never thresholded here.
+    bbox_cells: int
+    covered_in_bbox: int
+    bbox_coverage_fraction: float
+    #: Grid cells that fall outside the AOI polygon (data the pipeline would drop).
     covered_outside_aoi: int
+    aoi_source: str
     incidence_deg: float
     incidence_source: str
     heading_deg: float
@@ -194,12 +209,27 @@ class CaseNumbers:
             "posting_m": self.posting_m,
             "coverage": {
                 "h3_resolution": self.h3_resolution,
-                "covered_cells": self.covered_cells,
-                "covered_outside_aoi": self.covered_outside_aoi,
-                "aoi_cells": self.aoi_cells,
-                "fraction": self.coverage_fraction,
-                "below_warning_threshold": self.coverage_fraction < COVERAGE_WARNING_FRACTION,
+                #: The denominator the 50 % warning is measured on. Named so no consumer can
+                #: mistake the bbox figure for it again.
+                "authoritative_denominator": "aoi",
                 "warning_threshold": COVERAGE_WARNING_FRACTION,
+                "aoi": {
+                    "source": self.aoi_source,
+                    "cells": self.aoi_cells,
+                    "covered": self.covered_in_aoi,
+                    "fraction": self.aoi_coverage_fraction,
+                    "below_warning_threshold": self.aoi_coverage_fraction
+                    < COVERAGE_WARNING_FRACTION,
+                },
+                "bbox": {
+                    "source": "meta.bbox envelope (config/study_cases.yaml bbox)",
+                    "cells": self.bbox_cells,
+                    "covered": self.covered_in_bbox,
+                    "fraction": self.bbox_coverage_fraction,
+                    "below_warning_threshold": self.bbox_coverage_fraction
+                    < COVERAGE_WARNING_FRACTION,
+                },
+                "covered_outside_aoi": self.covered_outside_aoi,
             },
             "geometry": {
                 "incidence_deg": self.incidence_deg,
@@ -418,14 +448,33 @@ def load_case(case_dir: pathlib.Path) -> CaseNumbers:
     if len(resolutions) != 1:
         raise CaseSkipped(f"mixed H3 resolutions {sorted(resolutions)} in the grid")
     resolution = resolutions.pop()
+
+    # Authoritative denominator: the very function the pipeline warns on, so the card and
+    # ``process_case.py`` can never disagree about what "the AOI" means (same ring, same
+    # containment). It reads config/, never the artefacts.
     try:
-        aoi_cells = set(h3.geo_to_cells(_bbox_polygon((w, s, e, n)), resolution))
+        case_config = load_case_config(case_id)
+        aoi_cell_set = set(aoi_cells(case_id))
+    except Exception as exc:  # noqa: BLE001 - missing config, unreadable ring, h3 refusal
+        raise CaseSkipped(
+            f"cannot derive the AOI H3 cells ({exc.__class__.__name__}: {exc})"
+        ) from None
+    if case_config.h3_resolution != resolution:
+        raise CaseSkipped(
+            f"config h3_resolution={case_config.h3_resolution} != grid cell resolution "
+            f"{resolution}; the AOI denominator would not match the cells"
+        )
+    if not aoi_cell_set:
+        raise CaseSkipped(f"the AOI polygon {case_config.aoi_source} yields no H3 cells")
+
+    try:
+        bbox_cell_set = set(h3.geo_to_cells(_bbox_polygon((w, s, e, n)), resolution))
     except Exception as exc:  # noqa: BLE001
         raise CaseSkipped(f"cannot derive bbox H3 cells ({exc.__class__.__name__})") from None
     grid_cells = set(cell_ids)
-    covered_in_aoi = len(grid_cells & aoi_cells)
-    covered_outside = len(grid_cells - aoi_cells)
-    coverage_fraction = covered_in_aoi / len(aoi_cells) if aoi_cells else 0.0
+    covered_in_aoi = len(grid_cells & aoi_cell_set)
+    covered_in_bbox = len(grid_cells & bbox_cell_set)
+    covered_outside = len(grid_cells - aoi_cell_set)
 
     detection_limit = _finite(stats.get("detection_limit_mm_yr"))
     incidence, incidence_source, heading, heading_source = _case_geometry(meta)
@@ -455,10 +504,16 @@ def load_case(case_dir: pathlib.Path) -> CaseNumbers:
         detection_limit_mm_yr=detection_limit,
         posting_m=profile.posting_m,
         h3_resolution=resolution,
-        coverage_fraction=coverage_fraction,
-        covered_cells=covered_in_aoi,
-        aoi_cells=len(aoi_cells),
+        aoi_cells=len(aoi_cell_set),
+        covered_in_aoi=covered_in_aoi,
+        aoi_coverage_fraction=covered_in_aoi / len(aoi_cell_set),
+        bbox_cells=len(bbox_cell_set),
+        covered_in_bbox=covered_in_bbox,
+        bbox_coverage_fraction=(
+            covered_in_bbox / len(bbox_cell_set) if bbox_cell_set else 0.0
+        ),
         covered_outside_aoi=covered_outside,
+        aoi_source=case_config.aoi_source,
         incidence_deg=incidence,
         incidence_source=incidence_source,
         heading_deg=heading,
@@ -601,14 +656,18 @@ def _do_not_claim(cases: Sequence[CaseNumbers]) -> list[str]:
             "pipeline/science/transforms.py; do not publish seasonal_amp_mm."
         )
 
-    low = [case for case in cases if case.coverage_fraction < COVERAGE_WARNING_FRACTION]
+    # The threshold is measured on the AOI H3 cells (the pipeline's denominator), never on the
+    # bbox envelope: a city can fill its envelope and still cover less than half of itself.
+    low = [case for case in cases if case.aoi_coverage_fraction < COVERAGE_WARNING_FRACTION]
     if low:
         coverage_text = ", ".join(
-            f"{case.case_id} ({case.coverage_fraction:.2%})" for case in low
+            f"{case.case_id} ({case.aoi_coverage_fraction:.2%} of {case.aoi_cells:,} AOI cells)"
+            for case in low
         )
         items.append(
             f"no city-wide claim for {coverage_text}: below the "
-            f"{COVERAGE_WARNING_FRACTION:.0%} coverage threshold in docs/data-source-decision.md."
+            f"{COVERAGE_WARNING_FRACTION:.0%} coverage threshold in docs/data-source-decision.md, "
+            "measured against the AOI H3 cells (pipeline aoi_cells), not the bbox envelope."
         )
 
     null_cases = [case for case in cases if case.detection_limit_mm_yr is not None]
@@ -724,9 +783,21 @@ def build_document(
             "must say MOCK. Validate the map and the schema, never the science."
         )
 
+    below = [case.case_id for case in cases if case.aoi_coverage_fraction < COVERAGE_WARNING_FRACTION]
     return {
         "processed_root": str(processed_root),
         "cases": [case.as_json() for case in cases],
+        "coverage_summary": {
+            "authoritative_denominator": "aoi",
+            "threshold": COVERAGE_WARNING_FRACTION,
+            "cases": len(cases),
+            "below_warning_threshold": below,
+            "note": (
+                "the threshold is measured on the AOI H3 cells (pipeline.process_case.aoi_cells); "
+                "the bbox figures in cases[].coverage.bbox describe the envelope of the AOI and "
+                "must never be quoted against the threshold"
+            ),
+        },
         "contrast": contrast,
         "scale_check": _scale_check(cases),
         "null_result": null_results,
@@ -781,11 +852,34 @@ def render_text(document: dict[str, Any]) -> str:
             f"revisit_days={case['revisit_days']}"
         )
         coverage = case["coverage"]
+        aoi = coverage["aoi"]
+        bbox = coverage["bbox"]
+        bar = coverage["warning_threshold"]
+        verdict = "BELOW the bar" if aoi["below_warning_threshold"] else "PASS"
         lines.append(
             f"  provenance_id={case['provenance_id']} "
             f"limitations={case['n_limitations']} "
-            f"coverage={_pct(coverage['fraction'])} of bbox H3 res-"
-            f"{coverage['h3_resolution']} cells"
+            f"coverage_aoi={_pct(aoi['fraction'])} of {aoi['cells']:,} AOI H3 res-"
+            f"{coverage['h3_resolution']} cells ({aoi['covered']:,} covered; "
+            f"authoritative denominator, {bar:.0%} bar: {verdict})"
+        )
+        lines.append(
+            f"  coverage_bbox={_pct(bbox['fraction'])} of {bbox['cells']:,} bbox H3 res-"
+            f"{coverage['h3_resolution']} cells ({bbox['covered']:,} covered; envelope only, "
+            "NOT the threshold denominator)"
+        )
+
+    summary = document["coverage_summary"]
+    if summary["cases"]:
+        verdict = (
+            f"all {summary['cases']} case(s) PASS on the AOI denominator"
+            if not summary["below_warning_threshold"]
+            else "BELOW the bar: " + ", ".join(summary["below_warning_threshold"])
+        )
+        lines.append(
+            f"COVERAGE VERDICT — the {summary['threshold']:.0%} bar is measured on the AOI H3 "
+            f"cells (pipeline/process_case.py COVERAGE_WARNING_FRACTION): {verdict}; the bbox "
+            "figures above are an envelope diagnostic and are never the threshold denominator."
         )
 
     contrast = document["contrast"]

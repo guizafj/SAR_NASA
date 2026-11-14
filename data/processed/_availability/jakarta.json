@@ -3,13 +3,13 @@
   "city": "jakarta",
   "name": "Jakarta, ID",
   "aoi_bbox": [
-    106.7,
-    -6.4,
-    107.0,
-    -6.1
+    106.6856359,
+    -6.3744576,
+    106.9739751,
+    -6.0699999
   ],
   "crs": "EPSG:32748",
-  "generated_utc": "2026-11-14T17:08:37Z",
+  "generated_utc": "2026-11-14T18:25:36Z",
   "sources": {
     "nisar_gunw": {
       "attempted": true,
@@ -22,7 +22,7 @@
       "available": true,
       "error": null,
       "coverage_note": "NISAR GUNW is provisional and cryosphere-derived; urban coverage is NOT guaranteed (README \u00a77). An intersecting granule must be verified visually before use.",
-      "n_granules": 24,
+      "n_granules": 25,
       "n_granules_truncated": false,
       "date_range": [
         "2026-06-26T22:39:21Z",
@@ -67,6 +67,7 @@
         "NISAR_L2_PR_GUNW_025_018_D_091_026_4000_SH_20260709T111111_20260709T111146_20260721T111111_20260721T111145_P05023_N_F_J_001",
         "NISAR_L2_PR_GUNW_025_018_D_092_026_4000_SH_20260709T111145_20260709T111222_20260721T111144_20260721T111222_P05023_N_F_J_001",
         "NISAR_L2_PR_GUNW_026_010_A_174_028_4000_SH_20260720T223920_20260720T223954_20260813T223919_20260813T223953_P05023_N_F_J_001",
+        "NISAR_L2_PR_GUNW_026_010_A_175_028_4000_SH_20260720T223953_20260720T224028_20260813T223952_20260813T224026_P05023_N_F_J_001",
         "NISAR_L2_PR_GUNW_026_018_D_091_028_4000_SH_20260721T111111_20260721T111145_20260814T111109_20260814T111144_P05023_N_F_J_001",
         "NISAR_L2_PR_GUNW_026_018_D_092_028_4000_SH_20260721T111144_20260721T111222_20260814T111143_20260814T111221_P05023_N_F_J_001",
         "NISAR_L2_PR_GUNW_028_010_A_174_029_4000_SH_20260813T223919_20260813T223953_20260825T223918_20260825T223953_P05023_N_F_J_001",
@@ -120,6 +121,11 @@
         {
           "id": "NISAR_L2_PR_GUNW_026_010_A_174_028_4000_SH_20260720T223920_20260720T223954_20260813T223919_20260813T223953_P05023_N_F_J_001",
           "url": "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GUNW_PROVISIONAL_V1/NISAR_L2_PR_GUNW_026_010_A_174_028_4000_SH_20260720T223920_20260720T223954_20260813T223919_20260813T223953_P05023_N_F_J_001/NISAR_L2_PR_GUNW_026_010_A_174_028_4000_SH_20260720T223920_20260720T223954_20260813T223919_20260813T223953_P05023_N_F_J_001.h5",
+          "size_mb": null
+        },
+        {
+          "id": "NISAR_L2_PR_GUNW_026_010_A_175_028_4000_SH_20260720T223953_20260720T224028_20260813T223952_20260813T224026_P05023_N_F_J_001",
+          "url": "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GUNW_PROVISIONAL_V1/NISAR_L2_PR_GUNW_026_010_A_175_028_4000_SH_20260720T223953_20260720T224028_20260813T223952_20260813T224026_P05023_N_F_J_001/NISAR_L2_PR_GUNW_026_010_A_175_028_4000_SH_20260720T223953_20260720T224028_20260813T223952_20260813T224026_P05023_N_F_J_001.h5",
           "size_mb": null
         },
         {
@@ -217,6 +223,10 @@
             "2026-06-27T11:11:45Z",
             "2026-10-01T11:11:43Z"
           ],
+          "full_date_range": [
+            "2026-06-27T11:11:45Z",
+            "2026-10-01T11:11:43Z"
+          ],
           "mean_interval_days": 12.0,
           "granule_ids": [
             "NISAR_L2_PR_GUNW_024_018_D_092_025_4000_SH_20260627T111145_20260627T111223_20260709T111145_20260709T111222_P05023_N_F_J_001",
@@ -228,13 +238,24 @@
             "NISAR_L2_PR_GUNW_031_018_D_092_032_4000_SH_20260919T111142_20260919T111220_20261001T111143_20261001T111221_P05023_N_F_J_001",
             "NISAR_L2_PR_GUNW_032_018_D_092_033_4000_SH_20261001T111143_20261001T111221_20261013T111143_20261013T111221_P05023_N_F_J_001"
           ],
-          "granule_ids_truncated": false
+          "granule_ids_truncated": false,
+          "sample_purpose": "download",
+          "n_epochs": 9,
+          "connected_epochs": 9,
+          "download_epochs": 9,
+          "min_fit_points": 4,
+          "epoch_sufficient": true,
+          "warning": null
         },
         {
           "track": "091",
           "direction": "DESCENDING",
           "n_granules": 8,
           "date_range": [
+            "2026-06-27T11:11:12Z",
+            "2026-10-01T11:11:09Z"
+          ],
+          "full_date_range": [
             "2026-06-27T11:11:12Z",
             "2026-10-01T11:11:09Z"
           ],
@@ -249,13 +270,20 @@
             "NISAR_L2_PR_GUNW_031_018_D_091_032_4000_SH_20260919T111109_20260919T111143_20261001T111109_20261001T111144_P05023_N_F_J_001",
             "NISAR_L2_PR_GUNW_032_018_D_091_033_4000_SH_20261001T111109_20261001T111144_20261013T111109_20261013T111144_P05023_N_F_J_001"
           ],
-          "granule_ids_truncated": false
+          "granule_ids_truncated": false,
+          "sample_purpose": "preview",
+          "n_epochs": 9,
+          "connected_epochs": 9
         },
         {
           "track": "174",
           "direction": "ASCENDING",
           "n_granules": 8,
           "date_range": [
+            "2026-06-26T22:39:21Z",
+            "2026-09-30T22:39:18Z"
+          ],
+          "full_date_range": [
             "2026-06-26T22:39:21Z",
             "2026-09-30T22:39:18Z"
           ],
@@ -270,7 +298,31 @@
             "NISAR_L2_PR_GUNW_031_010_A_174_032_4000_SH_20260918T223918_20260918T223953_20260930T223918_20260930T223953_P05023_N_F_J_001",
             "NISAR_L2_PR_GUNW_032_010_A_174_033_4000_SH_20260930T223918_20260930T223953_20261012T223918_20261012T223953_P05023_N_F_J_001"
           ],
-          "granule_ids_truncated": false
+          "granule_ids_truncated": false,
+          "sample_purpose": "preview",
+          "n_epochs": 9,
+          "connected_epochs": 9
+        },
+        {
+          "track": "175",
+          "direction": "ASCENDING",
+          "n_granules": 1,
+          "date_range": [
+            "2026-07-20T22:39:53Z",
+            "2026-07-20T22:39:53Z"
+          ],
+          "full_date_range": [
+            "2026-07-20T22:39:53Z",
+            "2026-07-20T22:39:53Z"
+          ],
+          "mean_interval_days": null,
+          "granule_ids": [
+            "NISAR_L2_PR_GUNW_026_010_A_175_028_4000_SH_20260720T223953_20260720T224028_20260813T223952_20260813T224026_P05023_N_F_J_001"
+          ],
+          "granule_ids_truncated": false,
+          "sample_purpose": "preview",
+          "n_epochs": 2,
+          "connected_epochs": 2
         }
       ],
       "recommended_stack": {
@@ -278,6 +330,10 @@
         "direction": "DESCENDING",
         "n_granules": 8,
         "date_range": [
+          "2026-06-27T11:11:45Z",
+          "2026-10-01T11:11:43Z"
+        ],
+        "full_date_range": [
           "2026-06-27T11:11:45Z",
           "2026-10-01T11:11:43Z"
         ],
@@ -293,7 +349,14 @@
           "NISAR_L2_PR_GUNW_032_018_D_092_033_4000_SH_20261001T111143_20261001T111221_20261013T111143_20261013T111221_P05023_N_F_J_001"
         ],
         "granule_ids_truncated": false,
-        "why": "largest single-geometry stack (track 092/DESCENDING); all 8 granules, 2026-06 .. 2026-10"
+        "sample_purpose": "download",
+        "n_epochs": 9,
+        "connected_epochs": 9,
+        "download_epochs": 9,
+        "min_fit_points": 4,
+        "epoch_sufficient": true,
+        "warning": null,
+        "why": "largest single-geometry stack (track 092/DESCENDING); 8 of 8 granules, 9 connected epoch(s), 2026-06 .. 2026-10"
       },
       "platforms": [
         "NISAR"
@@ -389,7 +452,6 @@
         "S1A_IW_SLC__1SDV_20230826T111510_20230826T111540_050045_06058C_D9EC",
         "S1A_IW_SLC__1SDV_20230826T111538_20230826T111606_050045_06058C_1260",
         "S1A_IW_SLC__1SDV_20230907T111538_20230907T111606_050220_060B7D_A67F",
-        "S1A_IW_SLC__1SDV_20230919T111511_20230919T111541_050395_06117D_EBF9",
         "S1A_IW_SLC__1SDV_20230919T111539_20230919T111607_050395_06117D_FA73",
         "S1A_IW_SLC__1SDV_20231001T111539_20231001T111607_050570_061778_F355",
         "S1A_IW_SLC__1SDV_20231013T111539_20231013T111607_050745_061D79_56EF",
@@ -400,7 +462,6 @@
         "S1A_IW_SLC__1SDV_20231224T111509_20231224T111539_051795_0641AC_BBB6",
         "S1A_IW_SLC__1SDV_20240105T111509_20240105T111539_051970_0647AB_2E3B",
         "S1A_IW_SLC__1SDV_20240117T111508_20240117T111538_052145_064D9A_E0D9",
-        "S1A_IW_SLC__1SDV_20240117T111535_20240117T111603_052145_064D9A_B641",
         "S1A_IW_SLC__1SDV_20240129T111508_20240129T111538_052320_065383_82A8",
         "S1A_IW_SLC__1SDV_20240210T111507_20240210T111537_052495_065965_C5EA",
         "S1A_IW_SLC__1SDV_20240218T223345_20240218T223413_052619_065D8F_BF3B",
@@ -437,7 +498,6 @@
         "S1A_IW_SLC__1SDV_20241218T111504_20241218T111534_057045_0702CD_2FEF",
         "S1A_IW_SLC__1SDV_20241230T111504_20241230T111534_057220_0709B7_DBE2",
         "S1A_IW_SLC__1SDV_20250111T111502_20250111T111532_057395_0710A1_1802",
-        "S1A_IW_SLC__1SDV_20250111T111530_20250111T111558_057395_0710A1_1F97",
         "S1A_IW_SLC__1SDV_20250123T111502_20250123T111531_057570_071795_5E74",
         "S1A_IW_SLC__1SDV_20250204T111501_20250204T111531_057745_071E7D_A9B5",
         "S1A_IW_SLC__1SDV_20250216T111501_20250216T111530_057920_072589_12E9",
@@ -474,7 +534,6 @@
         "S1A_IW_SLC__1SDV_20251026T111458_20251026T111528_061595_07B1A0_753A",
         "S1A_IW_SLC__1SDV_20251103T223336_20251103T223404_061719_07B67C_C92F",
         "S1A_IW_SLC__1SDV_20251107T111458_20251107T111527_061770_07B87C_2D7C",
-        "S1A_IW_SLC__1SDV_20251107T111525_20251107T111553_061770_07B87C_20A6",
         "S1A_IW_SLC__1SDV_20251115T223335_20251115T223403_061894_07BD44_DC80",
         "S1A_IW_SLC__1SDV_20251119T111457_20251119T111527_061945_07BF46_EAC3",
         "S1A_IW_SLC__1SDV_20251127T223334_20251127T223402_062069_07C41C_BADF",
@@ -485,15 +544,19 @@
         "S1A_IW_SLC__1SDV_20251221T223358_20251221T223426_062419_07D1BF_A867",
         "S1A_IW_SLC__1SDV_20251225T111521_20251225T111549_062470_07D3B8_589A",
         "S1A_IW_SLC__1SDV_20260102T223357_20260102T223424_062594_07D884_0818",
-        "S1A_IW_SLC__1SDV_20260106T111520_20260106T111548_062645_07DA7C_91FC",
-        "S1A_IW_SLC__1SDV_20260114T223356_20260114T223424_062769_07DF41_887B",
-        "S1A_IW_SLC__1SDV_20260118T111451_20260118T111521_062820_07E139_C693",
-        "S1A_IW_SLC__1SDV_20260118T111519_20260118T111547_062820_07E139_F9BC",
-        "S1A_IW_SLC__1SDV_20260126T223355_20260126T223423_062944_07E590_E9AF",
-        "S1A_IW_SLC__1SDV_20260130T111519_20260130T111546_062995_07E780_025F",
-        "S1A_IW_SLC__1SDV_20260327T223328_20260327T223356_063819_08068B_04F5",
         "S1A_IW_SLC__1SDV_20260420T223354_20260420T223422_064169_0813A0_AF6E",
+        "S1A_IW_SLC__1SDV_20260424T111450_20260424T111520_064220_081579_46AF",
+        "S1A_IW_SLC__1SDV_20260424T111518_20260424T111545_064220_081579_CB19",
+        "S1A_IW_SLC__1SDV_20260502T223327_20260502T223355_064344_081A19_52C9",
+        "S1A_IW_SLC__1SDV_20260502T223353_20260502T223421_064344_081A19_F7BC",
+        "S1A_IW_SLC__1SDV_20260506T111449_20260506T111519_064395_081BF3_4C03",
+        "S1A_IW_SLC__1SDV_20260506T111517_20260506T111545_064395_081BF3_E90A",
         "S1A_IW_SLC__1SDV_20260518T111449_20260518T111519_064570_082221_A061",
+        "S1A_IW_SLC__1SDV_20260518T111517_20260518T111544_064570_082221_7F62",
+        "S1A_IW_SLC__1SDV_20260530T111448_20260530T111518_064745_082844_E2F2",
+        "S1A_IW_SLC__1SDV_20260530T111516_20260530T111544_064745_082844_4340",
+        "S1A_IW_SLC__1SDV_20260611T111448_20260611T111517_064920_082E61_FBAC",
+        "S1A_IW_SLC__1SDV_20260611T111515_20260611T111543_064920_082E61_4601",
         "S1A_IW_SLC__1SDV_20260623T111447_20260623T111517_065095_083488_23A2",
         "S1A_IW_SLC__1SDV_20260623T111515_20260623T111542_065095_083488_D338"
       ],
@@ -565,11 +628,6 @@
           "size_mb": 3871.488875389099
         },
         {
-          "id": "S1A_IW_SLC__1SDV_20230919T111511_20230919T111541_050395_06117D_EBF9",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20230919T111511_20230919T111541_050395_06117D_EBF9.zip",
-          "size_mb": 4676.243428230286
-        },
-        {
           "id": "S1A_IW_SLC__1SDV_20230919T111539_20230919T111607_050395_06117D_FA73",
           "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20230919T111539_20230919T111607_050395_06117D_FA73.zip",
           "size_mb": 3930.579071998596
@@ -618,11 +676,6 @@
           "id": "S1A_IW_SLC__1SDV_20240117T111508_20240117T111538_052145_064D9A_E0D9",
           "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20240117T111508_20240117T111538_052145_064D9A_E0D9.zip",
           "size_mb": 8223.975633621216
-        },
-        {
-          "id": "S1A_IW_SLC__1SDV_20240117T111535_20240117T111603_052145_064D9A_B641",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20240117T111535_20240117T111603_052145_064D9A_B641.zip",
-          "size_mb": 7646.7692012786865
         },
         {
           "id": "S1A_IW_SLC__1SDV_20240129T111508_20240129T111538_052320_065383_82A8",
@@ -805,11 +858,6 @@
           "size_mb": 4741.436484336853
         },
         {
-          "id": "S1A_IW_SLC__1SDV_20250111T111530_20250111T111558_057395_0710A1_1F97",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20250111T111530_20250111T111558_057395_0710A1_1F97.zip",
-          "size_mb": 3858.190173149109
-        },
-        {
           "id": "S1A_IW_SLC__1SDV_20250123T111502_20250123T111531_057570_071795_5E74",
           "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20250123T111502_20250123T111531_057570_071795_5E74.zip",
           "size_mb": 4744.236822128296
@@ -990,11 +1038,6 @@
           "size_mb": 4699.510937690735
         },
         {
-          "id": "S1A_IW_SLC__1SDV_20251107T111525_20251107T111553_061770_07B87C_20A6",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20251107T111525_20251107T111553_061770_07B87C_20A6.zip",
-          "size_mb": 3869.8038091659546
-        },
-        {
           "id": "S1A_IW_SLC__1SDV_20251115T223335_20251115T223403_061894_07BD44_DC80",
           "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20251115T223335_20251115T223403_061894_07BD44_DC80.zip",
           "size_mb": 3886.725206375122
@@ -1045,49 +1088,69 @@
           "size_mb": 4308.334125518799
         },
         {
-          "id": "S1A_IW_SLC__1SDV_20260106T111520_20260106T111548_062645_07DA7C_91FC",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260106T111520_20260106T111548_062645_07DA7C_91FC.zip",
-          "size_mb": 3846.6284885406494
-        },
-        {
-          "id": "S1A_IW_SLC__1SDV_20260114T223356_20260114T223424_062769_07DF41_887B",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260114T223356_20260114T223424_062769_07DF41_887B.zip",
-          "size_mb": 4326.499639511108
-        },
-        {
-          "id": "S1A_IW_SLC__1SDV_20260118T111451_20260118T111521_062820_07E139_C693",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260118T111451_20260118T111521_062820_07E139_C693.zip",
-          "size_mb": 4767.61651134491
-        },
-        {
-          "id": "S1A_IW_SLC__1SDV_20260118T111519_20260118T111547_062820_07E139_F9BC",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260118T111519_20260118T111547_062820_07E139_F9BC.zip",
-          "size_mb": 3828.8046083450317
-        },
-        {
-          "id": "S1A_IW_SLC__1SDV_20260126T223355_20260126T223423_062944_07E590_E9AF",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260126T223355_20260126T223423_062944_07E590_E9AF.zip",
-          "size_mb": 4225.124704360962
-        },
-        {
-          "id": "S1A_IW_SLC__1SDV_20260130T111519_20260130T111546_062995_07E780_025F",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260130T111519_20260130T111546_062995_07E780_025F.zip",
-          "size_mb": 3818.550548553467
-        },
-        {
-          "id": "S1A_IW_SLC__1SDV_20260327T223328_20260327T223356_063819_08068B_04F5",
-          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260327T223328_20260327T223356_063819_08068B_04F5.zip",
-          "size_mb": 3869.510901451111
-        },
-        {
           "id": "S1A_IW_SLC__1SDV_20260420T223354_20260420T223422_064169_0813A0_AF6E",
           "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260420T223354_20260420T223422_064169_0813A0_AF6E.zip",
           "size_mb": 4240.012868881226
         },
         {
+          "id": "S1A_IW_SLC__1SDV_20260424T111450_20260424T111520_064220_081579_46AF",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260424T111450_20260424T111520_064220_081579_46AF.zip",
+          "size_mb": 4652.192172050476
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260424T111518_20260424T111545_064220_081579_CB19",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260424T111518_20260424T111545_064220_081579_CB19.zip",
+          "size_mb": 3902.599081993103
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260502T223327_20260502T223355_064344_081A19_52C9",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260502T223327_20260502T223355_064344_081A19_52C9.zip",
+          "size_mb": 3813.904474258423
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260502T223353_20260502T223421_064344_081A19_F7BC",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260502T223353_20260502T223421_064344_081A19_F7BC.zip",
+          "size_mb": 4258.9115924835205
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260506T111449_20260506T111519_064395_081BF3_4C03",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260506T111449_20260506T111519_064395_081BF3_4C03.zip",
+          "size_mb": 4749.788858413696
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260506T111517_20260506T111545_064395_081BF3_E90A",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260506T111517_20260506T111545_064395_081BF3_E90A.zip",
+          "size_mb": 3884.12478351593
+        },
+        {
           "id": "S1A_IW_SLC__1SDV_20260518T111449_20260518T111519_064570_082221_A061",
           "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260518T111449_20260518T111519_064570_082221_A061.zip",
           "size_mb": 4704.279168128967
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260518T111517_20260518T111544_064570_082221_7F62",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260518T111517_20260518T111544_064570_082221_7F62.zip",
+          "size_mb": 3884.3826475143433
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260530T111448_20260530T111518_064745_082844_E2F2",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260530T111448_20260530T111518_064745_082844_E2F2.zip",
+          "size_mb": 4723.033918380737
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260530T111516_20260530T111544_064745_082844_4340",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260530T111516_20260530T111544_064745_082844_4340.zip",
+          "size_mb": 3812.635540008545
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260611T111448_20260611T111517_064920_082E61_FBAC",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260611T111448_20260611T111517_064920_082E61_FBAC.zip",
+          "size_mb": 4714.938194274902
+        },
+        {
+          "id": "S1A_IW_SLC__1SDV_20260611T111515_20260611T111543_064920_082E61_4601",
+          "url": "https://datapool.asf.alaska.edu/SLC/SA/S1A_IW_SLC__1SDV_20260611T111515_20260611T111543_064920_082E61_4601.zip",
+          "size_mb": 3868.1716079711914
         },
         {
           "id": "S1A_IW_SLC__1SDV_20260623T111447_20260623T111517_065095_083488_23A2",
@@ -1106,31 +1169,46 @@
           "direction": null,
           "n_granules": 225,
           "date_range": [
+            "2026-04-24T11:14:50Z",
+            "2026-06-23T11:14:47Z"
+          ],
+          "full_date_range": [
             "2023-05-10T11:15:04Z",
             "2026-06-23T11:14:47Z"
           ],
           "mean_interval_days": 12.0,
           "granule_ids": [
-            "S1A_IW_SLC__1SDV_20230510T111504_20230510T111534_048470_05D4A8_E298",
-            "S1A_IW_SLC__1SDV_20230919T111511_20230919T111541_050395_06117D_EBF9",
-            "S1A_IW_SLC__1SDV_20240117T111535_20240117T111603_052145_064D9A_B641",
-            "S1A_IW_SLC__1SDV_20240512T223413_20240512T223440_053844_068B3C_87CB",
-            "S1A_IW_SLC__1SDV_20240913T111535_20240913T111603_055645_06CB4A_34F9",
-            "S1A_IW_SLC__1SDV_20250111T111530_20250111T111558_057395_0710A1_1F97",
-            "S1A_IW_SLC__1SDV_20250604T111528_20250604T111556_059495_0762D1_EC4D",
-            "S1A_IW_SLC__1SDV_20250904T223336_20250904T223404_060844_079366_2EE1",
-            "S1A_IW_SLC__1SDV_20251107T111525_20251107T111553_061770_07B87C_20A6",
-            "S1A_IW_SLC__1SDV_20260118T111451_20260118T111521_062820_07E139_C693",
-            "S1A_IW_SLC__1SDV_20260327T223328_20260327T223356_063819_08068B_04F5",
+            "S1A_IW_SLC__1SDV_20260424T111450_20260424T111520_064220_081579_46AF",
+            "S1A_IW_SLC__1SDV_20260424T111518_20260424T111545_064220_081579_CB19",
+            "S1A_IW_SLC__1SDV_20260502T223327_20260502T223355_064344_081A19_52C9",
+            "S1A_IW_SLC__1SDV_20260502T223353_20260502T223421_064344_081A19_F7BC",
+            "S1A_IW_SLC__1SDV_20260506T111449_20260506T111519_064395_081BF3_4C03",
+            "S1A_IW_SLC__1SDV_20260506T111517_20260506T111545_064395_081BF3_E90A",
+            "S1A_IW_SLC__1SDV_20260518T111517_20260518T111544_064570_082221_7F62",
+            "S1A_IW_SLC__1SDV_20260530T111448_20260530T111518_064745_082844_E2F2",
+            "S1A_IW_SLC__1SDV_20260530T111516_20260530T111544_064745_082844_4340",
+            "S1A_IW_SLC__1SDV_20260611T111448_20260611T111517_064920_082E61_FBAC",
+            "S1A_IW_SLC__1SDV_20260611T111515_20260611T111543_064920_082E61_4601",
             "S1A_IW_SLC__1SDV_20260623T111447_20260623T111517_065095_083488_23A2"
           ],
-          "granule_ids_truncated": true
+          "granule_ids_truncated": true,
+          "sample_purpose": "download",
+          "n_epochs": 126,
+          "connected_epochs": 1,
+          "download_epochs": 7,
+          "min_fit_points": 4,
+          "epoch_sufficient": true,
+          "warning": null
         },
         {
           "track": null,
           "direction": "ASCENDING",
           "n_granules": 16,
           "date_range": [
+            "2023-05-22T11:15:05Z",
+            "2026-05-18T11:14:49Z"
+          ],
+          "full_date_range": [
             "2023-05-22T11:15:05Z",
             "2026-05-18T11:14:49Z"
           ],
@@ -1149,13 +1227,20 @@
             "S1A_IW_SLC__1SDV_20260420T223354_20260420T223422_064169_0813A0_AF6E",
             "S1A_IW_SLC__1SDV_20260518T111449_20260518T111519_064570_082221_A061"
           ],
-          "granule_ids_truncated": true
+          "granule_ids_truncated": true,
+          "sample_purpose": "preview",
+          "n_epochs": 16,
+          "connected_epochs": 1
         },
         {
           "track": null,
           "direction": "DESCENDING",
           "n_granules": 9,
           "date_range": [
+            "2023-08-26T11:15:10Z",
+            "2026-06-23T11:15:15Z"
+          ],
+          "full_date_range": [
             "2023-08-26T11:15:10Z",
             "2026-06-23T11:15:15Z"
           ],
@@ -1171,7 +1256,10 @@
             "S1A_IW_SLC__1SDV_20251115T223335_20251115T223403_061894_07BD44_DC80",
             "S1A_IW_SLC__1SDV_20260623T111515_20260623T111542_065095_083488_D338"
           ],
-          "granule_ids_truncated": false
+          "granule_ids_truncated": false,
+          "sample_purpose": "preview",
+          "n_epochs": 9,
+          "connected_epochs": 1
         }
       ],
       "recommended_stack": {
@@ -1179,25 +1267,36 @@
         "direction": null,
         "n_granules": 225,
         "date_range": [
+          "2026-04-24T11:14:50Z",
+          "2026-06-23T11:14:47Z"
+        ],
+        "full_date_range": [
           "2023-05-10T11:15:04Z",
           "2026-06-23T11:14:47Z"
         ],
         "mean_interval_days": 12.0,
         "granule_ids": [
-          "S1A_IW_SLC__1SDV_20230510T111504_20230510T111534_048470_05D4A8_E298",
-          "S1A_IW_SLC__1SDV_20230919T111511_20230919T111541_050395_06117D_EBF9",
-          "S1A_IW_SLC__1SDV_20240117T111535_20240117T111603_052145_064D9A_B641",
-          "S1A_IW_SLC__1SDV_20240512T223413_20240512T223440_053844_068B3C_87CB",
-          "S1A_IW_SLC__1SDV_20240913T111535_20240913T111603_055645_06CB4A_34F9",
-          "S1A_IW_SLC__1SDV_20250111T111530_20250111T111558_057395_0710A1_1F97",
-          "S1A_IW_SLC__1SDV_20250604T111528_20250604T111556_059495_0762D1_EC4D",
-          "S1A_IW_SLC__1SDV_20250904T223336_20250904T223404_060844_079366_2EE1",
-          "S1A_IW_SLC__1SDV_20251107T111525_20251107T111553_061770_07B87C_20A6",
-          "S1A_IW_SLC__1SDV_20260118T111451_20260118T111521_062820_07E139_C693",
-          "S1A_IW_SLC__1SDV_20260327T223328_20260327T223356_063819_08068B_04F5",
+          "S1A_IW_SLC__1SDV_20260424T111450_20260424T111520_064220_081579_46AF",
+          "S1A_IW_SLC__1SDV_20260424T111518_20260424T111545_064220_081579_CB19",
+          "S1A_IW_SLC__1SDV_20260502T223327_20260502T223355_064344_081A19_52C9",
+          "S1A_IW_SLC__1SDV_20260502T223353_20260502T223421_064344_081A19_F7BC",
+          "S1A_IW_SLC__1SDV_20260506T111449_20260506T111519_064395_081BF3_4C03",
+          "S1A_IW_SLC__1SDV_20260506T111517_20260506T111545_064395_081BF3_E90A",
+          "S1A_IW_SLC__1SDV_20260518T111517_20260518T111544_064570_082221_7F62",
+          "S1A_IW_SLC__1SDV_20260530T111448_20260530T111518_064745_082844_E2F2",
+          "S1A_IW_SLC__1SDV_20260530T111516_20260530T111544_064745_082844_4340",
+          "S1A_IW_SLC__1SDV_20260611T111448_20260611T111517_064920_082E61_FBAC",
+          "S1A_IW_SLC__1SDV_20260611T111515_20260611T111543_064920_082E61_4601",
           "S1A_IW_SLC__1SDV_20260623T111447_20260623T111517_065095_083488_23A2"
         ],
         "granule_ids_truncated": true,
+        "sample_purpose": "download",
+        "n_epochs": 126,
+        "connected_epochs": 1,
+        "download_epochs": 7,
+        "min_fit_points": 4,
+        "epoch_sufficient": true,
+        "warning": null,
         "why": "no granule name carried a track/direction; this group cannot be verified as one geometry (225 granule(s)) \u2014 re-run `search` before downloading"
       },
       "platforms": [
@@ -1227,7 +1326,7 @@
     }
   },
   "chosen_source": "NISAR_L2_GUNW",
-  "chosen_reason": "nisar_gunw: 24 granules intersecting the AOI",
+  "chosen_reason": "nisar_gunw: 25 granules intersecting the AOI",
   "provenance": {
     "source": "NISAR_L2_GUNW",
     "product_id": "NISAR_L2_PR_GUNW_032_018_D_092_033_4000_SH_20261001T111143_20261001T111221_20261013T111143_20261013T111221_P05023_N_F_J_001",
@@ -1235,12 +1334,12 @@
     "processing": "NISAR L2 GUNW (unwrapped interferogram) > MintPy network inversion",
     "method": "ASF SearchAPI availability query at the AOI bbox; no processing performed at this stage. The source actually processed is recorded in chosen_source and repeated in docs/data-source-decision.md.",
     "atmosphere": "none",
-    "retrieved_utc": "2026-11-14T17:08:37Z",
+    "retrieved_utc": "2026-11-14T18:25:36Z",
     "reference": "Herrera-Garc\u00eda et al. 2021, doi:10.1126/science.abb8549",
     "license": "NASA open data (ASF DAAC; Earthdata terms)"
   },
   "recommendations": [
-    "NISAR GUNW intersects the AOI (24 granules, 2026-06-26T22:39:21Z .. 2026-10-01T11:11:43Z); verify the interferogram actually covers the urban footprint before committing to a 12-day coherence threshold.",
+    "NISAR GUNW intersects the AOI (25 granules, 2026-06-26T22:39:21Z .. 2026-10-01T11:11:43Z); verify the interferogram actually covers the urban footprint before committing to a 12-day coherence threshold.",
     "Fetch one geometry: `download --source nisar_gunw --stack recommended` plans track 092/DESCENDING (8 of 8 granules). Do not plan `--stack all`: it mixes tracks and the geometry guard refuses it.",
     "No OPERA DISP-S1 for this AOI: fall back to HyP3 SLC pairs or the mock layer.",
     "Sentinel-1 SLC archive present (250 granules in the 5-y window) \u2192 an HyP3 on-demand stack is feasible (6-day revisit: do NOT pool coherence thresholds with NISAR's 12-day)."

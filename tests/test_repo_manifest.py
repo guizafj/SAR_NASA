@@ -20,14 +20,21 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: Files whose disappearance breaks a documented workflow, the handoff, or the gate itself.
 CRITICAL = (
-    # the gate and the environment wrapper — a staged-only file was lost from here once
+    # the gates and the environment wrapper — a staged-only file was lost from here once
     "scripts/check_phase_a.sh",
+    "scripts/preflight.sh",
     "scripts/python.sh",
     # the frozen contract, in both halves
     "src/domain/contracts.py",
     "docs/data-contract-v1.md",
     # the case definition of record and the dependency list a fresh clone needs
     "config/study_cases.yaml",
+    # the AOIs the pipeline actually resolves. A clone without these silently falls back to the
+    # YAML rectangle and regenerates different cell counts — which is exactly what happened on
+    # 2026-11-14, when the commit tracked the unused MultiPolygon exports instead.
+    "config/aoi/mexico-city.geojson",
+    "config/aoi/jakarta.geojson",
+    "config/aoi/malaga.geojson",
     "requirements.txt",
     "pytest.ini",
     # the artefact gate and the mock generator: without these there are no artefacts
@@ -38,11 +45,19 @@ CRITICAL = (
     "docs/nisar-gunw-layout.md",
     "docs/handoff-mock.md",
     "docs/first-granule-runbook.md",
+    "docs/demo-fallback.md",
+    # the guards themselves: losing one removes a check without failing anything else, which is
+    # exactly how the 2026-11-14 reset stayed quiet until a documentation test asked for a file.
+    "tests/test_docs_links.py",
+    "tests/test_preflight.py",
+    "tests/test_readme_numbers.py",
+    "tests/test_pipeline_readme_numbers.py",
 )
 
 #: Scripts a caller executes directly; losing the executable bit breaks the documented command.
 EXECUTABLE = (
     "scripts/check_phase_a.sh",
+    "scripts/preflight.sh",
     "scripts/python.sh",
 )
 

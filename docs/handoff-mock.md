@@ -27,12 +27,15 @@ nothing here imports Streamlit and nothing needs NASA credentials.
 
 | case | cells | median mm/yr | p05 | coherence | land-use classes | size |
 |---|---:|---:|---:|---|---:|---:|
-| `mexico-city` | 13,379 | −54.7 | −223.3 | 0.43–0.95 | 6 | 1.01 MB |
+| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.44–0.95 | 6 | 0.86 MB |
 | `jakarta` | 4,811 | −25.4 | −141.9 | 0.35–0.95 | 6 | 0.38 MB |
-| `malaga` | 2,650 | −1.4 | −3.5 | 0.35–0.95 | 6 | 0.22 MB |
+| `malaga` | 2,645 | −1.4 | −3.5 | 0.35–0.95 | 6 | 0.22 MB |
 
-The `admin_boundary` polygon is slightly tighter: **16 / 5 / 3** published cells (Mexico City / Jakarta / Málaga)
-lie outside it, so clipping to the AOI counts **13,363** instead of **13,379** in Mexico City; trust the grid counts.
+The published cells are the AOI's **bbox** ∩ the coverage ellipse, and the `admin_boundary` polygon is that
+ellipse: **12 / 5 / 2** published cells (Mexico City / Jakarta / Málaga) lie outside its ring, so clipping to
+it counts **11,682** instead of **11,694** in Mexico City; trust the grid counts. The QGIS ring in
+`config/aoi/{case}.geojson` is much tighter than that footprint — only 6,620 / 3,873 / 2,051 published cells
+fall inside it — so clipping to it is a real filter, not a rounding.
 
 Two changes since the first cut, both deliberate — if your numbers differ, you are reading a stale copy:
 
@@ -49,7 +52,7 @@ Two changes since the first cut, both deliberate — if your numbers differ, you
   bulge is still visible mid-window; it is a dip-and-return, not a ramp.
 - **Coherence is no longer clipped up to 0.45.** Modelled coherence now reaches the frozen threshold
   (0.35), so the coherence filter removes cells instead of being a no-op on land: Jakarta
-  4,855 → 4,811 and Málaga 2,677 → 2,650 cells, and every published cell satisfies
+  5,000 → 4,811 and Málaga 3,647 → 2,645 cells, and every published cell satisfies
   `coherence ≥ 0.35`.
 
 Water is context, not a grid class, and differs by case: `reservoir` + `river` (Mexico City), `coastline` +
@@ -120,14 +123,14 @@ read them from `meta.stats`, never from this table:
 
 | case | p05 | p95 | spread |
 |---|---:|---:|---:|
-| `mexico-city` | −223.3 | −17.0 | 206.4 |
+| `mexico-city` | −231.9 | −22.7 | 209.2 |
 | `jakarta` | −141.9 | 2.7 | 144.5 |
 | `malaga` | −3.5 | 0.7 | 4.2 |
 
-**Do not clip the shared scale at p05/p95.** That range (−223.3 … 2.6 mm/yr) would hide Mexico
-City's core, whose cells reach **−410.8 mm/yr** — the bowl would saturate and the strongest signal
+**Do not clip the shared scale at p05/p95.** That range (−231.9 … 2.7 mm/yr) would hide Mexico
+City's core, whose cells reach **−415.1 mm/yr** — the bowl would saturate and the strongest signal
 in the demo would render flat-topped. Use a **symmetric scale about 0 at ±425 mm/yr**: the contrast
-survives (Mexico City's spread is still **49×** Málaga's), the extreme cells stay visible, and no
+survives (Mexico City's spread is still **50.3×** Málaga's), the extreme cells stay visible, and no
 panel needs clipping. `docs/figures/velocity_shared_scale.png` uses exactly this scale, so the app
 and the pitch figure agree.
 
@@ -140,7 +143,7 @@ as the default, or the contrast disappears.
 
 | case | mean mm/yr (chart) | median mm/yr (KPI) | mean×T | median×T |
 |---|---:|---:|---:|---:|
-| `mexico-city` | −78.1 | −54.7 | −28.2 mm | −19.8 mm |
+| `mexico-city` | −85.8 | −62.1 | −31.0 mm | −22.4 mm |
 | `jakarta` | −40.6 | −25.4 | −14.7 mm | −9.2 mm |
 | `malaga` | −1.4 | −1.4 | −0.50 mm | −0.49 mm |
 

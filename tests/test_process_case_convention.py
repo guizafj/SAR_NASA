@@ -781,6 +781,8 @@ def test_cli_accepts_the_four_flags_and_reports_the_convention(tmp_path, capsys)
             "no 2*pi slip across the stack",
             "--validated-against",
             "GNSS station MEX1, residual 1.8 mm/yr RMSE",
+            "--validated-against",
+            "published rate -450 mm/yr (Cigna & Tapete 2022)",
             "--json",
         )
     )
@@ -796,6 +798,15 @@ def test_cli_accepts_the_four_flags_and_reports_the_convention(tmp_path, capsys)
         "heading checked against the frozen unit vector",
         "no 2*pi slip across the stack",
     ]
+    # `--validated-against` is repeatable too: every check lands in one sentence.
+    assert provenance["geometry_convention"]["validated_against"] == (
+        "GNSS station MEX1, residual 1.8 mm/yr RMSE; "
+        "published rate -450 mm/yr (Cigna & Tapete 2022)"
+    )
+    assert (
+        "Convention validated against: GNSS station MEX1, residual 1.8 mm/yr RMSE; "
+        "published rate -450 mm/yr (Cigna & Tapete 2022)."
+    ) in provenance["method"]
     assert payload["contract"] == {name: [] for name in payload["contract"]}
 
     # ... and the same four files on disk still pass the file-level gate.

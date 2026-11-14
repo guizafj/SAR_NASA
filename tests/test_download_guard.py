@@ -251,10 +251,200 @@ def test_dry_run_prints_plan_writes_nothing_and_exits_zero(
     assert "level=L2 product=GUNW track=079 direction=DESCENDING" in out
     assert "reference=2026-10-08T01:13:29Z secondary=2026-10-20T01:13:29Z" in out
     assert "status: ACCEPT" in out
-    assert "cumulative" in out
     assert "dry run" in out.lower()
     assert not raw.exists()
     assert not (tmp_path / "provenance.json").exists()
+
+
+def test_unknown_size_says_the_budget_cannot_be_preflighted(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    """The fail-open guard this fixes: a size-less plan must not look like a passed check."""
+    samples = [_sample(GUNW_ID)]  # `size_mb` is None, exactly like every NISAR GUNW record
+    availability = _write_availability(tmp_path, monkeypatch, samples)
+    raw = tmp_path / "raw"
+
+    rc = M.main(_download_argv(availability, raw, "--max-gb", "0.001", "--dry-run"))
+
+    out = capsys.readouterr().out
+    assert rc == 0  # an UNKNOWN size must never refuse: NISAR always starts sizeless
+    assert "size=UNKNOWN" in out
+    assert "known size: NONE" in out
+    assert "BUDGET CANNOT BE PREFLIGHTED" in out
+    assert "will NOT refuse before transfer" in out
+    assert "mid-stream only" in out
+    assert "AFTER bytes have flowed" in out
+    assert "--probe-sizes" in out
+    # no reassuring arithmetic dressed up as a passed check
+    assert "0.00 GB known size" not in out
+    assert "checked against" not in out
+    assert not raw.exists()
+
+
+def test_partially_known_plan_marks_the_unknown_granules(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    samples = [
+        _sample(_stack_ids(2)[0], size_mb=100),
+        _sample(_stack_ids(2)[1]),
+    ]
+    availability = _write_availability(tmp_path, monkeypatch, samples)
+
+    rc = M.main(_download_argv(availability, tmp_path / "raw", "--max-gb", "6", "--dry-run"))
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "known size 0.10 GB — only 1 of 2 granule(s); 1 UNKNOWN" in out
+    assert "BUDGET CANNOT BE PREFLIGHTED" in out
+
+
+# ---------------------------------------------------------------------------------------------
+# --probe-sizes: the HEAD preflight that makes the budget guard able to fire
+# ---------------------------------------------------------------------------------------------
+
+
+def _stack_ids(count: int) -> list[str]:
+    """`count` distinct GUNW ids on ONE track: a mixed plan would hit the geometry guard first."""
+    return [
+        f"NISAR_L2_PR_GUNW_{index:03d}_113_D_079_033_4000_SH_"
+        "20261008T011329_20261008T011403_20261020T011329_20261020T011403_"
+        "P05023_N_F_J_001"
+        for index in range(count)
+    ]
+
+
+def _three_single_geometry_samples(**kwargs) -> list[dict]:
+    return [_sample(granule_id, **kwargs) for granule_id in _stack_ids(3)]
+
+
+def test_probe_sizes_fills_unknown_sizes_and_the_guard_then_refuses(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    samples = _three_single_geometry_samples()
+    availability = _write_availability(tmp_path, monkeypatch, samples)
+    raw = tmp_path / "raw"
+    probed: list[str] = []
+
+    def fake_head(url: str) -> tuple[int, int | None]:
+        probed.append(url)
+        return 200, 800_000_000  # 800 MB each -> 2.40 GB known for the plan
+
+    monkeypatch.setattr(M, "head_content_length", fake_head)
+    monkeypatch.setattr(M, "PROBE_PAUSE_S", 0.0)
+
+    rc = M.main(
+        _download_argv(availability, raw, "--max-gb", "2", "--probe-sizes", "--dry-run")
+    )
+
+    captured = capsys.readouterr()
+    assert rc == M.RC_BUDGET_GUARD  # a KNOWN over-budget plan is still refused
+    assert len(probed) == 3
+    assert "HTTP 200, 800.0 MB" in captured.out
+    assert "cumulative known=2.40 GB" in captured.out
+    assert "budget: --max-gb 2 checked against the whole 2.40 GB plan" in captured.out
+    assert "BUDGET CANNOT BE PREFLIGHTED" not in captured.out
+    assert "exceeds --max-gb" in captured.err
+    assert not raw.exists()
+
+
+def test_probe_sizes_under_budget_stays_runnable(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    samples = _three_single_geometry_samples()
+    availability = _write_availability(tmp_path, monkeypatch, samples)
+
+    monkeypatch.setattr(M, "head_content_length", lambda url: (200, 800_000_000))
+    monkeypatch.setattr(M, "PROBE_PAUSE_S", 0.0)
+
+    rc = M.main(
+        _download_argv(
+            availability, tmp_path / "raw", "--max-gb", "6", "--probe-sizes", "--dry-run"
+        )
+    )
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "known size 2.40 GB" in out
+    assert "BUDGET CANNOT BE PREFLIGHTED" not in out
+
+
+def test_probe_sizes_stops_at_401_and_never_refuses_on_unknown(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    samples = _three_single_geometry_samples()
+    availability = _write_availability(tmp_path, monkeypatch, samples)
+    probed: list[str] = []
+
+    def fake_head(url: str) -> tuple[int, int | None]:
+        probed.append(url)
+        return 403, None
+
+    monkeypatch.setattr(M, "head_content_length", fake_head)
+    monkeypatch.setattr(M, "PROBE_PAUSE_S", 0.0)
+
+    rc = M.main(
+        _download_argv(
+            availability, tmp_path / "raw", "--max-gb", "0.001", "--probe-sizes", "--dry-run"
+        )
+    )
+
+    out = capsys.readouterr().out
+    assert rc == 0  # a gated probe degrades to "unknown", it does not block the operator
+    assert len(probed) == 1  # 403 stops the probe: no retry, no hammering
+    assert "HTTP 403" in out
+    assert "not retrying" in out
+    assert "BUDGET CANNOT BE PREFLIGHTED" in out
+
+
+def test_probe_sizes_skips_granules_that_already_carry_a_size(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    samples = [_sample(GUNW_ID, size_mb=250)]
+    availability = _write_availability(tmp_path, monkeypatch, samples)
+    probed: list[str] = []
+
+    monkeypatch.setattr(
+        M, "head_content_length", lambda url: (probed.append(url), (200, 250_000_000))[1]
+    )
+
+    rc = M.main(
+        _download_argv(
+            availability, tmp_path / "raw", "--max-gb", "6", "--probe-sizes", "--dry-run"
+        )
+    )
+
+    assert rc == 0
+    assert probed == []  # a report that already has sizes costs no request at all
+
+
+def test_head_content_length_reads_content_length_and_never_raises(monkeypatch) -> None:
+    class _Response:
+        def __init__(self, status: int, length: str | None) -> None:
+            self.status = status
+            self.headers = {} if length is None else {"Content-Length": length}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(
+        M.urllib.request, "urlopen", lambda request, timeout=None: _Response(200, "2344615936")
+    )
+    assert M.head_content_length("https://example.invalid/a.h5") == (200, 2344615936)
+
+    monkeypatch.setattr(
+        M.urllib.request, "urlopen", lambda request, timeout=None: _Response(200, None)
+    )
+    assert M.head_content_length("https://example.invalid/a.h5") == (200, None)
+
+    def boom(request, timeout=None):
+        raise OSError("offline")
+
+    monkeypatch.setattr(M.urllib.request, "urlopen", boom)
+    assert M.head_content_length("https://example.invalid/a.h5") == (0, None)
+
 
 
 def test_over_budget_plan_exits_nonzero_before_any_transfer(
@@ -280,7 +470,6 @@ def test_over_budget_plan_exits_nonzero_before_any_transfer(
     assert "exceeds" in captured.err.lower()
     assert "2" in captured.err
     assert not raw.exists()
-
 
 # ---------------------------------------------------------------------------------------------
 # Mixed-track parsing and unchanged search/report behaviour

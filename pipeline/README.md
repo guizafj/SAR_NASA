@@ -19,7 +19,7 @@ Product: NISAR L2 GUNW first; **OPERA DISP-S1 is excluded** — 0 granules for a
 
 ## 2. The four artefacts
 
-Per case under `data/processed/<case>/` (contract §1 lists the flat form; `pipeline/validate_artifacts.py` accepts both). Field detail lives in `docs/data-contract-v1.md`; validity is decided by `src/domain/contracts.py`, which prevails when the prose disagrees.
+Per case under `data/processed/<case>/` (contract §1 names `data/processed/{case_id}/…`; `pipeline/validate_artifacts.py` accepts both the per-case and flat layouts). Field detail lives in `docs/data-contract-v1.md`; validity is decided by `src/domain/contracts.py`, which prevails when the prose disagrees.
 
 | File | Contents, one line | Governed by |
 |---|---|---|
@@ -52,7 +52,7 @@ Per case under `data/processed/<case>/` (contract §1 lists the flat form; `pipe
 Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path), never `.venv/bin/python`.
 
 ```bash
-# 1 regenerate the mock (seed 7, all cases, 1.61 MB total)
+# 1 regenerate the mock (seed 7, all cases, 1.458 MB total)
 ./scripts/python.sh pipeline/generate_mock.py
 # 2 validate the artefacts on disk (fail-closed: zero cases is a FAIL)
 ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed
@@ -69,12 +69,12 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 ./scripts/python.sh pipeline/process_case.py --case mexico-city \
     --granule data/raw/mexico-city/nisar_gunw/<granule-a>.h5 \
     --granule data/raw/mexico-city/nisar_gunw/<granule-b>.h5 \
-    --out data/processed/mexico-city
+    --out data/processed/mexico-city --force
 # 7 the gate: contract self-check → Phase A suites → artefact gate → handoff summary
 ./scripts/check_phase_a.sh
 ```
 
-Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.610 MB.
+Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.458 MB.
 
 ## 5. Provenance chain
 
@@ -105,11 +105,11 @@ Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprint
 
 | case | cells | median mm/yr | p05 | size |
 |---|---:|---:|---:|---:|
-| `mexico-city` | 13,379 | −54.7 | −223.3 | 1.01 MB |
-| `jakarta` | 4,855 | −25.8 | −143.9 | 0.38 MB |
-| `malaga` | 2,677 | −1.4 | −3.5 | 0.22 MB |
+| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.86 MB |
+| `jakarta` | 4,811 | −25.4 | −141.9 | 0.38 MB |
+| `malaga` | 2,645 | −1.4 | −3.5 | 0.22 MB |
 
-Coherence 0.45–0.95 and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
+Coherence 0.35–0.95 (0.44–0.95 in Mexico City) and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
 
 ## 7. Known limits and unverified parts
 
@@ -120,7 +120,7 @@ Coherence 0.45–0.95 and 6 `land_use` classes in every case; water cells are ab
 5. **Sign and heading conventions need GNSS validation**: ISCE2, MintPy and SNAP disagree on azimuth origin and on which LOS direction is positive (README §6, `transforms.los_to_vertical`); target < 5 mm/yr RMSE (README §13). `process_case` writes "NOT yet validated against GNSS" into `provenance.method` on purpose.
 6. **One geometry only**: `v_north ≈ 0` is an assumption, residual `tanθ·sinα·v_north`, east unconstrained, no asc/desc pairing (`transforms.los_to_vertical`).
 7. **Nothing has run on real data**: no download (no credentials), no real granule read, no coverage number; real-path evidence is synthetic fixtures only.
-8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor and returned spans are ~12 months (Málaga 2025-10-18 → 2026-11-08), not 5 years.
+8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor and returned spans are ~12 months (Málaga 2025-11-18 → 2026-11-13), not 5 years. The window slides with every probe, so treat those endpoints as an example rather than a fact about the archive.
 
 ## 8. Where to look next
 

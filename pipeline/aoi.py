@@ -9,6 +9,7 @@ teammate can replace that footprint for a case without editing the YAML:
 Resolution order (first hit wins, and nothing silently falls through a broken override):
 
     1. config/aoi/{case_id}.geojson    (EPSG:4326, one Polygon, no holes)
+       also accepted: `{case_id}-aoi.geojson` and `{case_id}_aoi.geojson`
     2. entry["aoi_polygon"]            (the configured ring)
     3. entry["bbox"]                   (the rectangle, as a closed ring)
 
@@ -277,9 +278,17 @@ def _ring_from_geojson(candidate: Mapping[str, Any], source: str) -> Any:
             )
         return _ring_from_geojson(geometry, source)
     if kind == "MultiPolygon":
+        # A multi-part AOI is refused on purpose: a single ring cannot represent it. Flattening
+        # the parts into one exterior ring would `cover` the gaps between them, so cells between
+        # two islands of the footprint would be counted as inside the AOI. The pipeline's H3 cell
+        # set and coverage denominator only ever describe one closed ring.
+        polygons = candidate.get("coordinates")
+        count = len(polygons) if isinstance(polygons, (list, tuple)) else 0
         raise AOIError(
-            f"{source}: MultiPolygon is unsupported — flatten it to a single Polygon and export "
-            "again (or tell the pipeline owner)"
+            f"{source}: MultiPolygon is unsupported — this footprint has {count} part(s) and "
+            "merging them into one ring would silently cover the ground between the parts. "
+            "Export the study area as a single closed Polygon in EPSG:4326, or tell the pipeline "
+            "owner that a genuinely multi-part AOI is needed."
         )
     if kind != "Polygon":
         raise AOIError(
@@ -422,8 +431,14 @@ def load_aoi(
         )
 
     directory = Path(aoi_dir) if aoi_dir is not None else AOI_DIR
-    override_path = directory / f"{case_id}.geojson"
-    if override_path.is_file():
+    # Accept the names people actually use when exporting from QGIS; the first hit wins.
+    candidates = (
+        directory / f"{case_id}.geojson",
+        directory / f"{case_id}-aoi.geojson",
+        directory / f"{case_id}_aoi.geojson",
+    )
+    override_path = next((path for path in candidates if path.is_file()), None)
+    if override_path is not None:
         source = f"config/aoi/{override_path.name}"
         try:
             payload = json.loads(override_path.read_text(encoding="utf-8"))
