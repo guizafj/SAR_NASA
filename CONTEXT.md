@@ -23,8 +23,10 @@ Current repository evidence is deliberately limited:
   determinism, visualisation, and failure behaviour—not measured subsidence.
 - The real NISAR GUNW path is implemented and tested with synthetic HDF5 fixtures. No downloaded
   granule has produced a published artefact, and no result has been validated against GNSS.
-- This worktree contains the reference loader, not the application implementation. The frontend
-  contract is therefore already testable even while the UI remains a separate deliverable.
+- The application exists and runs: `app.py` is a Streamlit shell over the committed mock, and the
+  backend it may bind to (`src/data/loaders.py`, `ui_bridge.py`, `validation.py`) is tracked. The
+  standalone `examples/reference_loader.py` is a dependency-free reference for that same API, not a
+  second implementation to copy over it.
 
 Availability, source selection, and unresolved merge questions are recorded in
 `docs/data-source-decision.md` and `docs/decisions.md`, not as branch snapshots here.
@@ -123,8 +125,9 @@ The schema, enums, per-product thresholds, and validation rules are owned by
 those tables into components or this overview.
 
 For map bindings, loader behaviour, filtering, and UI honesty requirements, read
-`docs/handoff-mock.md` and copy `examples/reference_loader.py`. The later PMTiles design in
-`docs/route-contract.md` is post-MVP and does not replace the four-artefact interface.
+`docs/handoff-mock.md`; its implementation is `src/data/loaders.py`, which is authoritative. The
+later PMTiles design in `docs/route-contract.md` is post-MVP and does not replace the four-artefact
+interface.
 
 ## 6. Processing paths and known limits
 

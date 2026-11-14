@@ -605,11 +605,12 @@ Use `git status` and `git diff` to inspect — they cannot lose work.
       `process_case` → `validate_artifacts`) and tested on synthetic granules
 - [ ] Real-data path **run on an actual granule** (blocked on Earthdata credentials + ASF approval)
 - [x] Mock artefacts committed and pushed once (`01de89e` on `yuls`) — pozo and fradiaz can pull them
-- [ ] **AOI refresh committed** — `config/aoi/*.geojson` (untracked) plus the artefacts regenerated from
-      them; until this is committed, a clone resolves the old rectangles
-- [ ] The app boots on the committed mock alone
+- [x] **AOI refresh committed** — `config/aoi/*.geojson` plus the artefacts regenerated from them; a
+      fresh clone resolves the current rings, and `tests/test_aoi_geometry.py` holds the single-ring rule
+- [x] The app boots on the committed mock alone (`/_stcore/health` → 200, `/` → 200, no credentials)
+- [ ] CI is committed (`.github/workflows/ci.yml` runs the contract self-check, the artefact gate and
+      the suite); no red/green CI run has been observed from this machine
 - [x] `config/study_cases.yaml` with the primary case and the AOI polygon
-- [ ] CI runs the contract tests and `pipeline/validate_artifacts.py`
 - [ ] Local install verified by each member, independently of the others
 - [ ] Units, thresholds and `provenance` confirmed **before** real data replaces the mock
 

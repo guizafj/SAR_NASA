@@ -114,8 +114,9 @@ infrastructure, water, bare, vegetation, unknown · `risk_level` ∈ estable, mo
 
 ## 2b. The loader API — what `src/data/loaders.py` returns
 
-Copy `examples/reference_loader.py` (the working version of this page) and this is exactly what you
-get:
+`src/data/loaders.py` is the authoritative implementation of this page. A standalone copy of the
+same API lives in `examples/reference_loader.py`; it is for reading, or for a scratch tree — never
+copy it over `src/data/loaders.py`. What follows is exactly what either module gives you:
 
 ```python
 from reference_loader import load_case, grid_frame, map_payload, aoi_series, kpis

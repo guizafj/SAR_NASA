@@ -435,10 +435,24 @@ def test_the_default_root_follows_the_cwd(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 def test_the_doc_names_the_reference_module_and_its_copy_target() -> None:
+    """The doc must name both loaders and must not tell a reader to overwrite the backend one.
+
+    2026-11-14: `src/data/loaders.py` arrived with the backend merge while this page still said
+    "it does not exist yet, so copy the reference instead". Following that instruction literally
+    destroyed the authoritative implementation, so the guard now asserts the safe direction: the
+    reference may be copied only into a scratch tree.
+    """
     text = _doc()
     assert "`examples/reference_loader.py`" in text
     assert "`src/data/loaders.py`" in text
-    assert "cp examples/reference_loader.py src/data/loaders.py" in text
+    assert "cp examples/reference_loader.py src/data/loaders.py" not in text, (
+        "the handoff doc must never instruct copying the reference over src/data/loaders.py: that "
+        "file is the authoritative backend loader and the copy would silently replace it"
+    )
+    assert "cp examples/reference_loader.py /tmp/scratch/loaders.py" in text, (
+        "the doc must still show where a scratch copy may go, or readers will improvise a "
+        "destination and may pick src/data/loaders.py"
+    )
 
 
 def test_the_loader_does_not_depend_on_living_in_examples() -> None:
@@ -456,7 +470,11 @@ def test_the_loader_does_not_depend_on_living_in_examples() -> None:
 
 @needs_data
 def test_a_copy_under_src_data_loads_the_repository_artefacts(tmp_path: pathlib.Path) -> None:
-    """Follow the doc's `cp` literally, then load from the copy with the repo root as cwd."""
+    """Prove a copy of the reference module still loads artefacts, from a scratch tree.
+
+    The doc's copy example targets /tmp, so this builds the same shape under tmp_path rather than
+    touching `src/data/loaders.py`, whose presence is asserted separately.
+    """
     copy = tmp_path / "src" / "data" / "loaders.py"
     copy.parent.mkdir(parents=True)
     (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
