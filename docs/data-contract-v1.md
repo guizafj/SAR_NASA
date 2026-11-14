@@ -183,6 +183,11 @@ Claves obligatorias: `schema_version`, `case_id`, `name`, `bbox`, `crs`, `refere
 `revisit_days`, `sensor`, `product`, `thresholds`, `provenance`, `stats`, `limitations`,
 `null_policy`.
 
+Dentro de `provenance` son obligatorias: `source`, `product_id`, `processing_date`, `method`,
+`retrieved_utc`, `reference`, `license`. `method` no puede estar vacío: debe describir la
+conversión física aplicada (p. ej. «LOS→vertical con v_north≈0»), porque es lo que un evaluador
+lee para decidir si el número es creíble.
+
 Reglas validadas por `validate_meta()`:
 
 - `schema_version` debe ser exactamente `"1.0"`, `case_id` debe estar en el enum;

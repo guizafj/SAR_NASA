@@ -1,0 +1,13 @@
+case_id,cell_id,date,value,unit,sensor,product,quality,provenance_id
+mexico-city,aoi,2026-07-02,0.000000000,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-07-14,-2.299382160,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-07-26,-4.636896600,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-08-07,-7.022190423,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-08-19,-9.462881935,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-08-31,-11.964237149,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-09-12,-14.528946188,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-09-24,-17.157009051,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-10-06,-19.845735616,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-10-18,-22.589859870,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-10-30,-25.381763508,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a
+mexico-city,aoi,2026-11-11,-28.211799424,mm,nisar,mock,good,mexico-city+mock+20261114+cc912b7a

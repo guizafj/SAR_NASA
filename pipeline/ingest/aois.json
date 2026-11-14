@@ -19,7 +19,7 @@
       "expected_regime": "coastal subsidence, ~-300 mm/yr peak"
     },
     "malaga": {
-      "name": "Malaga, ES",
+      "name": "Málaga, ES",
       "bbox": [-4.60, 36.60, -4.30, 36.85],
       "crs": "EPSG:32630",
       "reference_point": [-4.42, 36.72],

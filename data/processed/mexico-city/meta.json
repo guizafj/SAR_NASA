@@ -1,0 +1,76 @@
+{
+  "bbox": [
+    -99.35,
+    19.2,
+    -98.85,
+    19.65
+  ],
+  "case_id": "mexico-city",
+  "crs": "EPSG:4326",
+  "dates": [
+    "2026-07-02",
+    "2026-07-14",
+    "2026-07-26",
+    "2026-08-07",
+    "2026-08-19",
+    "2026-08-31",
+    "2026-09-12",
+    "2026-09-24",
+    "2026-10-06",
+    "2026-10-18",
+    "2026-10-30",
+    "2026-11-11"
+  ],
+  "limitations": [
+    "Lacustrine clay, closed basin: rates are not transferable to the other two cities.",
+    "GUNW posting 80 m: city scale, not building scale.",
+    "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack.",
+    "Inelastic compaction: the seasonal amplitude (1.5 mm) stays far below the trend, so |trend| > 2 * A_seasonal and the case classifies as inelastic — almost none of this motion is recoverable.",
+    "MOCK: every number is synthesised by pipeline/generate_mock.py; validate the map and the schema, never the science.",
+    "Mock geography (coastline, lake, river, corridor, POIs) is invented in pipeline/mock/geography.py and labelled as mock in every context feature."
+  ],
+  "name": "Mexico City, MX",
+  "null_policy": "A cell is absent from nisar_grid.parquet in exactly two cases: (a) its centroid falls outside the coverage ellipse, and (b) its modelled coherence is below thresholds.coherence_min, i.e. it is a decorrelating surface (water, specular/coastal cells, the low-look coverage edge). Nodata is never written as 0: a cell carries a displacement or it does not exist. A missing date is a missing timeseries row, never a sentinel value.",
+  "product": "mock",
+  "provenance": {
+    "license": "Synthetic mock — no third-party data (repo-internal artefact)",
+    "method": "Synthetic field, no observation: secular velocity v = peak*exp(-d(peak_lonlat)/falloff) + N(0, noise) per H3 res-9 cell (config/study_cases.yaml mock block); cumulative displacement d(t) = v*(t-t_first) + A_seasonal*(cos(2*pi*(t-c)/yr) - cos(2*pi*c/yr)) with c the centre of the observation window, so both endpoints carry the same seasonal offset and val_t1 = 0 mm at the reference epoch; val_t1/val_t2 are d(t) at the first/last date; velocity_mm_yr is the trend coefficient of a joint [1, t, cos, sin] fit (trend/seasonal split, README §6 P6); cells below the frozen coherence_min are dropped, so water and other decorrelating surfaces are absent rather than zero; coherence, land use, risk bands and context layers are deterministic spatial rules; land use and its polygons share one assignment.",
+    "mock_seed": 7,
+    "processing_date": "2026-11-14",
+    "product_id": "mock:mexico-city:2026-11-14:cc912b7a",
+    "provenance_id": "mexico-city+mock+20261114+cc912b7a",
+    "reference": "Synthetic; peak rates parameterised from config/study_cases.yaml published_rate_mm_yr and docs/data-contract-v1.md v1.0. Not a measurement.",
+    "retrieved_utc": "2026-11-14T00:00:00Z",
+    "source": "mock (synthetic stub, pipeline/generate_mock.py)"
+  },
+  "reference_point": [
+    -99.13,
+    19.43
+  ],
+  "revisit_days": 12,
+  "schema_version": "1.0",
+  "sensor": "nisar",
+  "stats": {
+    "median_velocity_mm_yr": -54.681,
+    "n_cells": 13379,
+    "n_context_features": 12,
+    "n_dates": 12,
+    "n_series_rows": 12,
+    "p05_velocity_mm_yr": -223.319,
+    "p95_velocity_mm_yr": -16.962,
+    "per_cell_series": {
+      "criterion": "aoi aggregate only (default): one row per date per case. Per-cell rows are opt-in (--per-cell-series) and capped at 3 MiB per case",
+      "enabled": false,
+      "file_bytes": 1203,
+      "max_bytes": 3145728,
+      "n_cells": 0
+    }
+  },
+  "thresholds": {
+    "coherence_min": 0.35,
+    "k_sigma": 2.5,
+    "min_area_m2": 500,
+    "min_ddB": 3.0,
+    "persistence": "2of3"
+  }
+}
