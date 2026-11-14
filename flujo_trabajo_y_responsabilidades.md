@@ -9,6 +9,9 @@ Fuentes de consolidación:
 - [informe_readme.md](./informe_readme.md)
 - [informe_maestro_de_arquitectura_y_plan_de_choque.md](./informe_maestro_de_arquitectura_y_plan_de_choque.md)
 
+Este documento es la definición operativa vigente. Cuando exista una diferencia con la asignación
+de responsabilidades de los informes fuente, prevalece esta versión.
+
 ---
 
 ## 1. Objetivo
@@ -71,14 +74,14 @@ contrato de datos.
 │        ↓                                                    │
 │ Filtro de calidad y enriquecimiento GIS                     │
 │        ↓                                                    │
-│ Artefactos ligeros en data/processed/                       │
+│ Backend geoespacial: contrato, loaders y datos para mapas    │
 └──────────────────────────┬──────────────────────────────────┘
-                           │ contrato de datos
+                           │ interfaz de datos estable
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ CAPA 2 — APLICACIÓN STREAMLIT                              │
+│ CAPA 2 — FRONTEND STREAMLIT                                │
 │                                                             │
-│ Carga de datos → filtros → métricas → mapa → gráficos       │
+│ Consume backend → filtros → mapa → KPIs → gráficos           │
 │                                                             │
 │ Sin descargas NASA ni procesamiento pesado                  │
 └─────────────────────────────────────────────────────────────┘
@@ -133,84 +136,97 @@ contrato de datos.
 
 ## 4. Responsabilidades por rol
 
-## Rol 1 — Datos SAR y pipeline científico
+La división se basa en el flujo real de dependencias:
+
+```text
+Rol 3 — Ciencia/GIS/producto
+              ↓ datos científicos y contexto
+Rol 1 — Backend geoespacial y mapas
+              ↓ interfaz de datos estable y capas map-ready
+Rol 2 — Frontend
+```
+
+El backend y el frontend colaboran directamente en la implementación del mapa. El backend define
+qué datos necesita cada capa y el frontend decide cómo presentarlos e interactuarlos.
+
+### Rol 1 — Backend geoespacial y mapas
+
+**Responsable sugerido: pozo**
 
 ### Responsabilidad principal
 
-Convertir productos SAR y datos auxiliares en artefactos ligeros, reproducibles y científicamente
-trazables.
+Convertir los artefactos científicos en una interfaz de datos preparada para mapas, métricas y
+series temporales. Este rol no es un backend HTTP independiente: es la capa técnica que conecta
+el pipeline con el frontend.
 
 ### Tareas
 
-1. Verificar la cobertura real de NISAR para el área elegida.
-2. Elegir y documentar la fuente utilizada:
-   - NISAR L2 GUNW;
-   - NISAR L2 GCOV;
-   - OPERA DISP-S1;
-   - HyP3;
-   - EGMS;
-   - otra fuente aprobada y documentada.
-3. Generar el mock inicial durante el primer bloque de trabajo.
-4. Consultar y descargar los productos localmente.
-5. Inspeccionar HDF5 y extraer únicamente los grupos necesarios.
-6. Recortar el área de interés.
-7. Reproyectar y normalizar coordenadas.
-8. Aplicar filtros de calidad, incluido el umbral de coherencia.
-9. Calcular desplazamiento, cambio de retrodispersión o velocidad.
-10. Generar los artefactos procesados.
-11. Añadir provenance, unidades, fechas y versión del procesamiento.
-12. Documentar las limitaciones científicas.
+1. Implementar `src/data/loaders.py` para cargar Parquet, CSV, GeoJSON y `meta.json`.
+2. Implementar `src/data/validation.py` para validar esquema, unidades, CRS y valores nulos.
+3. Definir los modelos de datos consumidos por la UI.
+4. Generar los datasets map-ready:
+   - coordenadas;
+   - geometrías o índices H3;
+   - valores coloreables;
+   - altura de columnas;
+   - categorías de riesgo;
+   - capas contextuales.
+5. Trabajar con el frontend en `src/ui/map_view.py`.
+6. Definir cómo se filtran los datos sin recalcular el pipeline.
+7. Preparar funciones para métricas, agregaciones y series.
+8. Configurar caché de lectura.
+9. Mantener el contrato de datos y su versión.
+10. Configurar CI, pruebas de carga de datos y despliegue.
 
 ### Entregables
 
 ```text
-pipeline/
-data/processed/nisar_grid.parquet
-data/processed/timeseries.csv
-data/processed/meta.json
-pipeline/README.md
+src/data/loaders.py
+src/data/validation.py
+src/domain/contracts.py
+src/domain/filters.py
+src/domain/metrics.py
+src/ui/map_view.py
+.github/workflows/
 ```
 
 ### No debe hacer
 
-- No modificar componentes de UI.
-- No introducir cálculos científicos dentro de `app.py`.
-- No cambiar el contrato sin Pull Request.
-- No subir HDF5 ni archivos pesados.
+- No modificar las ecuaciones científicas sin el Rol 3.
+- No descargar HDF5 desde la aplicación.
+- No introducir lógica de presentación duplicada en `app.py`.
+- No crear una API independiente para el MVP.
 
----
+### Rol 2 — Frontend y experiencia de usuario
 
-## Rol 2 — Frontend y visualización interactiva
+**Responsable sugerido: fradiaz**
 
 ### Responsabilidad principal
 
-Construir una experiencia rápida, clara y explicativa usando exclusivamente los artefactos
-producidos por el pipeline.
+Consumir la interfaz de datos del backend y convertirla en una experiencia clara e interactiva.
 
 ### Tareas
 
-1. Crear el esqueleto de `app.py`.
-2. Configurar el tema visual de Streamlit.
-3. Implementar la carga validada de datos.
-4. Implementar el selector de caso.
-5. Implementar filtros de:
+1. Implementar el esqueleto y la composición de `app.py`.
+2. Crear los controles de usuario:
+   - caso;
    - fecha;
    - umbral;
    - coherencia;
    - uso del suelo.
-6. Crear tarjetas KPI reactivas.
-7. Crear el mapa PyDeck 2D/3D.
-8. Crear la serie temporal con Plotly.
-9. Mostrar unidades y fuente de cada variable.
-10. Gestionar estados de interacción sin recalcular datos pesados.
-11. Aplicar caché de lectura.
-12. Verificar la experiencia en la URL de producción.
+3. Consumir exclusivamente loaders y servicios del backend.
+4. Implementar la presentación del mapa con PyDeck.
+5. Implementar KPIs reactivos.
+6. Implementar series temporales con Plotly.
+7. Mostrar unidades, fuente y fecha de los datos.
+8. Implementar el módulo educativo usando contenido aprobado.
+9. Gestionar estado de interacción y accesibilidad.
+10. Probar la aplicación contra el mock y contra datos reales.
 
 ### Entregables
 
 ```text
 app.py
-src/ui/map_view.py
 src/ui/charts.py
 src/ui/kpi_cards.py
 src/ui/educational.py
@@ -219,75 +235,87 @@ src/ui/educational.py
 
 ### No debe hacer
 
-- No descargar datos de NASA.
+- No leer archivos directamente desde múltiples componentes.
 - No procesar HDF5.
-- No calcular desplazamientos o velocidades.
-- No modificar umbrales científicos de forma arbitraria.
-- No asumir unidades que no estén en `meta.json`.
+- No calcular desplazamientos, velocidades o riesgos científicos.
+- No modificar unidades ni umbrales recibidos del backend.
+- No duplicar filtros o agregaciones del backend.
 
----
+### Rol 3 — Ciencia SAR, GIS y producto
 
-## Rol 3 — GIS, producto y storytelling
+**Responsable sugerido: yuls**
 
 ### Responsabilidad principal
 
-Conectar los resultados SAR con el territorio, el impacto social y la comunicación para el jurado.
+Generar y validar la información científica y contextual que consume el backend, además de
+garantizar que el producto comunica correctamente sus resultados.
 
 ### Tareas
 
-1. Delimitar el área de interés.
-2. Preparar capas de infraestructura y uso del suelo.
-3. Verificar CRS y geometrías.
-4. Preparar `context_layers.geojson`.
-5. Definir categorías territoriales.
-6. Revisar la asociación entre anomalías y contexto.
-7. Redactar el módulo educativo.
-8. Revisar que las afirmaciones distingan:
-   - observación;
-   - interpretación;
-   - limitación.
-9. Preparar README, pitch y vídeo.
-10. Revisar que Málaga se presente como control negativo y no como fallo.
+1. Verificar la cobertura real de NISAR para el caso elegido.
+2. Elegir y documentar la fuente utilizada:
+   - NISAR L2 GUNW;
+   - NISAR L2 GCOV;
+   - OPERA DISP-S1;
+   - HyP3;
+   - EGMS.
+3. Generar el mock inicial.
+4. Descargar y procesar los productos localmente.
+5. Recortar el AOI y reproyectar los datos.
+6. Aplicar filtros de calidad y cálculos físicos.
+7. Preparar capas GIS de contexto e infraestructura.
+8. Generar `provenance`, unidades, fechas y limitaciones.
+9. Revisar con el backend que los artefactos sean adecuados para mapas.
+10. Preparar narrativa, README, pitch y vídeo.
 
 ### Entregables
 
 ```text
-pipeline/enrich_context.py
+pipeline/
+data/processed/nisar_grid.parquet
+data/processed/timeseries.csv
 data/processed/context_layers.geojson
-src/ui/educational.py
+data/processed/meta.json
+pipeline/README.md
 README.md
 material de presentación
 ```
 
 ### No debe hacer
 
-- No modificar ecuaciones ni parámetros científicos sin coordinación con el Rol 1.
-- No introducir cálculos de radar en el frontend.
-- No cambiar el esquema del contrato unilateralmente.
+- No escribir componentes de frontend.
+- No introducir lógica de cálculo científico en la aplicación.
+- No cambiar el contrato unilateralmente.
+- No definir estilos visuales finales sin coordinar con backend y frontend.
 
----
+## Responsabilidades compartidas
 
-## Responsabilidad compartida de infraestructura
+### Backend + ciencia/GIS
 
-Esta responsabilidad puede asumirla el integrante que gestione el repositorio, sin crear un
-backend separado.
+- Definir el esquema de datos.
+- Validar unidades, CRS y provenance.
+- Confirmar que las capas sirven para PyDeck.
+- Revisar métricas y umbrales.
 
-### Tareas
+### Backend + frontend
 
-- Configurar GitHub Actions.
-- Ejecutar validaciones automáticas.
-- Comprobar el tamaño de los artefactos.
-- Verificar que la aplicación arranca.
-- Configurar Streamlit Community Cloud.
-- Comprobar la URL pública.
-- Documentar el proceso de despliegue.
+- Definir la interfaz de datos que consumirá la UI.
+- Acordar nombres y tipos de campos.
+- Integrar el mapa.
+- Revisar filtros y rendimiento.
+- Resolver incompatibilidades sin trasladar cálculos al frontend.
 
-### Fuera de alcance
+### Ciencia/GIS + frontend
 
-- API independiente.
-- Base de datos.
-- Orquestador complejo.
-- Infraestructura cloud avanzada.
+- Validar textos, leyendas y colores.
+- Revisar que los resultados no se sobreinterpreten.
+- Comprobar que Málaga se muestre como control negativo.
+
+### Todos
+
+- Revisar cambios al contrato.
+- Probar la aplicación antes de integrar.
+- Mantener `main` ejecutable.
 
 ---
 
@@ -378,6 +406,7 @@ main
 ├── feat/pipeline-mock
 ├── feat/pipeline-real-source
 ├── feat/gis-context
+├── feat/backend-map-data
 ├── feat/ui-shell
 ├── feat/ui-map
 ├── feat/ui-charts
@@ -403,12 +432,13 @@ main
 ```text
 1. feat/data-contract
 2. feat/pipeline-mock
-3. feat/ui-shell
-4. feat/ui-map y feat/ui-charts
-5. feat/gis-context
-6. feat/pipeline-real-source
-7. chore/ci-validation
-8. release/mvp
+3. feat/gis-context
+4. feat/backend-map-data
+5. feat/ui-shell
+6. feat/ui-map y feat/ui-charts
+7. feat/pipeline-real-source
+8. chore/ci-validation
+9. release/mvp
 ```
 
 El mock permite que frontend y producto trabajen sin esperar a los datos reales.
@@ -454,7 +484,7 @@ Los tres integrantes pueden ejecutar y entender el mock sin depender de datos ex
 
 ### Datos
 
-El Rol 1 genera:
+El Rol 3 genera:
 
 ```text
 nisar_grid.parquet
@@ -491,12 +521,14 @@ La aplicación arranca localmente usando solo datos mock.
 
 | Rol | Trabajo principal |
 |---|---|
-| Datos SAR | Fuente real, recorte, cálculo físico y artefactos |
-| Frontend | Interacción completa, mapa, KPIs y gráficos |
-| GIS/producto | Capas, narrativa y módulo educativo |
-| Infraestructura | CI, validaciones y despliegue |
+| Backend geoespacial y mapas | Loaders, validación, filtros, métricas y capas map-ready |
+| Frontend | Consumo de datos, controles, mapa, KPIs y gráficos |
+| Ciencia SAR, GIS y producto | Fuente real, cálculo físico, contexto y narrativa |
 
 Cada rol debe trabajar contra la versión congelada del contrato.
+
+El backend y el frontend deben integrar el mapa juntos: el backend expone los datos y atributos
+necesarios, mientras el frontend implementa la interacción y la presentación visual.
 
 ---
 
@@ -563,10 +595,10 @@ Captura o resultado visual, si aplica:
 | Tipo de cambio | Revisores |
 |---|---|
 | Contrato de datos | Los tres roles |
-| Pipeline científico | Rol 1 + Rol 3 |
-| Frontend | Rol 2 + un segundo integrante |
-| GIS y narrativa | Rol 3 + Rol 1 |
-| CI/despliegue | Responsable de infraestructura + Rol 2 |
+| Backend y datos para mapas | Rol 1 + Rol 3 |
+| Frontend y mapa | Rol 2 + Rol 1 |
+| Ciencia, GIS y narrativa | Rol 3 + Rol 1 |
+| CI/despliegue | Rol 1 + Rol 2 |
 
 ---
 
