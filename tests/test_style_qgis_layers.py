@@ -143,7 +143,11 @@ def test_emits_every_style_with_a_manifest(styled: pathlib.Path) -> None:
     manifest = json.loads((styled / STYLES_MANIFEST).read_text())
     on_disk = sorted(p.name for p in styled.glob("*.qml"))
     assert sorted(manifest["styles"]) == on_disk, "manifest and emitted files disagree"
-    assert manifest["hex_size_map_units"] == 300
+    size = manifest["hex_size_map_units"]
+    assert 300.0 < size < 450.0, (
+        f"marker width {size} m is not a plausible H3 res-9 lattice spacing; it is measured from "
+        f"the staged grid, so this means the export or the lattice changed"
+    )
     for name, entry in manifest["styles"].items():
         assert entry["renderer"], f"{name}: manifest entry needs a renderer"
         assert "note" in entry, f"{name}: an undocumented style is a style nobody can defend"
@@ -234,14 +238,22 @@ def test_aoi_ring_is_an_unfilled_dashed_outline(styled: pathlib.Path) -> None:
 
 
 def test_grid_markers_are_hexagons_sized_in_map_units(styled: pathlib.Path) -> None:
-    """In map units the H3 cells tile edge-to-edge, so the geometry is inspectable on the map."""
+    """In map units the H3 cells tile edge-to-edge, so the geometry is inspectable on the map.
+
+    The width is measured from the staged grid rather than hardcoded: the artefact's lattice is
+    ~372 m, not the 348 m canonical H3 res-9 geometry predicts, and a guessed constant leaves a
+    gap that looks like a styling bug. Every class must carry that same measured width, or the
+    grid develops seams between risk bands.
+    """
+    manifest = json.loads((styled / STYLES_MANIFEST).read_text())
+    expected = manifest["hex_size_map_units"]
     root = ET.parse(styled / "grid_velocity.qml").getroot()
     symbols = root.findall(".//renderer-v2/symbols/symbol")
     assert symbols, "no symbols emitted"
     for symbol in symbols:
         options = _options(symbol)
         assert options["name"] == "hexagon"
-        assert float(options["size"]) == 300
+        assert float(options["size"]) == expected
         assert options["size_unit"] == "MapUnit"
 
 
