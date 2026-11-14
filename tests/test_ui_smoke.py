@@ -28,8 +28,10 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     text = "\n".join(node.value for node in app.markdown)
     assert "DATOS DE DEMOSTRACIÓN" in text
     assert "Dancing with the SARs: NISAR Interferometry Cockpit" in text
-    assert "Se implementa en feat/ui-charts" in text
-    for token in FORBIDDEN:
+    assert "velocidad mediana" in text
+    assert "Sin context_layers.geojson" in text
+    assert "Sin texto científico aprobado por el Rol 3" in text
+    for token in (*FORBIDDEN, "Field Dossier", "mitigaciones", "índices estructurales", "verificado"):
         assert token not in text
 
     assert app.selectbox[0].options == list(CASE_IDS)

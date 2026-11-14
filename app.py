@@ -7,6 +7,10 @@ from typing import Any
 
 import streamlit as st
 
+from src.ui.charts import render_series_tab
+from src.ui.context_view import render_hazard_tab
+from src.ui.educational import render_physics_tab
+from src.ui.map_view import render_map_tab
 from src.ui.theme import inject_css
 
 TAB_MAP = "1. Mapa"
@@ -30,6 +34,10 @@ def _loaders() -> Any:
         "load_meta",
         "load_land_use_options",
         "load_risk_levels",
+        "get_map_layer_df",
+        "get_view_state",
+        "get_cell_detail",
+        "load_timeseries",
     )
     if real is not None and all(hasattr(real, name) for name in required):
         return real
@@ -120,7 +128,7 @@ def render_filters(
     coherence_floor: float | None,
 ) -> dict[str, Any]:
     """Draw the filter strip. Values stay in session_state; nothing is filtered."""
-    with st.container(border=True):
+    with st.container(border=True, key="filter-strip"):
         case_col, land_col, coherence_col, risk_col, extrude_col = st.columns(5)
         with case_col:
             st.selectbox(
@@ -171,21 +179,8 @@ def render_filters(
     }
 
 
-def render_map_tab(filters: dict[str, Any]) -> None:
-    del filters  # passed through; the map view will apply them
-    viewport, inspector = st.columns([2, 1])
-    with viewport:
-        st.markdown(
-            '<div class="viewport"><p class="kicker">Mapa</p>'
-            "<p>Se implementa en feat/ui-map. Sin geometría ni magnitudes.</p></div>",
-            unsafe_allow_html=True,
-        )
-    with inspector:
-        st.markdown(
-            '<div class="cockpit-card"><p class="kicker">Inspector</p>'
-            "<p>Sin celda seleccionada.</p></div>",
-            unsafe_allow_html=True,
-        )
+def _render_map(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
+    render_map_tab(filters, loaders, meta)
 
 
 def render_pending(note: str, filters: dict[str, Any]) -> None:
@@ -225,16 +220,13 @@ def render_app() -> None:
         [TAB_MAP, TAB_SERIES, TAB_HAZARD, TAB_PHYSICS]
     )
     with map_tab:
-        render_map_tab(filters)
+        _render_map(filters, loaders, meta if isinstance(meta, dict) else None)
     with series_tab:
-        render_pending(PENDING, filters)
+        render_series_tab(filters, loaders, meta if isinstance(meta, dict) else None)
     with hazard_tab:
-        render_pending(PENDING, filters)
+        render_hazard_tab(filters, loaders)
     with physics_tab:
-        render_pending(
-            PENDING + " Sin texto científico aprobado por el Rol 3.",
-            filters,
-        )
+        render_physics_tab(loaders, meta if isinstance(meta, dict) else None)
 
 
 st.set_page_config(

@@ -31,6 +31,19 @@ No hace falta un campo nuevo.
 - El slider usa `coherence_threshold` si existe; si no, `thresholds.coherence_min`. No se reintroduce `coherence_threshold`.
 - El stub copia umbrales de `sensor_profile("nisar", "mock")`. No inventa fechas, stats, hashes ni `provenance_id`.
 
+## Pestaña 2 y escala común
+
+El stub calcula, la UI solo pinta. Faltan en Rol 1:
+
+- `get_series_kpis(case_id, filters)` — velocidad mediana, % sobre umbral, celdas críticas, cobertura coherente, cada una con unidad y `provenance_id`.
+- `get_case_series(case_id, filters)` y `get_land_use_bars(case_id, filters)`.
+- `get_scale_comparison(scale_mode)` — picos ya convertidos a un eje de referencia. La UI no convierte unidades.
+- El mock declara `cm/year` fuera del control y `mm` en el control para que la escala común deje el control en el extremo. No es una medición. El contrato v1.1 fija `unit = mm`; no se cambia aquí.
+
+## Pestaña 3
+
+`data/processed/context_layers.geojson` no existe. La pestaña no inventa dossier, mitigaciones ni índices.
+
 ## Pestaña 4
 
 No hay texto científico aprobado por el Rol 3 en un módulo de UI. El README es borrador con cifras: no se muestra. Marcador hasta que el Rol 3 entregue el copy.
