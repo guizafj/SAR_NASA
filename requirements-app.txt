@@ -1,0 +1,11 @@
+# Lightweight runtime-only dependencies for deployed Streamlit app & containers (Rol 1 + Rol 2)
+# Zero GDAL / HDF5 / NASA SDK dependencies needed at app runtime (README §3).
+
+numpy>=2.0
+pandas>=2.2
+pyarrow>=16.0
+pyyaml>=6.0
+h3>=4.1
+streamlit>=1.38
+pydeck>=0.9.1
+plotly>=5.22

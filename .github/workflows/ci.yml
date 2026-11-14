@@ -1,0 +1,67 @@
+name: CI — Contract, Backend & Artefact Gate
+
+on:
+  push:
+    branches:
+      - main
+      - pozo
+      - yuls
+      - fradiaz
+      - "feat/**"
+      - "fix/**"
+      - "chore/**"
+      - "release/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-test:
+    name: Contract & Backend Suite (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create project .venv and install runtime/test dependencies
+        run: |
+          python -m venv .venv
+          ./scripts/python.sh -m pip install --upgrade pip
+          ./scripts/python.sh -m pip install -r requirements.txt
+
+      - name: Guard against tracked raw SAR files in data/raw/
+        run: |
+          tracked_raw="$(git ls-files 'data/raw/**')"
+          if [ -n "${tracked_raw}" ]; then
+            echo "::error::Heavy raw files must never be committed under data/raw/:"
+            echo "${tracked_raw}"
+            exit 1
+          fi
+
+      - name: Run frozen data contract v1.0 self-check
+        run: ./scripts/python.sh -m src.domain.contracts
+
+      - name: Run pytest regression & backend suite
+        run: ./scripts/python.sh -m pytest tests -q
+
+      - name: Validate data/processed/ size budget (< 15 MiB) & published cases
+        run: ./scripts/python.sh -m src.data.validation --processed data/processed --require-cases
+
+      - name: Run Phase A/B handoff gate (scripts/check_phase_a.sh)
+        run: ./scripts/check_phase_a.sh
+
+      - name: Run fast pre-submission preflight (scripts/preflight.sh --fast)
+        run: ./scripts/preflight.sh --fast
