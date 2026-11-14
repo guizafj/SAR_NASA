@@ -11,8 +11,13 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.hypothesis/
 .coverage
+coverage.xml
 htmlcov/
+*.prof
 
 # Raw SAR / GIS downloads & staging — NEVER commit heavy granules (README §8, flujo §3.2)
 data/raw/
@@ -30,6 +35,17 @@ data/staging/
 .env
 .env.*
 .streamlit/secrets.toml
+
+# Local tooling, reports and temporary exports
+.agents/
+.copilot/
+.impeccable/
+.opencode/
+.coverage.*
+reports/
+tmp/
+*.log
+*.geojson.tmp
 
 # OS / editor cruft
 .DS_Store
