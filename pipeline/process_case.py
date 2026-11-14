@@ -1578,6 +1578,10 @@ def _process_case_rows(
     dropped = {"incomplete_endpoints": 0, "too_few_epochs": 0, "rank_deficient": 0, "no_coherence": 0}
     kept: list[int] = []
     velocities: list[float] = []
+    seasonal_amplitudes: list[float] = []
+    ratios: list[float] = []
+    regimes: list[str] = []
+    seasonal_components: list[np.ndarray] = []
     sigmas: list[float] = []
     for index, cell in enumerate(cell_ids):
         series = values[index]
@@ -1597,6 +1601,20 @@ def _process_case_rows(
             continue
         kept.append(index)
         velocities.append(float(fit.trend_mm_yr))
+        seasonal_amplitudes.append(float(fit.seasonal_amp_mm))
+        ratios.append(
+            float(fit.regime_ratio)
+            if np.isfinite(fit.regime_ratio)
+            else 1.0e12
+        )
+        regimes.append(fit.regime)
+        seasonal_components.append(
+            sum(
+                fit.coefficients[2 + 2 * harmonic] * np.cos(2.0 * np.pi * (harmonic + 1) * t_years)
+                + fit.coefficients[3 + 2 * harmonic] * np.sin(2.0 * np.pi * (harmonic + 1) * t_years)
+                for harmonic in range(harmonics)
+            )
+        )
         sigmas.append(_residual_sigma(series, fit))
 
     if not kept:
@@ -1610,6 +1628,9 @@ def _process_case_rows(
     kept_cells = [cell_ids[index] for index in kept]
     kept_coherence = np.clip(coherence[kept], 0.0, 1.0)
     velocity = np.asarray(velocities, dtype=float)
+    seasonal_amp = np.asarray(seasonal_amplitudes, dtype=float)
+    ratio_r = np.asarray(ratios, dtype=float)
+    seasonal = np.asarray(seasonal_components, dtype=float)
     land_use = _read_land_use(land_use_csv, kept_cells, warnings)
 
     centroids = [h3.cell_to_latlng(cell) for cell in kept_cells]
@@ -1631,6 +1652,9 @@ def _process_case_rows(
         val_t2,
         delta,
         velocity,
+        seasonal_amp,
+        ratio_r,
+        regimes,
         kept_coherence,
         land_use,
         risk,
@@ -1641,6 +1665,7 @@ def _process_case_rows(
 
     # ---- 7. timeseries (AOI aggregate) ------------------------------------------------------
     aoi_series = kept_values.mean(axis=0)
+    aoi_seasonal = seasonal.mean(axis=0)
     if abs(float(aoi_series[0])) > 1e-12:  # guaranteed by the referencing invariant
         raise ProcessCaseError(
             f"internal invariant violated: the AOI series starts at {float(aoi_series[0])!r} mm, "
@@ -1653,6 +1678,8 @@ def _process_case_rows(
             "cell_id": np.full(len(epochs), "aoi", dtype=object),
             "date": np.array(epochs, dtype=object),
             "value": aoi_series,
+            "trend_mm_yr": np.full(len(epochs), float(np.median(velocity))),
+            "seasonal_mm": aoi_seasonal,
             "unit": np.full(len(epochs), C.UNIT, dtype=object),
             "sensor": np.full(len(epochs), SENSOR, dtype=object),
             "product": np.full(len(epochs), PRODUCT, dtype=object),
@@ -1684,6 +1711,9 @@ def _process_case_rows(
     sigma_median = float(np.nanmedian(np.asarray(sigmas, dtype=float)))
     stats = _stats(
         velocity=velocity,
+        seasonal_amp=seasonal_amp,
+        ratio_r=ratio_r,
+        regimes=regimes,
         cells=kept_cells,
         n_dates=len(epochs),
         dropped=dropped,
@@ -1741,6 +1771,9 @@ def _ordered_grid(
     val_t2: np.ndarray,
     delta: np.ndarray,
     velocity: np.ndarray,
+    seasonal_amp: np.ndarray,
+    ratio_r: np.ndarray,
+    regimes: Sequence[str],
     coherence: np.ndarray,
     land_use: Sequence[str],
     risk: Sequence[str],
@@ -1757,6 +1790,9 @@ def _ordered_grid(
         "val_t2": val_t2.astype("float64"),
         "delta_change": delta.astype("float64"),
         "velocity_mm_yr": velocity.astype("float64"),
+        "seasonal_amp_mm": seasonal_amp.astype("float64"),
+        "ratio_R": ratio_r.astype("float64"),
+        "regime": np.array(regimes, dtype=object),
         "coherence": coherence.astype("float64"),
         "land_use": np.array(land_use, dtype=object),
         "risk_level": np.array(risk, dtype=object),
@@ -1785,6 +1821,9 @@ def _quality_from_coherence(coherence: float) -> str:
 def _stats(
     *,
     velocity: np.ndarray,
+    seasonal_amp: np.ndarray,
+    ratio_r: np.ndarray,
+    regimes: Sequence[str],
     cells: Sequence[str],
     n_dates: int,
     dropped: Mapping[str, int],
@@ -1804,6 +1843,9 @@ def _stats(
         "n_cells": int(len(cells)),
         "n_dates": int(n_dates),
         **{key: _round(value) for key, value in metrics.items()},
+        "median_seasonal_amp_mm": _round(float(np.median(seasonal_amp))),
+        "median_ratio_R": _round(float(np.median(ratio_r))),
+        "dominant_regime": str(pd.Series(regimes).value_counts().index[0]),
         "n_epochs_dropped": dict(dropped),
         "coverage_fraction": round(float(coverage.fraction), 6),
         "aoi_cells": int(coverage.aoi_cells),

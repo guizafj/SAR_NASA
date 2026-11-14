@@ -102,11 +102,11 @@ ALLOWLIST: tuple[tuple[str, str], ...] = (
         "not a quantity measured from the tree",
     ),
     (
-        r"contract v1\.0",
+        r"contract v1\.1",
         "schema version pinned in contracts.SCHEMA_VERSION, not an artefact statistic",
     ),
     (
-        r"049376b0",
+        r"9a749cea",
         "commit prefix of the snapshot this page describes; git metadata, not a quantity",
     ),
     (

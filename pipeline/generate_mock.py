@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mock artefact generator — NASA Space Apps 2026, "Dancing with the SARs" (Rol 3).
 
-Writes the four frozen artefacts of `docs/data-contract-v1.md` v1.0 for one or more study cases:
+Writes the four frozen artefacts of `docs/data-contract-v1.md` v1.1 for one or more study cases:
 
     data/processed/{case}/nisar_grid.parquet
     data/processed/{case}/timeseries.csv
@@ -169,7 +169,7 @@ def run_check(cases, study, out_dir: Path) -> list[K.CaseReport]:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate the frozen mock artefacts (data contract v1.0) for the study cases.",
+        description="Generate the frozen mock artefacts (data contract v1.1) for the study cases.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Deterministic: same seed + same config => byte-identical output.",
     )

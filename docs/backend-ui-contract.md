@@ -3,7 +3,7 @@
 This document closes the concrete integration seams between **Rol 3 (`yuls`, `pipeline/`)**,
 **Rol 1 (`pozo`, `src/data/*` + `src/domain/*`)** and **Rol 2 (`fradiaz`, `app.py` + `src/ui/*`)**
 without modifying the frozen data contract (`src/domain/contracts.py`, v1.0, fingerprint
-`049376b0…`).
+`9a749cea…`).
 
 ---
 

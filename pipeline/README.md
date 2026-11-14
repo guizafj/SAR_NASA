@@ -1,6 +1,6 @@
 # Offline pipeline — what runs before the app
 
-Status: 2026-11-14, contract v1.0 (`049376b0…`). Scope: `pipeline/` only. Facts come from `README.md`
+Status: 2026-11-14, contract v1.1 (`9a749cea…`). Scope: `pipeline/` only. Facts come from `README.md`
 §4–§6/§13, `docs/data-contract-v1.md`, `docs/data-source-decision.md`, `docs/nisar-gunw-layout.md`,
 `docs/handoff-mock.md`, `config/study_cases.yaml` and the modules below.
 
@@ -52,7 +52,7 @@ Per case under `data/processed/<case>/` (contract §1 names `data/processed/{cas
 Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path), never `.venv/bin/python`.
 
 ```bash
-# 1 regenerate the mock (seed 7, all cases, 1.458 MB total)
+# 1 regenerate the mock (seed 7, all cases, 1.641 MB total)
 ./scripts/python.sh pipeline/generate_mock.py
 # 2 validate the artefacts on disk (fail-closed: zero cases is a FAIL)
 ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed
@@ -74,7 +74,7 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 ./scripts/check_phase_a.sh
 ```
 
-Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.458 MB.
+Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.641 MB.
 
 ## 5. Provenance chain
 
@@ -105,9 +105,9 @@ Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprint
 
 | case | cells | median mm/yr | p05 | size |
 |---|---:|---:|---:|---:|
-| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.86 MB |
-| `jakarta` | 4,811 | −25.4 | −141.9 | 0.38 MB |
-| `malaga` | 2,645 | −1.4 | −3.5 | 0.22 MB |
+| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.97 MB |
+| `jakarta` | 4,811 | −25.4 | −141.9 | 0.43 MB |
+| `malaga` | 2,645 | −1.4 | −3.5 | 0.25 MB |
 
 Coherence 0.35–0.95 (0.44–0.95 in Mexico City) and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
 

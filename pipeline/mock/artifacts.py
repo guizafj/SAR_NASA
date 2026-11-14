@@ -211,11 +211,17 @@ def build_meta(
     median = float(pd.Series(velocities).median())
     p05 = float(pd.Series(velocities).quantile(0.05))
     p95 = float(pd.Series(velocities).quantile(0.95))
+    median_amp = float(pd.Series(model.seasonal_amp_mm).median())
+    median_ratio = float(pd.Series(model.ratio_R).median())
+    regime_counts = pd.Series(model.regime).value_counts()
 
     stats: dict[str, Any] = {
         "n_cells": model.n_cells,
         "n_dates": len(model.dates),
         "median_velocity_mm_yr": round(median, 3),
+        "median_seasonal_amp_mm": round(median_amp, 3),
+        "median_ratio_R": round(median_ratio, 3),
+        "dominant_regime": str(regime_counts.index[0]),
         "p05_velocity_mm_yr": round(p05, 3),
         "p95_velocity_mm_yr": round(p95, 3),
         "n_series_rows": int(n_series_rows),
@@ -268,7 +274,7 @@ def build_meta(
             "retrieved_utc": RETRIEVED_UTC,
             "reference": (
                 "Synthetic; peak rates parameterised from config/study_cases.yaml published_rate_mm_yr "
-                "and docs/data-contract-v1.md v1.0. Not a measurement."
+                "and docs/data-contract-v1.md v1.1. Not a measurement."
             ),
             "license": "Synthetic mock — no third-party data (repo-internal artefact)",
             "provenance_id": provenance,

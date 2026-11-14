@@ -37,8 +37,8 @@ usuario.
 
 ### 2.1. Incluido en el MVP
 
-- Un caso de estudio principal ejecutado correctamente.
-- Una segunda ubicación precargada si el tiempo lo permite.
+- Ciudad de México como caso extremo y Málaga como control negativo.
+- Yakarta queda como extensión priorizada, solo si hay cobertura NISAR y tiempo de integración.
 - Pipeline Python documentado.
 - Datos NISAR L2 o una fuente de respaldo declarada.
 - Mapa 2D/3D interactivo.
@@ -330,13 +330,16 @@ El contrato se congela antes de comenzar el desarrollo paralelo.
 | `val_t1` | float | Sí | Valor en fecha inicial ($T_1$) |
 | `val_t2` | float | Sí | Valor en fecha final ($T_2$) |
 | `delta_change` | float | Sí | Cambio neto ($T_2 - T_1$) |
+| `velocity_mm_yr` | float | Sí | Tendencia secular ajustada en mm/año |
+| `seasonal_amp_mm` | float | Sí | Amplitud estacional ajustada en mm |
+| `ratio_R` | float | Sí | `abs(velocity_mm_yr) / seasonal_amp_mm` |
+| `regime` | string | Sí | `elastic`, `transitional` o `inelastic` |
 | `coherence` | float | Sí | Coherencia interferométrica / calidad entre 0.0 y 1.0 |
 | `land_use` | string | Sí | Categoría territorial (urbano, agrícola, humedal, infraestructura) |
 | `risk_level` | string | Sí | `estable`, `moderado` o `critico` |
-| `polarization` | string | Sí | Polarización utilizada (`HH`, `HV`, `VV`) |
-| `case_id` | string | Sí | Identificador del caso (`main_case`, `malaga_control`) |
-| `sensor` | string | Sí | Sensor origen (`NISAR`, `Sentinel-1`, `SAOCOM`) |
-| `product` | string | Sí | Producto (`GUNW`, `GCOV`, `DISP-S1`, `EGMS`) |
+| `case_id` | string | Sí | Identificador del caso (`mexico-city`, `jakarta`, `malaga`) |
+| `sensor` | string | Sí | Sensor origen (`nisar`, `sentinel-1`) |
+| `product` | string | Sí | Producto declarado por el contrato |
 | `unit` | string | Sí | Unidad física declarada (`mm`, `mm/year`, `dB`) |
 | `source` | string | Sí | Repositorio o agencia (`ASF DAAC`, `Copernicus`) |
 | `provenance_id` | string | Sí | Hash o ID trazable al bloque `provenance` de `meta.json` |
@@ -347,8 +350,11 @@ Debe incluir como mínimo:
 
 ```text
 case_id
+cell_id
 date
 value
+trend_mm_yr
+seasonal_mm
 unit
 sensor
 product
@@ -360,24 +366,29 @@ provenance_id
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "case_id": "mexico-city",
   "sensor": "sentinel-1",
-  "product": "opera-disp-s1",
+  "product": "nisar-gunw",
   "unit": "mm/year",
   "crs": "EPSG:4326",
   "dates": [
     "2026-01-12",
     "2026-01-24"
   ],
-  "coherence_threshold": 0.35,
+  "revisit_days": 12,
+  "stats": {
+    "median_velocity_mm_yr": -128.0,
+    "median_seasonal_amp_mm": 9.4,
+    "median_ratio_R": 13.617,
+    "dominant_regime": "inelastic"
+  },
   "provenance": {
     "source": "ASF DAAC",
     "product_id": "",
     "processing_date": "",
     "method": ""
-  },
-  "stats": {}
+  }
 }
 ```
 

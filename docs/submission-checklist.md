@@ -27,7 +27,7 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       explain it. Our full run on this working tree printed
       `VERDICT: READY — 7/7 executed gates passed in 282.09 s`, but also
       `note: tree is dirty (49 changed paths)` and `note: committed artefacts differ from your tree
-      (clone 1.607 MB vs tree 1.458 MB)`: READY on a dirty tree is **not** the clean-tree
+      (clone 1.607 MB vs tree 1.641 MB)`: READY on a dirty tree is **not** the clean-tree
       reproduction this section asks for.
 - [ ] `./scripts/python.sh -m pytest tests -q` → exit 0, no `F`/`E`. `pytest.ini` adds another `-q`, so
       the count is suppressed; `./scripts/python.sh -m pytest tests` prints `629 passed, 1 skipped` at `01de89e`.
@@ -45,9 +45,9 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       docs/figures -name '*.png' ! -newer "$newest"` → no output for `velocity_shared_scale.png`,
       `timeseries_three_cities.png`, `coherence.png` (`./scripts/python.sh scripts/make_figures.py`).
 - [ ] `data/processed` < 15 MB: `./scripts/python.sh pipeline/validate_artifacts.py --processed
-      data/processed --strict-size-mb 15` → `total size: 1.458 MB / 15 MB`, `RESULT: PASS (exit 0)`.
+      data/processed --strict-size-mb 15` → `total size: 1.641 MB / 15 MB`, `RESULT: PASS (exit 0)`.
       (The size changes whenever the mock or the AOIs change — re-read it, never quote a remembered
-      figure. After the AOI refresh from `config/aoi/*.geojson` it is 1.458 MB, not the earlier 1.607.)
+      figure. After the AOI refresh from `config/aoi/*.geojson` it is 1.641 MB, not the earlier 1.607.)
 - [ ] `provenance.source` matches `product` on every layer (symmetric rule, `check_phase_a.sh` step 4/4):
       `jq -r '.product + " | " + .provenance.source' data/processed/*/meta.json` → `mock` with a source
       saying mock, a real product with nothing mock. Editing the gate, not the artefact, is forbidden.

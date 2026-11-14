@@ -70,7 +70,7 @@ Mexico City's bowl, Jakarta's coastal edge, and Málaga essentially blank. Gener
 ### Verify in 15 seconds
 
 ```bash
-./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.458 MB / 15 MB
+./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.641 MB / 15 MB
 ./scripts/preflight.sh         # fuller: seven gates, per-gate table, ends in a VERDICT line
 ```
 
@@ -185,7 +185,7 @@ Source of truth (code): **[`src/domain/contracts.py`](src/domain/contracts.py)**
 | | |
 |---|---|
 | Version | `1.0`, revision 1, frozen 2026-11-14 |
-| Fingerprint | `049376b0…` (`contract_fingerprint()`) |
+| Fingerprint | `9a749cea…` (`contract_fingerprint()`) |
 | Changing it | bump `SCHEMA_VERSION` + `CHANGELOG` entry + PR section `Impacto sobre el contrato:` + review by all three roles |
 | Enforced by | the contract, mock-plausibility and gate suites (`./scripts/python.sh -m pytest tests -q`); any silent rename, retype or enum drift fails the suite **and** the gate |
 
@@ -218,6 +218,114 @@ nothing is a failure. `--allow-empty` exists for pre-mock CI and says so loudly 
 
 `✓` = live-checked. All open/free unless noted.
 
+| Member | Role | Owns | Ships |
+|---|---|---|---|
+| **yuls** | Geospatial & visualization lead | SAR ingest, InSAR, metrics, tiles, **change detection**, cartography, colour scales | `pipeline/`, all artefacts, layer styling + legend |
+| **pozo** | Backend & infrastructure | Serving, build orchestration, CI/CD, caching, deploy, route contract | `serve/`, `deploy/`, CI, publish step |
+| **fradiaz** | Frontend & interaction | SPA shell, map wiring, slider, charts, **pins + evidence card**, URL state, a11y | `app/src/{ui,state,charts}`, the 5 views |
+
+### Ownership detail
+
+**yuls — geospatial**
+- `asf_search` → HyP3/OPERA/EGMS ingest; ISCE2+MintPy where needed
+- LOS→vertical, harmonic decomposition, velocity/gradient/volume metrics
+- Coherence/amplitude z-scores, persistence, MMU, event polygons, chips
+- COG + PMTiles pyramids at z8–z14; series JSON tiling
+- Colour scale design — incl. the **global shared scale** that makes Málaga look flat
+
+**pozo — backend**
+- Static artefact hosting + CDN/cache headers
+- Build orchestration: run `pipeline/` on CI, publish on success
+- The **route contract** and its validation
+- Deployment, uptime, "does the demo URL work at 4 a.m."
+
+**fradiaz — frontend**
+- MapLibre GL JS + deck.gl layer hierarchy; raster re-tiling on zoom
+- Date slider, swipe divider, play/pause; charts (uPlot/Observable Plot)
+- Event pins, popup/evidence card, type filters, table view
+- URL-hash state; linked brushing; the **shared/independent legend toggle**
+- Keyboard access, mobile layout, loading/empty/error states
+
+### Interface contracts — freeze on Day 0
+
+**1. `meta.json`** — yuls defines → pozo serves → fradiaz consumes (§3)
+
+**2. `series/{z}/{x}/{y}.json`** — yuls produces → fradiaz renders
+
+```jsonc
+{
+  "city": "mexico-city", "cell": [12, 1145, 1650], "n_pixels": 842,
+  "dates": ["2026-01-12", "2026-01-24", "2026-02-05"],
+  "displacement_mm": [0, -3.1, -7.4],
+  "coherence": [0.82, 0.79, 0.81],
+  "fit": { "trend_mm_yr": -128, "seasonal_amp_mm": 9.4, "r2": 0.91 },
+  "regime": "inelastic", "quality": "good"
+}
+```
+
+**3. HTTP routes** — pozo defines → fradiaz consumes
+
+```
+GET /{city}/meta.json
+GET /{city}/vel.pmtiles
+GET /{city}/coh.pmtiles
+GET /{city}/bs/{date}.pmtiles
+GET /{city}/events.pmtiles          # vector, polygon geom
+GET /{city}/series/{z}/{x}/{y}.json
+GET /{city}/chips/{event_id}_{pre|post}.png
+GET /global-scale.json
+```
+
+**4. Event attributes** — the property table baked into `events.pmtiles` (§4)
+
+### Build order
+
+| Window | yuls | pozo | fradiaz |
+|---|---|---|---|
+| **H0–2** | Write `meta.json` + `series` + event schemas; commit **stubs** | Static host + routes | Scaffold SPA against stubs |
+| **H2–20** | Ingest → velocity → tiles | CI auto-publish | Map + slider + charts on stubs |
+| **H20–30** | Metrics, shared scale, **event detection + chips** | Cache headers, size audit | Wire real artefacts; pins + popup |
+| **H30–40** | QC, validation table, figures | Deploy hardening | Polish, a11y, table view |
+| **H40–48** | Provenance badges, docs | Final deploy | Demo script, rehearsal |
+
+**The stub rule:** fradiaz never blocks on yuls. Ship three fake `series` files, one fake
+`meta.json`, and a hand-authored `events.geojson` in H0 — build the whole UI against them.
+
+### Explicit non-overlaps
+- yuls writes no app UI code (layer styles as JSON config only).
+- pozo touches no scientific parameters — no thresholds, no colour ranges.
+- fradiaz computes no geospatial quantity client-side; if a number isn't in an artefact, it
+  doesn't exist.
+
+### Definition of done
+- **yuls:** `meta.json` validates for CDMX y Málaga; Yakarta se incorpora solo como extensión; cada capa lleva
+  `provenance` + `revisit_days`; events pass MMU; precision reported on a 50-event sample.
+- **pozo:** all 8 routes serve with correct MIME + `pmtiles` range-request support; TTFB < 200 ms;
+  CI reproduces artefacts from clean checkout.
+- **fradiaz:** las vistas de mapa, KPIs, serie temporal, comparación y educación son navegables;
+  la comparación muestra escala compartida/independiente y Málaga conserva su cota de detección.
+
+### Bus factor
+Each member writes `docs/handoff-<name>.md` — what they own, how to run it, the one thing that
+will break.
+
+---
+
+## 6. Study areas
+
+| City | AOI | Role | Primary hazard |
+|---|---|---|---|
+| Mexico City, MX | 19.43 N, −99.13 W | Case A (extreme) | Differential subsidence → infrastructure, drainage inversion |
+| Jakarta, ID | −6.21 S, 106.85 E | Case B (coastal) | Inundation; 64% piped-water coverage drives well pumping |
+| Málaga, ES | 36.72 N, −4.42 W | **Control / negative** | Seawater intrusion; reservoir depletion |
+
+---
+
+## 7. Data sources
+
+`✓` = live-checked. Open/free unless noted.
+
+### SAR / deformation
 | Source | URL | Status |
 |---|---|---|
 | NISAR product summary (ASF) | `asf.alaska.edu/datasets/daac/nisar` | ✓ |
@@ -456,6 +564,18 @@ Three people, three verticals, one frozen contract. Source of truth (Spanish, pr
 └── config/study_cases.yaml            ← primary case + AOI polygon (done; primary = mexico-city)
 ```
 
+**Geospatial py** · *yuls*
+`xarray` · `dask` · `rioxarray` · `rasterio` · `geopandas` · `shapely` · `pyproj` ·
+`rasterstats` · `scipy.ndimage` (z-scores, morphology, Sobel) · `skimage.measure`
+(connected components) · `GDAL` CLI · `pmtiles`
+
+**App** · *fradiaz* (UI) · *pozo* (serving)
+- **MVP actual:** `Streamlit` + `pydeck` + `Plotly`, consumiendo artefactos offline y loaders
+cacheados. No descarga ni procesa HDF5 durante la interacción.
+- **Evolución:** `MapLibre GL JS` + `deck.gl`, `uPlot`/`Observable Plot`, Vite + TypeScript y
+  PMTiles para una entrega estática posterior, sin cambiar el contrato.
+- **Serving:** static host + CDN (Netlify/Pages/S3), GitHub Actions for publish
+- **QC / figures:** QGIS
 `data/raw/` never enters Git. `data/processed/` stays under **15 MB**.
 
 ---
@@ -548,7 +668,7 @@ merged. Before submission:
 git checkout main && git merge --ff-only yuls && git push && git checkout yuls
 ```
 
-Everything under `data/processed/` is 1.73 MB (1.458 MB of artefacts plus the `_availability/`
+Everything under `data/processed/` is 1.73 MB (1.641 MB of artefacts plus the `_availability/`
 evidence), so it belongs in the repo; `data/raw/` never does.
 
 **Working safely with uncommitted work.** On 2026-11-14 a `git reset --hard` silently reverted every
@@ -639,8 +759,8 @@ shape, not a measured amplitude.*
 **Limitations** (also shipped inside `meta.limitations`):
 
 1. Málaga may sit at the detection floor — the bound *is* the result.
-2. CDMX is not coastal; do not claim a coastal framing across all three cities.
-3. NISAR GUNW posting is 80 m — city scale, not building scale.
+2. CDMX is not coastal; don't claim a coastal framing across all cases.
+3. GUNW posting is 80 m — city scale, not building scale.
 4. NISAR urban coverage is not guaranteed (§5).
 5. Urban SAR flood mapping is confounded by double-bounce and shadow; use coherence-loss change
    detection, not thresholding.

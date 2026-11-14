@@ -23,7 +23,7 @@ from tests.conftest import write_synthetic_case
 
 def test_load_study_cases_config_matches_repo_yaml():
     cfg = load_study_cases_config()
-    assert cfg.schema_version == "1.0"
+    assert cfg.schema_version == "1.1"
     assert cfg.primary == "mexico-city"
     assert set(cfg.cases) == set(C.CASE_IDS)
     assert cfg.cases["malaga"].null_result is True
