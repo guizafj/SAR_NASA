@@ -1,0 +1,40 @@
+# local/personal + tool caches
+.*.local
+.*cache
+*cache*
+
+# everything dot-prefixed: .venv, .streamlit secrets, editor state
+.*
+# ...except the dotfiles a public repo is supposed to carry. Git cannot re-include a file whose
+# PARENT directory is excluded, so `.github/` is re-included before its contents. Without this,
+# `git add -A` silently skips a CI workflow (the checklist claims CI runs the contract tests) and
+# any `.gitattributes`/`.env.example` — `.env` itself stays ignored, which is the point.
+!.github/
+!.github/**
+!.gitattributes
+!.env.example
+# `.gitignore` matches its own `.*` rule, which means it is untracked-but-ignored and `git add -A`
+# silently skips it: the published repo would ship with NO ignore rules and no protection for
+# `.env`, `data/raw/` or a stray `.h5`. Re-included explicitly, like the entries above.
+!.gitignore
+
+# never version heavy downloads (flujo §3.2); only data/processed summaries are committed
+data/raw/
+
+# staging sidecars (e.g. land_use.csv from enrich_context.py) live here, deliberately outside the
+# case directories so pipeline/validate_artifacts.py does not reject a case for holding a 5th file
+data/staging/
+
+# download backstops. Granules normally land only in data/raw/ (above), but a file moved or resumed
+# outside it must never be committed: one NISAR GUNW is ~GBs and cannot be undone from history.
+*.h5
+*.hdf5
+*.nc
+*.zip
+*.tif
+*.tiff
+*.part
+
+# Earthdata session cookies / credentials (dotfiles are already covered by `.*`, this is the
+# non-dot name people actually use)
+cookies.txt

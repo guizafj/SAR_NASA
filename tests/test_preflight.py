@@ -1,10 +1,12 @@
 """Hermetic tests for ``scripts/preflight.sh`` — the pre-submission gate runner.
 
 Every test shells out to the real script (subprocess, cwd=repo root) and only uses
-``--fast`` so the two deliberately slow gates (the full pytest suite, the committed-state
-clone) are exercised as SKIP rows instead of costing minutes per test. ``TMPDIR`` is
-redirected into ``tmp_path`` so the script's own scratch directory is observable: it must
-exist during the run and be gone afterwards (trap cleanup, nothing written into the repo).
+``--fast`` so the deliberately slow pytest suite is exercised as a SKIP row instead of
+costing minutes per test. ``--fast`` still runs the clone gate (it is overlapped with the
+other gates and stays near 30 s), so the committed-doc guards are covered here too.
+``TMPDIR`` is redirected into ``tmp_path`` so the script's own scratch directory is
+observable: it must exist during the run and be gone afterwards (trap cleanup, nothing
+written into the repo).
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -44,6 +47,12 @@ ALL_GATES = [
     "figures regenerate",
     "demo numbers",
 ]
+
+#: Files copied into the scratch repo used to prove the clone gate catches a broken committed doc.
+#: `.venv` is symlinked instead (it is 500 MB and only needed for its interpreter).
+COPY_IGNORE = shutil.ignore_patterns(
+    ".git", ".venv", "__pycache__", ".pytest_cache", ".mypy_cache", "node_modules"
+)
 
 
 def run_preflight(
@@ -105,12 +114,13 @@ def test_fast_mode_prints_all_seven_rows_and_verdict_matches_exit_code(
     ]
     assert order == [1, 2, 3, 4, 5, 6, 7], f"table rows are not 1..7: {order}"
 
-    # --fast executes 1, 3, 4, 6, 7 and skips exactly the two slow gates, with the reason shown.
-    for slow in ("pytest suite", "clone reproduction"):
-        assert gate_status(rows[slow]) == "SKIP", rows[slow]
-        assert "--fast" in rows[slow], rows[slow]
+    # --fast executes 1, 3, 4, 5, 6, 7 and skips only the slow pytest suite, with the reason shown.
+    # Gate 5 runs in both modes: the doc guards are cheap and a committed doc break must be caught
+    # just as early as a size break.
+    assert gate_status(rows["pytest suite"]) == "SKIP", rows["pytest suite"]
+    assert "--fast" in rows["pytest suite"], rows["pytest suite"]
     for executed in ("contract self-check", "artefact gate", "phase A/B handoff",
-                     "figures regenerate", "demo numbers"):
+                     "clone reproduction", "figures regenerate", "demo numbers"):
         assert gate_status(rows[executed]) != "SKIP", f"{executed} must run under --fast: {rows[executed]}"
 
     # The verdict must agree with the rows: exit 0 iff no executed gate failed. On a healthy tree
@@ -154,9 +164,9 @@ def test_json_output_has_one_entry_per_gate_with_status_and_seconds(tmp_path: Pa
 
     by_id = {step["id"]: step for step in steps}
     assert by_id[2]["status"] == "SKIP"
-    assert by_id[5]["status"] == "SKIP"
-    for skipped in (2, 5):
-        assert "--fast" in by_id[skipped]["evidence"], by_id[skipped]
+    assert "--fast" in by_id[2]["evidence"], by_id[2]
+    assert by_id[5]["status"] != "SKIP", by_id[5]
+    assert "doc guards" in by_id[5]["evidence"] or "committed doc" in by_id[5]["evidence"], by_id[5]
 
     # JSON verdict must agree with the per-step statuses (see the text-table test above).
     failed = [step["name"] for step in steps if step["status"] == "FAIL"]
@@ -191,3 +201,104 @@ def test_empty_processed_dir_fails_and_names_the_gate(tmp_path: Path) -> None:
     # The failing gate's log tail is surfaced on stderr, together with the artefact root it read.
     assert "FAIL artefact gate (size)" in result.stderr
     assert str(empty) in result.stderr
+
+
+def _scratch_repo_from_worktree(tmp_path: Path) -> Path:
+    """Copy the working tree into a throwaway git repo and commit it.
+
+    The real repo is never modified: the broken doc lives only in this copy, which the clone gate
+    then treats exactly like a teammate's checkout.
+    """
+    repo = tmp_path / "repo"
+    shutil.copytree(ROOT, repo, ignore=COPY_IGNORE)
+    (repo / ".venv").symlink_to(ROOT / ".venv", target_is_directory=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c", "user.name=preflight-test",
+            "-c", "user.email=preflight@example.invalid",
+            "commit", "-q", "-m", "scratch tree for the clone gate",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    return repo
+
+
+def _run_gate_clone_alone(repo: Path, tmp_root: Path) -> tuple[str, str, str]:
+    """Source the real script (PREFLIGHT_LIB_ONLY=1) and call gate_clone() on ``repo``.
+
+    Returns (status, evidence, combined output). This exercises the shipped gate function, not a
+    copy of its logic, while leaving the caller's repo untouched.
+    """
+    driver = """\
+set +e
+export PREFLIGHT_LIB_ONLY=1
+source scripts/preflight.sh
+gate_clone
+printf 'GATE_STATUS=%s\\nGATE_EXIT=%s\\nGATE_EVIDENCE=%s\\n' \
+  "$G_STATUS" "$G_EXIT" "$G_EVIDENCE"
+if [[ $G_STATUS == FAIL && -n $G_LOG && -f $G_LOG ]]; then
+  grep -m1 -E 'README[.]md:[0-9]+ documents a command' "$G_LOG" || true
+fi
+"""
+    env = dict(os.environ)
+    env["TMPDIR"] = str(tmp_root)
+    env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
+    completed = subprocess.run(
+        ["bash", "-c", driver, "scripts/preflight.sh"],
+        cwd=repo,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=900,
+    )
+    output = completed.stdout + completed.stderr
+    assert completed.returncode == 0, output
+    status = re.search(r"^GATE_STATUS=(.*)$", completed.stdout, re.MULTILINE)
+    evidence = re.search(r"^GATE_EVIDENCE=(.*)$", completed.stdout, re.MULTILINE)
+    assert status is not None and evidence is not None, output
+    return status.group(1), evidence.group(1), output
+
+
+def test_clone_gate_fails_on_a_committed_doc_that_breaks_the_guards(tmp_path: Path) -> None:
+    """The blind spot: HEAD can carry a doc whose printed command no longer works.
+
+    A temp copy of the working tree gets one deliberately broken documented command (an unknown
+    flag on the dry-run line), is committed, and the real gate_clone() runs against that clone.
+    The gate must report FAIL and name the doc and line, not merely the artefact fingerprint.
+    """
+    tmp_root = tmp_path / "tmp"
+    tmp_root.mkdir()
+    repo = _scratch_repo_from_worktree(tmp_path)
+
+    readme = repo / "README.md"
+    original = readme.read_text(encoding="utf-8")
+    witness = "--max-gb 6 --dry-run"
+    assert original.count(witness) >= 1, "the dry-run line moved; update this fixture"
+    readme.write_text(
+        original.replace(witness, f"{witness} --definitely-not-a-real-flag", 1),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c", "user.name=preflight-test",
+            "-c", "user.email=preflight@example.invalid",
+            "commit", "-q", "-m", "break one documented command",
+        ],
+        cwd=repo,
+        check=True,
+    )
+
+    status, evidence, output = _run_gate_clone_alone(repo, tmp_root)
+
+    assert status == "FAIL", f"the clone gate certified a broken committed doc:\n{output}"
+    assert "committed doc breaks a guard" in evidence, evidence
+    assert re.search(r"README\.md:\d+", evidence), f"evidence names no doc line: {evidence}"
+    assert "fix the doc or the command it prints" in evidence, evidence
+    # The failure tail on the gate log must carry the offending doc line too.
+    assert re.search(r"README\.md:\d+ documents a command", output), output

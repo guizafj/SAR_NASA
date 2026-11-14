@@ -37,6 +37,12 @@ CRITICAL = (
     "config/aoi/malaga.geojson",
     "requirements.txt",
     "pytest.ini",
+    # The public-submission licence. Without it the repo is "all rights reserved", and its
+    # attribution block is the only place the data licences (NASA/ASF, ESA Copernicus, OSM) are
+    # stated, so losing this file silently un-licences the whole submission.
+    "LICENSE",
+    # the concise technical navigator linked from README; losing it re-orphans the focused guides
+    "CONTEXT.md",
     # the artefact gate and the mock generator: without these there are no artefacts
     "pipeline/validate_artifacts.py",
     "pipeline/generate_mock.py",
@@ -52,6 +58,23 @@ CRITICAL = (
     "tests/test_preflight.py",
     "tests/test_readme_numbers.py",
     "tests/test_pipeline_readme_numbers.py",
+    # guards the study area itself: it fails if an AOI ever becomes a MultiPolygon (the pipeline
+    # builds cells from a single ring) or if the retired metro exports reappear in config/aoi/.
+    "tests/test_aoi_geometry.py",
+    # guards added 2026-11-14: determinism of the mock, the documented loader API, the cross-document
+    # physics constants, and the ignore policy (a blanket `.*` once hid `.github/`).
+    "tests/test_mock_reproducibility.py",
+    "tests/test_handoff_snippets.py",
+    "tests/test_science_constants_consistency.py",
+    "tests/test_gitignore_policy.py",
+    # the contract's own guard and the artefact gate's guard: losing either removes the check that
+    # catches a contract or artefact regression, and nothing else in the suite would notice.
+    "tests/test_contracts.py",
+    "tests/test_validate_artifacts.py",
+    "tests/test_fingerprint_consistency.py",
+    # the two long-form documents a reader is pointed at
+    "CONTEXT.md",
+    "docs/decisions.md",
 )
 
 #: Scripts a caller executes directly; losing the executable bit breaks the documented command.

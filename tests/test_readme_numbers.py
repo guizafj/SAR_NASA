@@ -1134,8 +1134,8 @@ ALLOWLIST: tuple[Allowance, ...] = (
         "wall-clock: the gate's observed ~15 s is hardware-dependent, not a measurement",
     ),
     Allowance(
-        re.compile(r"~?\s*2\.5\s*min\b", re.IGNORECASE),
-        "wall-clock: the full suite's runtime is hardware-dependent",
+        re.compile(r"~?\s*4\.5\s*min\b", re.IGNORECASE),
+        "wall-clock: the full suite's runtime is hardware-dependent (measured 2026-11-14 at ~838 tests)",
     ),
     Allowance(
         re.compile(r"~?\s*4\.5[- ]month\b", re.IGNORECASE),
