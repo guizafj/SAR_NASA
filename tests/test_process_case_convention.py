@@ -260,7 +260,7 @@ def build_stack(
         # d_LOS = -lambda/(4*pi)*phi  ->  phi = -4*pi*d/lambda (d in metres), the default sign.
         phase = -4.0 * np.pi * (los_mm / 1000.0) / WAVELENGTH_M
         name = (
-            f"NISAR_L2_PR_GUNW_001_005_A_{index + 1:03d}_002_4000_SH_"
+            f"NISAR_L2_PR_GUNW_{index + 1:03d}_001_A_005_{index + 2:03d}_4000_SH_"
             f"{reference_date.replace('-', '')}T031245_"
             f"{secondary_date.replace('-', '')}T031245.h5"
         )

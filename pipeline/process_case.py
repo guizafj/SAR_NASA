@@ -236,11 +236,12 @@ LOOKS_CANDIDATES: tuple[Candidate, ...] = (
     (_RADAR, "numberOfLooks"),
 )
 
-#: NISAR granule names: NISAR_<L>_<PR>_<GUNW>_<track>_<frame>_<A|D>_… . Only the fields used for the
-#: safety checks are parsed; anything unparseable is reported, never guessed.
+#: NISAR granule names, verified against the 120-name ASF census:
+#: NISAR_<L>_<PR>_<GUNW>_<cycle>_<track>_<A|D>_<frame>_<secondary-cycle>_… . Only the fields used
+#: for the safety checks are parsed; anything unparseable is reported, never guessed.
 _GRANULE_RE = re.compile(
     r"^(?P<mission>[A-Z]+)_(?P<level>L\d[A-Z]?)_(?P<ptype>[A-Z0-9]+)_(?P<product>GUNW[A-Z0-9]*)_"
-    r"(?P<track>\d{3})_(?P<frame>\d{3})_(?P<direction>[AD])_"
+    r"(?P<repeat_cycle>\d{3})_(?P<track>\d{3})_(?P<direction>[AD])_(?P<frame>\d{3})_"
 )
 _DIRECTIONS = {"A": "ascending", "D": "descending"}
 _ISO_DATE_RE = re.compile(r"^(\d{4})-?(\d{2})-?(\d{2})")
@@ -710,7 +711,7 @@ def aoi_cells(case_id: str) -> frozenset[str]:
 
 
 def parse_granule_identity(granule: str | pathlib.Path) -> GranuleIdentity:
-    """Parse `NISAR_L2_PR_GUNW_<track>_<frame>_<A|D>_…` from a granule name.
+    """Parse `NISAR_L2_PR_GUNW_<cycle>_<track>_<A|D>_<frame>_…` from a granule name.
 
     Only the three fields the safety checks need are taken. A name that does not match the
     documented pattern yields ``None`` fields and a human-readable ``detail`` — the caller warns
@@ -727,8 +728,8 @@ def parse_granule_identity(granule: str | pathlib.Path) -> GranuleIdentity:
             frame=None,
             direction=None,
             detail=(
-                "filename does not match NISAR_<L>_<TYPE>_<track>_<frame>_<A|D>_…; track and "
-                "flight direction cannot be verified for this granule"
+                "filename does not match NISAR_<L>_<TYPE>_<cycle>_<track>_<A|D>_<frame>_…; "
+                "track, frame and flight direction cannot be verified for this granule"
             ),
         )
     code = match.group("direction")
@@ -990,7 +991,7 @@ def _dedupe(messages: Iterable[str]) -> list[str]:
 
 
 def _check_stack_identity(identities: Sequence[GranuleIdentity], warnings: list[str]) -> None:
-    """Refuse a stack that mixes tracks or flight directions; warn when identity is unparseable."""
+    """Refuse mixed tracks/directions; only warn on multiple frames or unparseable identity."""
     parsed = [identity for identity in identities if identity.track is not None]
     unparsed = [identity for identity in identities if identity.track is None]
     if unparsed:
@@ -1020,7 +1021,7 @@ def _check_stack_identity(identities: Sequence[GranuleIdentity], warnings: list[
     if len(frames) > 1:
         warnings.append(
             f"granules span frames {sorted(frames)} on one track; the pixel grid must still match "
-            "(it is checked explicitly) but the AOI may be clipped"
+            "(it is checked explicitly) but the AOI may be clipped by the footprint change"
         )
 
 

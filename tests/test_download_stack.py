@@ -48,7 +48,7 @@ def gunw(track: str, code: str, reference: dt.date, *, size_mb: float = 250.0) -
     """One ASF-shaped NISAR GUNW response entry (real grammar, synthetic dates)."""
     secondary = reference + dt.timedelta(days=12)
     name = (
-        f"NISAR_L2_PR_GUNW_032_113_{code}_{track}_033_4000_SH_"
+        f"NISAR_L2_PR_GUNW_032_{track}_{code}_033_4000_SH_"
         f"{reference:%Y%m%d}T011329_{reference:%Y%m%d}T011403_"
         f"{secondary:%Y%m%d}T011329_{secondary:%Y%m%d}T011403_P05023_N_F_J_001"
     )
@@ -788,10 +788,11 @@ def test_committed_report_recommended_dry_run_is_single_geometry(
 # The committed evidence, measured: how many epochs does the recommendation actually give?
 # ---------------------------------------------------------------------------------------------
 #
-# The committed reports were generated *before* this fix, so their `recommended_stack` still
-# carries the old even sample (mexico-city 12 ids -> 3 connected epochs, jakarta 8 -> 9, malaga
-# 12 -> 3). They cannot be regenerated offline, so this test measures and reports instead of
-# asserting a stale number; once `search` is re-run it locks in the new verdict per case.
+# The committed reports' derived `stacks`/`recommended_stack` were re-derived offline from their
+# own unchanged raw granule list under the corrected grammar (cycle_track_direction_frame). The
+# recommendations are now contiguous download runs, so the `sample_purpose == "download"` branch
+# below asserts the report agrees with the measurement instead of merely reporting it.
+# Re-derive again with the same offline recipe if the raw probe list ever changes.
 
 EVIDENCE_CASES = ("mexico-city", "jakarta", "malaga")
 

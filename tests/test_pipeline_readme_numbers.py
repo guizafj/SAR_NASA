@@ -107,7 +107,8 @@ ALLOWLIST: tuple[tuple[str, str], ...] = (
     ),
     (
         r"049376b0",
-        "commit prefix of the snapshot this page describes; git metadata, not a quantity",
+        "contract_fingerprint() abbreviated on the page; a code-derived hash cross-checked by "
+        "tests/test_fingerprint_consistency.py, not a quantity measured from the tree",
     ),
     (
         r"λ_?L?\s*=\s*0\.2384\s*m",

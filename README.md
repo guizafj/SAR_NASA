@@ -244,16 +244,21 @@ nothing is a failure. `--allow-empty` exists for pre-mock CI and says so loudly 
 | Sentinel-1 SLC (5 y window) | 250+ granules, ~1.07 TB | 250+ granules, ~1.18 TB | 250+ granules, ~0.96 TB |
 | EGMS | not eligible | not eligible | manual portal download |
 
-Each report also derives `stacks` per (track, flight direction) plus a `recommended_stack` (largest
-single-geometry stack, sampled evenly across its window). `download --stack recommended` plans from
-it, so a fetch is one geometry by construction instead of a preview of everything ASF returned —
-which is what the mixed-geometry guard would otherwise refuse.
+Each report also derives `stacks` per (track, frame, flight direction) plus a `recommended_stack`
+(largest single-geometry stack, sampled evenly across its window). `download --stack recommended`
+plans from it, so a fetch is one geometry by construction instead of a preview of everything ASF
+returned — which is what the mixed-geometry guard would otherwise refuse.
 
-**Not every stack is fittable.** Counted from the same JSON: `mexico-city` yields 22 connected
-epochs from 12 sampled granules, `jakarta` 9 — but `malaga` only **2**, below `MIN_FIT_POINTS = 4`,
-so its report carries `epoch_sufficient: false` and `process_case` would refuse that chain. Intersecting
-the AOI is not the same as having a chain long enough to fit; the negative control is honest at the
-availability level too.
+**Every recommended stack clears the fit minimum.** Counted from the same JSON, the recommended
+stack per case is `mexico-city` track 113 / frame 079 descending (33 granules, 22 epochs in one
+connected run, 13 of them in the download window), `jakarta` 018 / 092 descending (8 granules, 9
+epochs) and `malaga` 095 / 070 descending (9 granules, 10 epochs) — all above
+`MIN_FIT_POINTS = 4`, so all three carry `epoch_sufficient: true`. This paragraph used to report
+`malaga` as **2**, an insufficiency that turned out to be an artefact of grouping by frame where the
+grammar says track: two orbits sat under one frame label. The grammar is reconciled (O-06) and the
+reports were re-derived from their unchanged granule lists, so the number is 10. Intersecting the AOI
+is still not the same as having a chain long enough to fit — here it is, and Málaga is the negative
+control for signal, not for fittability.
 
 **Consequences, decided now and written into the contract:**
 
@@ -464,7 +469,7 @@ recorded in **[`docs/decisions.md`](docs/decisions.md)**.
 │   ├── check_phase_a.sh               ← contract → suites → artefact gate → handoff summary
 │   ├── make_figures.py                ← the three pitch figures, straight from the artefacts
 │   ├── demo_numbers.py                ← every number the presenter may say, derived not typed
-│   ├── export_grid_geojson.py         ← grid → GeoJSON points for QGIS / kepler.gl
+│   ├── export_grid_geojson.py         ← grid → GeoJSON cell polygons (H3 rings) for QGIS / kepler.gl
 │   ├── style_qgis_layers.py           ← the same palette as generated QGIS .qml styles (no colour declared here)
 │   └── rehearse_first_granule.py      ← runs the runbook's offline steps on a synthetic stack
 ├── requirements.txt                   ← full workspace: pipeline + backend + Streamlit app + tests
@@ -683,6 +688,24 @@ are project-level statements that no single artefact carries.
 10. **No real granule has been downloaded or processed.** All three cases are `product: "mock"` and
     every artefact's own `limitations` says so; what this submission demonstrates is the schema, the
     pipeline and the map logic — not NISAR velocities.
+11. **The two granule parsers now agree with the ASF filename census (O-06, fixed 2026-11-14).**
+    Token 4 is a 12-day *repeat-cycle bin* of the reference acquisition, not the track; after the
+    product token the order is `cycle, track, A|D, frame, secondary cycle` (tokens 4–8).
+    `pipeline/process_case.py` (`_GRANULE_RE`, `parse_granule_identity`) and
+    `pipeline/ingest/02_search_download.py` (`parse_granule`, which `derive_stacks` groups by) both
+    read track = token 5 and frame = token 7, and the availability reports were re-derived from
+    their unchanged raw granule lists under that grammar. Until then the science parser read
+    track/frame one token left and the ingest parser read the frame *as* the track, so a genuinely
+    connected multi-date stack could be refused as "mixes relative orbits" and two orbits could be
+    merged under one frame label. Nothing published was affected either way: the mock path never
+    parses a granule name, and its provenance digest hashes `case|product|seed`.
+12. **The LOS sign label contradicts the projection arithmetic (O-08).** `project_to_los` builds
+    `u = [cosθ, −sinθcosα, −sinθsinα]`, so with zero horizontals **uplift gives positive LOS**
+    (toward-sensor-positive) and subsidence negative, while the phase conversion's default is
+    labelled `away-from-sensor` and that label is what lands in `meta.provenance.method`. The two
+    must be reconciled, and the result validated against GNSS, before any real-path velocity is
+    interpreted or published. The mock synthesises millimetres directly, so no published number is
+    affected.
 
 ---
 

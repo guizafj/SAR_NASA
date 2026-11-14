@@ -7,7 +7,7 @@ Fallback chain (README §7):
 Search is unauthenticated (ASF SearchAPI public). Download needs Earthdata credentials and
 fails closed with an actionable message when they are missing.
 
-Search also derives *stacks* — one per acquisition geometry `(track, flight direction)` — and
+Search also derives *stacks* — one per acquisition geometry `(track, frame, flight direction)` — and
 persists them so `download --stack recommended` fetches a coherent single-geometry series
 instead of the first three search hits (which can span several tracks).
 
@@ -106,6 +106,7 @@ _TIMESTAMP = re.compile(r"^(\d{8})T(\d{4,6})$")
 _LEVEL = re.compile(r"^L\d$")
 _PRODUCT = re.compile(r"^[A-Z0-9]{2,6}$")
 _TRACK = re.compile(r"^\d{3}[A-Z]?$")
+_FRAME = re.compile(r"^\d{3}$")
 _DIRECTION = {"A": "ASCENDING", "D": "DESCENDING"}
 
 
@@ -127,6 +128,7 @@ class ParsedGranule:
     level: str | None = None
     product: str | None = None
     track: str | None = None
+    frame: str | None = None
     direction_code: str | None = None
     reference_start: str | None = None
     reference_stop: str | None = None
@@ -171,13 +173,16 @@ def parse_granule(granule_id: str | None) -> ParsedGranule:
     code = tokens[6] if len(tokens) > 6 and tokens[6] in _DIRECTION else None
     if code is None:
         code = next((token for token in tokens[:10] if token in _DIRECTION), None)
-    track = tokens[7] if len(tokens) > 7 and _TRACK.match(tokens[7]) else None
+    # Verified census: NISAR_<L>_<PR>_<GUNW>_<cycle>_<track>_<A|D>_<frame>_...
+    track = tokens[5] if len(tokens) > 5 and _TRACK.match(tokens[5]) else None
+    frame = tokens[7] if len(tokens) > 7 and _FRAME.match(tokens[7]) else None
 
     return ParsedGranule(
         raw=raw,
         level=level,
         product=product,
         track=track,
+        frame=frame,
         direction_code=code,
         reference_start=stamps[0] if stamps else None,
         reference_stop=stamps[1] if len(stamps) > 1 else None,
@@ -305,7 +310,10 @@ def _stack_epochs(members: list[tuple[str, ParsedGranule]]) -> tuple[int, int]:
 
 
 def derive_stacks(granules: list[dict]) -> list[dict]:
-    """Group granules by `(track, flight direction)` and describe each stack.
+    """Group granules by `(track, frame, flight direction)` and describe each stack.
+
+    A frame identifies one footprint, so it belongs in the key: grouping only by track would
+    merge adjacent frames into a "stack" that is not one acquisition geometry.
 
     Every stack *previews* its window: `date_range` is the full `[first, last]` reference date,
     `full_date_range` repeats it, and `granule_ids` is an even sample of at most
@@ -317,15 +325,17 @@ def derive_stacks(granules: list[dict]) -> list[dict]:
     and `connected_epochs` (the longest chain inside the stack) — so a narrowed download window
     never has to be confused with the stack's real span. Sorted largest first, then most recent.
     """
-    groups: dict[tuple[str | None, str | None], list[tuple[str, ParsedGranule]]] = {}
+    groups: dict[
+        tuple[str | None, str | None, str | None], list[tuple[str, ParsedGranule]]
+    ] = {}
     for granule in granules:
         granule_id = granule.get("granuleName") or granule.get("id") or ""
         parsed = parse_granule(granule_id)
-        key = (parsed.track, parsed.direction)
+        key = (parsed.track, parsed.frame, parsed.direction)
         groups.setdefault(key, []).append((granule_id, parsed))
 
     stacks: list[dict] = []
-    for (track, direction), members in groups.items():
+    for (track, frame, direction), members in groups.items():
         members.sort(
             key=lambda item: item[1].reference_start
             or item[0]  # unparseable names keep a stable, name-based order
@@ -343,6 +353,7 @@ def derive_stacks(granules: list[dict]) -> list[dict]:
         stacks.append(
             {
                 "track": track,
+                "frame": frame,
                 "direction": direction,
                 "n_granules": len(members),
                 "date_range": date_range,
@@ -435,8 +446,10 @@ def _epoch_warning(stack: dict, epochs: int, stacks: list[dict]) -> str | None:
         usable,
         key=lambda item: (item[0], (item[1].get("date_range") or ["", ""])[1]),
     )
+    other_frame = f" frame {other['frame']}" if other.get("frame") is not None else ""
     return (
-        f"{head}. Use `--stack {other['track']}` (track {other['track']}/"
+        f"{head}. Use `--stack {other['track']}` (track {other['track']}"
+        f"{other_frame}/"
         f"{other['direction']}, {other_epochs} epoch(s)) instead."
     )
 
@@ -462,9 +475,10 @@ def recommend_stack(stacks: list[dict]) -> dict | None:
             f"{len(sample['granule_ids'])} of {sample['n_granules']} granules, "
             f"{sample['download_epochs']} connected epoch(s), {span}"
         )
+        frame = f" frame {chosen['frame']}" if chosen.get("frame") is not None else ""
         why = (
-            f"largest single-geometry stack (track {chosen['track']}/{chosen['direction']}); "
-            f"{detail}"
+            f"largest single-geometry stack (track {chosen['track']}{frame}/"
+            f"{chosen['direction']}); {detail}"
         )
         return {**sample, "why": why}
 
@@ -738,8 +752,9 @@ def _stack_line(src: dict) -> str:
     if not recommended:
         return "no stack"
     track = recommended.get("track")
+    frame = f" frame {recommended['frame']}" if recommended.get("frame") is not None else ""
     return (
-        f"stack {track or '?'}/{recommended.get('direction') or '?'} "
+        f"stack {track or '?'}{frame}/{recommended.get('direction') or '?'} "
         f"({len(recommended.get('granule_ids') or [])} of "
         f"{recommended.get('n_granules')} granules)"
     )
@@ -863,9 +878,14 @@ def recommendations(city: str, sources: dict[str, dict], chosen: str) -> list[st
         )
         recommended = nisar.get("recommended_stack") or {}
         if recommended:
+            frame = (
+                f" frame {recommended['frame']}"
+                if recommended.get("frame") is not None
+                else ""
+            )
             recs.append(
                 f"Fetch one geometry: `download --source nisar_gunw --stack recommended` plans "
-                f"track {recommended.get('track')}/{recommended.get('direction')} "
+                f"track {recommended.get('track')}{frame}/{recommended.get('direction')} "
                 f"({len(recommended.get('granule_ids') or [])} of "
                 f"{recommended.get('n_granules')} granules). Do not plan `--stack all`: it mixes "
                 "tracks and the geometry guard refuses it."
@@ -953,7 +973,7 @@ def evaluate_granule(granule_id: str, source: str, allow_products: list[str]) ->
     allowed = {product.upper() for product in allow_products}
     where = (
         f"parsed: level={parsed.level} product={parsed.product} track={parsed.track} "
-        f"direction={parsed.direction}"
+        f"frame={parsed.frame} direction={parsed.direction}"
     )
 
     if parsed.level is None or parsed.product is None:
@@ -1061,7 +1081,12 @@ def build_download_plan(
 
 
 def plan_geometries(plan: list[dict]) -> set[tuple[str | None, str | None]]:
-    """Distinct `(track, direction)` among the accepted items: the mixed-geometry guard."""
+    """Distinct `(track, direction)` among the accepted items: the mixed-geometry guard.
+
+    Frames are deliberately not part of this guard: a chain may cross adjacent frames on one
+    track/direction (``process_case`` warns, it does not refuse). Each *derived stack* is still
+    one footprint because `derive_stacks` keys on frame as well.
+    """
     return {
         (item["decision"].parsed.track, item["decision"].parsed.direction)
         for item in plan
@@ -1123,6 +1148,10 @@ def select_stack_granules(
     def legacy_label(count: int) -> str:
         return f"legacy preview ({count} granule(s))"
 
+    def frame_text(stack: dict) -> str:
+        frame = stack.get("frame")
+        return f" frame {frame}" if frame is not None else ""
+
     def epoch_notes(stack: dict) -> list[str]:
         """Carry the report's epoch verdict into the plan: never fetch an unfittable stack quietly."""
         warning = stack.get("warning")
@@ -1148,17 +1177,27 @@ def select_stack_granules(
             label = f"recommended: unidentified geometry ({len(selected)} granule(s))"
         else:
             label = (
-                f"recommended: track {stack['track']} {stack['direction']} "
+                f"recommended: track {stack['track']}{frame_text(stack)} {stack['direction']} "
                 f"({len(selected)} of {stack['n_granules']} granule(s))"
             )
         return selected, label, [*notes, *epoch_notes(stack)]
 
     wanted = _normalise_track(choice)
-    match = next(
-        (stack for stack in stacks if _normalise_track(str(stack["track"])) == wanted), None
-    )
+    matches = [
+        stack for stack in stacks if _normalise_track(str(stack["track"])) == wanted
+    ]
+    match = matches[0] if matches else None
     if match is None:
-        available = ", ".join(tracks) if tracks else "none"
+        available = (
+            ", ".join(
+                f"{stack['track']}"
+                f"{'/' + str(stack['frame']) if stack.get('frame') is not None else ''}"
+                for stack in stacks
+                if stack["track"] is not None
+            )
+            if tracks
+            else "none"
+        )
         raise StackSelectionError(
             f"--stack {choice} matches no derived stack; tracks in this report: {available}. "
             "Run `search` again to re-derive stacks, or pass `--stack recommended`."
@@ -1167,7 +1206,7 @@ def select_stack_granules(
     if preview_only:
         return selected, legacy_label(len(selected)), notes
     label = (
-        f"track {match['track']} {match['direction']} "
+        f"track {match['track']}{frame_text(match)} {match['direction']} "
         f"({len(selected)} of {match['n_granules']} granule(s))"
     )
     return selected, label, [*notes, *epoch_notes(match)]
@@ -1474,7 +1513,8 @@ def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list
         print(f"  [{index}/{len(plan)}] {item['granule_id']}")
         print(
             f"        level={decision.parsed.level} product={decision.parsed.product} "
-            f"track={decision.parsed.track} direction={decision.parsed.direction}"
+            f"track={decision.parsed.track} frame={decision.parsed.frame} "
+            f"direction={decision.parsed.direction}"
         )
         print(
             f"        reference={decision.parsed.reference_start} "
@@ -1586,7 +1626,21 @@ def cmd_download(args: argparse.Namespace) -> int:
         for track, direction in sorted(
             geometries, key=lambda geometry: (str(geometry[0]), str(geometry[1]))
         ):
-            print(f"  track {track} {direction}")
+            frames = sorted(
+                {
+                    str(item["decision"].parsed.frame)
+                    for item in plan
+                    if item["decision"].accepted
+                    and (
+                        item["decision"].parsed.track,
+                        item["decision"].parsed.direction,
+                    )
+                    == (track, direction)
+                    and item["decision"].parsed.frame is not None
+                }
+            )
+            frame_text = f" frame {', '.join(frames)}" if frames else ""
+            print(f"  track {track}{frame_text} {direction}")
         print(
             "  a stack must share one orbit track and flight direction; re-plan with "
             "`--stack recommended` or `--stack <track>` (planned from a legacy report? "

@@ -21,8 +21,10 @@ another set of copied tables.*
 A **granule** is one product file covering one footprint at one time — the smallest thing a data
 archive (a DAAC, such as ASF) will hand you. Naming is a grammar, and the grammar is load-bearing: it
 carries the level, the product type, the repeat-cycle bin, the track, the flight direction and the
-frame. **Both parsers in the tree get that order wrong** (an open defect, not a settled mapping). The
-science layer's parse is `parse_granule_identity` / `_check_stack_identity`.
+frame. **Both parsers in the tree implement that order and agree on it** (O-06, resolved
+2026-11-14 — the census table below is what they were reconciled against). The science layer's parse
+is `parse_granule_identity` / `_check_stack_identity`; the ingest layer's is `parse_granule`, which
+`derive_stacks` groups with.
 
 Token indices are 0-based after splitting an ASF name on `_` (20 tokens), e.g.
 `NISAR_L2_PR_GUNW_025_010_A_174_026_4000_SH_20260720T223920_…`:
@@ -38,39 +40,44 @@ Token indices are 0-based after splitting an ASF name on `_` (20 tokens), e.g.
 | secondary cycle bin | 8 | `token[8] − token[4] = ⌈Δdays/12⌉` in 120/120 names |
 | reference start timestamp | 11 | `YYYYMMDDThhmmss`; the 72 reference dates are read from it |
 
-Neither parser matches that table. `pipeline/process_case.py:_GRANULE_RE` reads `track = tokens[4]`
-and `frame = tokens[5]`, both shifted one token left, so its "track" is the cycle bin;
-`pipeline/ingest/02_search_download.py:parse_granule` reads `track = tokens[7]` — the frame — and has
-no frame field at all. O-06 in `docs/decisions.md` records the disagreement and is still **unfixed**;
-it gates the first real stack. Nothing published depends on it: the mock path never parses a granule
-name, and its provenance digest hashes `case|product|seed`.
+Both parsers implement that table and agree on it. `pipeline/process_case.py:_GRANULE_RE` captures
+`repeat_cycle`/`track`/`direction`/`frame` in exactly that order, so `parse_granule_identity` returns
+the real track (token 5) and frame (token 7); `pipeline/ingest/02_search_download.py:parse_granule`
+reads `track = tokens[5]` and `frame = tokens[7]`, and `derive_stacks` groups by
+`(track, frame, direction)`. Until 2026-11-14 they did not: the science parser read `track = tokens[4]`
+and `frame = tokens[5]`, one token left, so its "track" was the cycle bin, and the ingest parser read
+`track = tokens[7]` — the frame — with no frame field at all. O-06 in `docs/decisions.md` records the
+defect and its fix. The history is kept because it explains the evidence: stacks were once labelled by
+frame, so two orbits could be merged under one label. Nothing published ever depended on the parse —
+the mock path never parses a granule name, and its provenance digest hashes `case|product|seed`.
 
 Anything unparseable is reported with what was parsed, never guessed. A name that parses but is
 **not** `L2/GUNW` is refused by the download guard, not silently reinterpreted.
 
-> **Known discrepancy (2026-11-14, still open): both parsers disagree with the census, and the
-> science parser's "track" is a cycle bin.** Token 4 is the 12-day repeat-cycle bin of the reference
-> acquisition, not a date: 72 distinct reference dates map to exactly one token-4 value each, with
-> zero conflicts across three cities and both directions — yet `025` alone covers `20260708`,
-> `20260709`, `20260714` and `20260716` (Málaga, Jakarta, Mexico City; ascending and descending).
-> 120 granules collapse to 29 distinct bins (`003`–`032`, `027` absent), up to 9 sharing one (`024`,
-> `025`). Token 8 is its companion: `token[8] − token[4] = ⌈Δdays/12⌉` in 120/120 ids, so the pair
-> reads "reference cycle, secondary cycle". Token 7 has 9 values and is constant per
-> *(case, direction)* except three pairs 32–34 s apart on the same pass — **adjacent frames, not
-> parallel orbits**: Jakarta ascending `174`/`175` on `20260720` (22:39:20 → 22:39:53), Jakarta
-> descending `091`/`092` on every dated pass (+33 s), Mexico City descending `078`/`079` on
-> `20260411`, `20260704` and `20260716` (+34 s).
-> Consequence: **any multi-date real stack spanning more than one cycle bin would be refused by
-> `_check_stack_identity` as "stack mixes relative orbits"** — including the runbook's Step 2→Step 5
-> path — because the parser counts each token-4 bin as a separate track. The runbook's rule applies:
-> fix both tables together, in the same commit as the first real granule.
+> **Why token 4 is a cycle bin and not a track (census, 2026-11-14).** This is the evidence the fix
+> rests on, kept because it is the reference, not because anything is still in dispute. Token 4 is
+> the 12-day repeat-cycle bin of the reference acquisition, not a date: 72 distinct reference dates
+> map to exactly one token-4 value each, with zero conflicts across three cities and both directions
+> — yet `025` alone covers `20260708`, `20260709`, `20260714` and `20260716` (Málaga, Jakarta,
+> Mexico City; ascending and descending). 120 granules collapse to 29 distinct bins (`003`–`032`,
+> `027` absent), up to 9 sharing one (`024`, `025`). Token 8 is its companion:
+> `token[8] − token[4] = ⌈Δdays/12⌉` in 120/120 ids, so the pair reads "reference cycle, secondary
+> cycle". Token 7 has 9 values and is constant per *(case, direction)* except three pairs 32–34 s
+> apart on the same pass — **adjacent frames, not parallel orbits**: Jakarta ascending `174`/`175` on
+> `20260720` (22:39:20 → 22:39:53), Jakarta descending `091`/`092` on every dated pass (+33 s),
+> Mexico City descending `078`/`079` on `20260411`, `20260704` and `20260716` (+34 s).
+> **Consequence while the defect was live:** any multi-date real stack spanning more than one cycle
+> bin would have been refused by `_check_stack_identity` as "stack mixes relative orbits" — including
+> the runbook's Step 2→Step 5 path — because the parser counted each token-4 bin as a separate track,
+> and the derived stacks were labelled by frame, which merged orbits. Both tables were fixed together;
+> the census stays here as the reference they are now checked against.
 
 Two concepts that are constantly confused:
 
 | Term | Meaning | Consequence |
 |---|---|---|
 | **granule** | one file: one footprint, one pair, one geometry | the unit you download |
-| **stack** | granules with the same `(track, flight direction)` | the only legal unit you may *combine* into a series |
+| **stack** | granules with the same `(track, frame, flight direction)` | the only legal unit you may *combine* into a series |
 
 ### 1.2 Reader ownership and fallbacks
 

@@ -183,8 +183,11 @@ then both stamps belong in the window.
 connected run of pairs (`_best_download_run`), evenly sampled to `STACK_GRANULE_LIMIT` (12). If the
 run yields fewer than `MIN_FIT_POINTS` (4) connected epochs, the stack is still reported but flagged
 `epoch_sufficient: false` with a warning.
-**Why.** A stack that cannot be fitted must not be advertised as downloadable. Málaga currently
-reports 2 connected epochs and says so — an honest insufficiency instead of a false plan.
+**Why.** A stack that cannot be fitted must not be advertised as downloadable. The flag is what
+makes an insufficient archive visible instead of a false plan, and it is still armed and still
+tested: under the corrected grammar (O-06) no committed case trips it — the recommended stacks carry
+22, 9 and 10 connected epochs — but a stack under 4 is reported with `epoch_sufficient: false` and a
+warning rather than silently planned.
 **Evidence.** `pipeline/ingest/02_search_download.py`; `tests/test_download_stack.py`.
 **Reverse if.** `MIN_FIT_POINTS` changes or a longer archive arrives.
 
@@ -322,8 +325,13 @@ with a reversion commit.
 a contract 1.1 that the pipeline itself rejects), the backend on `pozo`. Integrating on the artefact
 branch keeps the diff reviewable and means the default branch never carries a schema the pipeline
 cannot satisfy.
-**Evidence.** `git merge-base origin/main yuls` == `origin/main` (`c4f0fb7`); `./scripts/preflight.sh`
-→ `VERDICT: READY` 7/7 on `f2dd5a8`; `tests/test_contracts.py` pins 1.0 and the field order.
+**Evidence.** `./scripts/preflight.sh` → `VERDICT: READY` 7/7 on `f2dd5a8`; `tests/test_contracts.py`
+pins 1.0 and the field order; contract fingerprint `049376b0…` after every merge.
+**Correction (2026-11-14, same day).** The first version of this entry claimed `origin/main` was an
+ancestor of `yuls` and that landing the work was "a zero-conflict fast-forward". That was true for
+about an hour: `origin/main` then advanced to `5c9a59c` with the cockpit UI, a docker fix and a
+1.1 regeneration, so the second merge **did** diverge and did have conflicts. The premise is
+recorded here rather than silently overwritten — D-29 covers what the divergence required.
 **Reverse if.** The team moves to short-lived branches off `main` per flujo §6; then `yuls` stops being
 the integration point and this entry is deleted rather than edited.
 
@@ -336,6 +344,24 @@ the integration point and this entry is deleted rather than edited.
 Both sides were restored from `HEAD` and re-verified (fingerprint `049376b0…`, `PHASE A/B: PASS`). The
 lesson recorded here: on a file both sides rewrote, a clean auto-merge is the *dangerous* outcome — it
 has to be read, not trusted.
+
+### D-29 — A second merge of a moved `main`: 1.0 kept, their cockpit adopted, agent files excluded
+**Decision.** When `origin/main` advanced mid-PR (`c4f0fb7` → `5c9a59c`), the merge was resolved by
+keeping contract **1.0**, taking `origin/main`'s **`app.py` + `src/ui/*`** (a 246-line four-tab
+cockpit that binds through `ui_bridge` and never reads the 1.1-only fields), restoring our artefacts
+and regenerating them, and **excluding** four files that are agent/team process rather than product:
+*AGENTS.md*, *skills-lock.json*, *docs/requests.md*, *docs/contract-change-requests.md*.
+**Why.** (1) The 1.0 argument is unchanged (see O-05): 1.1 makes `seasonal_amp_mm` required and this
+window cannot identify it. (2) Their shell is strictly richer than our rewrite — four tabs, filters,
+telemetry, mock detection against our three-layer map — so adopting it loses nothing and avoids two
+competing frontends. (3) Those four files assert a contract version we do not ship and name
+individuals; *docs/ui-data-needs.md* was kept because `src/data/ui_bridge.py` and
+`tests/test_ui_bridge.py` reference it, so deleting it would leave production references dangling.
+**Evidence.** `src/domain/contracts.py` restored from HEAD (fingerprint `049376b0…`);
+`pipeline/generate_mock.py --check` passes and a full regeneration is byte-identical to the committed
+artefacts (1.39 MiB / 15 MB); `app.py` is `origin/main`'s 246-line file by hash.
+**Reverse if.** The team adopts 1.1 or 1.2 (O-05 option B/C), in which case the excluded request docs
+become current again and should be restored from `origin/main` rather than rewritten.
 
 ---
 
@@ -357,8 +383,8 @@ has to be read, not trusted.
 
 ## G. Open decisions (no owner answer yet)
 
-Entries marked **Answered** stay here on purpose: the question, the answer and the date are the audit
-trail. What is left unmarked is still waiting on an owner.
+Entries marked **Answered** or **Resolved** stay here on purpose: the question, the answer and the
+date are the audit trail. What is left unmarked is still waiting on an owner.
 
 ### O-01 — Download budget for the real run
 A 12-granule CDMX stack is **28.23 GB**; the documented cap was 6 GB. Options: raise to ~30 GB, or
@@ -437,15 +463,36 @@ PR #3). Option C (1.2 with nullable seasonal fields) stays the technically hones
 project outlives the hackathon.
 
 ### O-06 — Reconcile granule identity before the first real stack
-`pipeline/ingest/02_search_download.py` and `pipeline/process_case.py` currently assign different
-filename tokens to `track`. The science parser can therefore reject a valid multi-date chain as a
-mix of relative orbits. The 120-name census and its evidence are preserved in
-`docs/pipeline-internals.md` §1.1; `docs/first-granule-runbook.md` now treats this as a known
-blocker rather than a hypothetical grammar mismatch.
+`pipeline/ingest/02_search_download.py` and `pipeline/process_case.py` assigned different filename
+tokens to `track`. The science parser could therefore reject a valid multi-date chain as a mix of
+relative orbits. The 120-name census and its evidence are preserved in
+`docs/pipeline-internals.md` §1.1, which stays the reference grammar; `docs/first-granule-runbook.md`
+treated this as a known blocker rather than a hypothetical grammar mismatch.
 **Blocks.** Processing the first downloaded multi-date stack.
 **Close when.** Both parsers share or agree on the identity fields and a regression proves that a
 valid connected multi-date chain passes `_check_stack_identity` while genuinely mixed geometry is
-still refused. Remove the long census after that regression exists.
+still refused.
+**Resolved 2026-11-14 — fixed in both parsers, and in the evidence they produced.** The authoritative
+order after the product token is `<repeat-cycle>_<track>_<A|D>_<frame>_<secondary-cycle>` (tokens
+4–8). `pipeline/process_case.py`'s `_GRANULE_RE` now captures cycle, track, direction and frame in
+that order, and `parse_granule_identity` returns the real track and frame;
+`pipeline/ingest/02_search_download.py`'s `parse_granule` now reads `track = tokens[5]` and
+`frame = tokens[7]`, and `derive_stacks` groups by `(track, frame, direction)`. Agreement is the
+point: the fix is not one side patched to match a disagreement. The regressions that keep it closed
+are `tests/test_process_case.py` (`test_mixed_tracks_are_refused` moves only the track token of an
+otherwise connected chain; the connected-chain fixtures vary the cycle, not the track) and
+`tests/test_availability_evidence.py` (`test_granule_identity`, `test_stack_consistency`, which make
+every declared stack label equal the parser's reading of every id in it).
+**Consequence, visible in the committed evidence.** `data/processed/_availability/{case}.json` was
+re-derived offline from its own unchanged raw granule list — same ids, urls and sizes; only `stacks`
+and `recommended_stack` were recomputed. The old stack labels were *frames*, so some "stacks" had
+merged two distinct orbits: Málaga's label `020` pooled tracks `087` and `015`, which is where its
+reported **2** connected epochs came from. Under the corrected grammar the recommended stacks are
+Mexico City track 113 / frame 079 descending (33 granules, 22 epochs in one connected run), Jakarta
+018 / 092 descending (8 granules, 9 epochs) and Málaga 095 / 070 descending (9 granules, 10 epochs)
+— all `epoch_sufficient: true`. Málaga therefore flips from insufficient to sufficient. It remains the
+negative control for *signal* magnitude (D-19), not for fittability, and no replacement "negative
+control" is invented to keep the old story.
 
 ### O-07 — Preserve displacement sign in the frontend's 3-D height
 A dated review of `origin/pozo` found elevation based on `|delta_change|`, clipped and scaled for
@@ -470,3 +517,8 @@ worked examples use one declared LOS direction; independent tests include the ph
 purely vertical and known horizontal motion, not only round trips; and the external validation gate
 is satisfied. Do not silently flip only one side: that could preserve the contradiction under a
 different label.
+**Deferred 2026-11-14 by owner decision — documented, not fixed, before the freeze.** Real-path only:
+the mock synthesises millimetres and never converts phase, so every published number is unaffected.
+It is named in `README.md` limitation 12, including which way the arithmetic actually points
+(uplift ⇒ positive LOS), so the label cannot be trusted by accident. Renaming the labels and the
+provenance string is the smallest fix and does not touch arithmetic or artefacts.

@@ -480,7 +480,8 @@
       ],
       "stacks": [
         {
-          "track": "079",
+          "track": "113",
+          "frame": "079",
           "direction": "DESCENDING",
           "n_granules": 33,
           "date_range": [
@@ -516,7 +517,8 @@
           "warning": null
         },
         {
-          "track": "011",
+          "track": "019",
+          "frame": "011",
           "direction": "ASCENDING",
           "n_granules": 33,
           "date_range": [
@@ -548,7 +550,8 @@
           "connected_epochs": 24
         },
         {
-          "track": "078",
+          "track": "113",
+          "frame": "078",
           "direction": "DESCENDING",
           "n_granules": 3,
           "date_range": [
@@ -572,7 +575,8 @@
         }
       ],
       "recommended_stack": {
-        "track": "079",
+        "track": "113",
+        "frame": "079",
         "direction": "DESCENDING",
         "n_granules": 33,
         "date_range": [
@@ -606,7 +610,7 @@
         "min_fit_points": 4,
         "epoch_sufficient": true,
         "warning": null,
-        "why": "largest single-geometry stack (track 079/DESCENDING); 12 of 33 granules, 13 connected epoch(s), 2026-05 .. 2026-10"
+        "why": "largest single-geometry stack (track 113 frame 079/DESCENDING); 12 of 33 granules, 13 connected epoch(s), 2026-05 .. 2026-10"
       },
       "platforms": [
         "NISAR"

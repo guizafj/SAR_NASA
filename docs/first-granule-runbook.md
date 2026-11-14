@@ -13,10 +13,13 @@ Case = `mexico-city`. S's exit codes: 2 usage, 3 credentials, 4 product/geometry
 
 ## 2. Step 1 — get the granule (one stack, one geometry)
 
-> **Known blocker (O-06):** the ingest and science parsers currently assign different filename
-> tokens to `track`, so P can refuse a valid multi-date chain as mixed geometry. Read
-> `docs/decisions.md` O-06 and the census in `docs/pipeline-internals.md`; fix and test both parsers
-> before expecting Step 5 to accept the chain.
+> **Former blocker, resolved (O-06, 2026-11-14):** the ingest and science parsers once assigned
+> different filename tokens to `track`, so P could refuse a valid multi-date chain as mixed geometry.
+> Both now read track = token 5 and frame = token 7 of
+> `<cycle>_<track>_<A|D>_<frame>_<secondary-cycle>`, and the availability stacks were re-derived from
+> their unchanged granule lists against that grammar. `docs/decisions.md` O-06 is the audit trail;
+> `docs/pipeline-internals.md` §1.1 is the census. If Step 5 still refuses as mixed geometry, the
+> chain really does span tracks — trust the refusal.
 
 - [ ] `./scripts/python.sh pipeline/ingest/02_search_download.py search --cities mexico-city`
       PASS: `[mexico-city] -> data/processed/_availability/mexico-city.json chosen=...` with non-empty `sources.nisar_gunw.stacks` and `recommended_stack.track != null`.
@@ -116,7 +119,9 @@ The coverage number exists only after the aggregate, and P refuses < 4 epochs (T
 - [ ] x/y dataset names and where EPSG lives (dataset vs CF attribute) → L §3; close L §5.1.
 - [ ] Effective looks `L`: present, scalar, or absent (debias applied or not) → L §5 and `meta.limitations`.
 - [ ] Acquisition-time fields that actually resolved the pair → L §5.
-- [ ] Filename grammar: resolve **O-06**, not merely a hypothetical near-miss. Record which tokens
-  S's `GRANULE_GRAMMAR["nisar-l1-l2"]` and P's `_GRANULE_RE` call track/frame/direction, fix both
-  tables together, and add a multi-date regression proving that P accepts the connected chain.
+- [ ] Filename grammar: O-06 is **resolved** — both parsers call track = token 5 and frame = token 7.
+  Confirm it against the downloaded file rather than assuming: record which tokens S's `parse_granule`
+  and P's `_GRANULE_RE` call track/frame/direction, and if the real name disagrees, fix both together
+  with `docs/pipeline-internals.md` §1.1 and add the multi-date regression proving P accepts the
+  connected chain. A mismatch here is now a genuine finding, not a known defect.
 - [ ] Real AOI coverage: the Step 3 fraction and N cells per case → D "Still open", and delete the unknown from L §5. Anything still undecided: **decide from the file, then record it here.**

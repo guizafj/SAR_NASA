@@ -277,7 +277,11 @@ def build_stack(
             polarisations[index] if polarisations is not None else "HH"
         )
         name = (
-            f"NISAR_L2_PR_GUNW_{track:03d}_{frame:03d}_{direction}_{index + 1:03d}_002_4000_SH_"
+            # NISAR census order: cycle, track, direction, frame, secondary cycle. Each chain step
+            # advances one 12-day bin, so the cycle is the step counter and the secondary cycle is
+            # its successor; track/frame/direction stay fixed because it is one footprint.
+            f"NISAR_L2_PR_GUNW_{index + 1:03d}_{track:03d}_{direction}_{frame:03d}_"
+            f"{index + 2:03d}_4000_SH_"
             f"{reference_date.replace('-', '')}T031245_"
             f"{secondary_date.replace('-', '')}T031245.h5"
         )
@@ -508,7 +512,10 @@ def test_h3_cells_are_valid_and_at_the_configured_resolution(tmp_path):
 def test_mixed_tracks_are_refused(tmp_path):
     stack = build_stack(tmp_path / "granules")
     moved = stack.granules[1]
-    renamed = moved.with_name(moved.name.replace("GUNW_001_005_A", "GUNW_002_005_A", 1))
+    # Same cycle/date chain, only the TRACK token moves (001 -> 002). The marker
+    # `_001_A_005_` can only be the track token under the census order (cycle before it).
+    renamed = moved.with_name(moved.name.replace("_001_A_005_", "_002_A_005_", 1))
+    assert renamed.name != moved.name, "the fixture name must contain the track token"
     moved.rename(renamed)
     stack.granules[1] = renamed
 
@@ -522,7 +529,9 @@ def test_mixed_tracks_are_refused(tmp_path):
 def test_mixed_flight_directions_are_refused(tmp_path):
     stack = build_stack(tmp_path / "granules")
     moved = stack.granules[2]
-    renamed = moved.with_name(moved.name.replace("GUNW_001_005_A", "GUNW_001_005_D", 1))
+    # Only the DIRECTION token moves (A -> D); cycle, track and frame are untouched.
+    renamed = moved.with_name(moved.name.replace("_001_A_005_", "_001_D_005_", 1))
+    assert renamed.name != moved.name, "the fixture name must contain the direction token"
     moved.rename(renamed)
     stack.granules[2] = renamed
 
