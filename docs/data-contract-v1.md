@@ -1,13 +1,13 @@
-# Contrato de datos v1.1 — CONGELADO
+# Contrato de datos v1.0 — CONGELADO
 
 **NASA Space Apps Challenge 2026 · Dancing with the SARs · rol Ciencia SAR / GIS (Rol 3).**
 
 | | |
 |---|---|
-| Versión de esquema | `1.1` |
-| Revisión | `2` |
+| Versión de esquema | `1.0` |
+| Revisión | `1` |
 | Congelado | 2026-11-14 |
-| Huella (`contract_fingerprint()`) | `9a749ceab7387326b0ec023a1b3e467bec86957a4a55c280f2df912e36762770` |
+| Huella (`contract_fingerprint()`) | `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e` |
 | Fuente de verdad | `src/domain/contracts.py` (código) — este documento lo describe |
 | Prevalencia | si el código y este documento discrepan, **manda el código** y el documento se corrige |
 
@@ -48,8 +48,8 @@ Vocabulario mínimo de tipos: `string` → texto UTF-8; `float64` → coma flota
 | 2 | Ejemplo de `meta.json` con `product: "opera-disp-s1"` | `product` es enum cerrado y debe ser el producto **realmente usado**; hoy es `nisar-gunw` o `mock` | Comprobado el 2026-11-14 contra ASF: OPERA DISP-S1 devuelve **0** granulos en los tres AOI (ver `data/processed/_availability/*.json`). Publicar `opera-disp-s1` sería falso |
 | 3 | `sensor` como "NISAR o Sentinel-1" en texto libre | Enum `nisar` \| `sentinel-1` | La coherencia no es comparable entre sensores; el enum impide escribir `S1A` o `NISAR L2` y que la UI los trate como distintos |
 | 4 | `timeseries.csv` sin clave de agregación | Columna obligatoria `cell_id`: `"aoi"` para la serie agregada del caso, índice H3 para el detalle por celda | El gráfico necesita una serie por caso; el popup necesita detalle. Ambos viven en el mismo fichero, distinguidos por una clave, sin cambiar el esquema |
-| 5 | `coherence_threshold: 0.35` global | Umbrales por `(sensor, product)` en `SENSOR_PROFILES`, con `revisit_days` obligatorio en `meta.json` | NISAR 12 días ≠ Sentinel-1 6 días (informe §13.6). Un umbral global invita a mezclar y a sobreinterpretar |
-| 6 | `stats: {}` sin campos definidos | `stats` con velocidad, amplitud estacional, razón `R`, régimen dominante, percentiles y `detection_limit_mm_yr` **obligatorio** cuando \|mediana\| < 5 mm/año | La interfaz debe mostrar la separación entre subsidencia secular y componente estacional; Málaga es un resultado nulo declarado |
+| 5 | `coherence_threshold: 0.35` global | Umbrales por `(sensor, product)` en `SENSOR_PROFILES`, con `revisit_days` obligatorio en `meta.json` | NISAR 12 días ≠ Sentinel-1 6 días (perfiles en §7.3). Un umbral global invita a mezclar y a sobreinterpretar |
+| 6 | `stats: {}` sin campos definidos | `stats` con `n_cells`, `n_dates`, `median_velocity_mm_yr`, `p05_velocity_mm_yr`, `p95_velocity_mm_yr`, y `detection_limit_mm_yr` **obligatorio** cuando \|mediana\| < 5 mm/año | Málaga es un resultado nulo declarado: la cota de detección **es** el resultado |
 
 ---
 
@@ -66,10 +66,7 @@ Una fila por celda H3 resolución 9 (~200 m de arista) y caso. `cell_id` es úni
 | `val_t2` | float64 | sí | mm | Desplazamiento modelado en la última fecha |
 | `delta_change` | float64 | sí | mm | **`val_t2 - val_t1`** exacto (negativo = subsidencia) |
 | `velocity_mm_yr` | float64 | sí | mm/year | Tendencia lineal ajustada (campo congelado nuevo) |
-| `seasonal_amp_mm` | float64 | sí | mm | Amplitud estacional ajustada |
-| `ratio_R` | float64 | sí | — | `abs(velocity_mm_yr) / seasonal_amp_mm` |
-| `regime` | string | sí | — | `inelastic`, `elastic` o `transitional` |
-| `coherence` | float64 | sí | — | Media temporal corregida por sesgo, en [0, 1] |
+| `coherence` | float64 | sí | — | Ruta real: media temporal por pares, corregida por sesgo cuando hay looks; mock: campo espacial modelado. En [0, 1] |
 | `land_use` | string | sí | — | Enum §7.1 |
 | `risk_level` | string | sí | — | Enum §7.2, derivado por `risk_level_from_velocity` |
 | `case_id` | string | sí | — | Enum `mexico-city` \| `jakarta` \| `malaga`; **un solo valor por fichero** |
@@ -96,7 +93,6 @@ Ejemplo de fila:
 {
   "cell_id": "8928308280fffff", "lat": 19.4326, "lon": -99.1332,
   "val_t1": 0.0, "val_t2": -7.4, "delta_change": -7.4, "velocity_mm_yr": -128.0,
-  "seasonal_amp_mm": 9.4, "ratio_R": 13.617, "regime": "inelastic",
   "coherence": 0.82, "land_use": "urban-dense", "risk_level": "critico",
   "case_id": "mexico-city", "sensor": "nisar", "product": "nisar-gunw",
   "unit": "mm", "velocity_unit": "mm/year", "source": "ASF DAAC",
@@ -118,8 +114,6 @@ zstd). `data/processed/` completo debe quedar por debajo de 15 MB (presupuesto d
 | `cell_id` | string | sí | `"aoi"` = agregado del caso; índice H3 = detalle por celda |
 | `date` | string | sí | ISO `YYYY-MM-DD`, miembro de `meta.dates` |
 | `value` | float64 | sí | Desplazamiento acumulado, mm, positivo hacia arriba |
-| `trend_mm_yr` | float64 | sí | Tendencia secular calculada offline, mm/year |
-| `seasonal_mm` | float64 | sí | Componente estacional calculada offline, mm |
 | `unit` | string | sí | `"mm"` |
 | `sensor` | string | sí | `nisar` \| `sentinel-1` |
 | `product` | string | sí | Enum §7.3 |
@@ -143,7 +137,7 @@ Reglas:
 
 ```jsonc
 {
-  "schema_version": "1.1",
+  "schema_version": "1.0",
   "case_id": "mexico-city",
   "name": "Mexico City, MX",
   "bbox": [-99.35, 19.20, -98.85, 19.65],       // [W, S, E, N] en EPSG:4326
@@ -173,9 +167,6 @@ Reglas:
     "n_cells": 15482,
     "n_dates": 12,
     "median_velocity_mm_yr": -128.0,
-    "median_seasonal_amp_mm": 9.4,
-    "median_ratio_R": 13.617,
-    "dominant_regime": "inelastic",
     "p05_velocity_mm_yr": -410.0,
     "p95_velocity_mm_yr": 12.0,
     "detection_limit_mm_yr": 1.5
@@ -199,7 +190,7 @@ lee para decidir si el número es creíble.
 
 Reglas validadas por `validate_meta()`:
 
-- `schema_version` debe ser exactamente `"1.1"`, `case_id` debe estar en el enum;
+- `schema_version` debe ser exactamente `"1.0"`, `case_id` debe estar en el enum;
 - `crs` de publicación es `EPSG:4326` (la reproyección interna a `EPSG:326xx` es asunto del
   pipeline, no del contrato);
 - `thresholds.coherence_min` y `revisit_days` deben coincidir con el perfil congelado de

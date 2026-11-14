@@ -49,13 +49,10 @@
     36.72
   ],
   "revisit_days": 12,
-  "schema_version": "1.1",
+  "schema_version": "1.0",
   "sensor": "nisar",
   "stats": {
     "detection_limit_mm_yr": 1.5,
-    "dominant_regime": "elastic",
-    "median_ratio_R": 0.402,
-    "median_seasonal_amp_mm": 3.5,
     "median_velocity_mm_yr": -1.358,
     "n_cells": 2645,
     "n_context_features": 12,
@@ -66,7 +63,7 @@
     "per_cell_series": {
       "criterion": "aoi aggregate only (default): one row per date per case. Per-cell rows are opt-in (--per-cell-series) and capped at 3 MiB per case",
       "enabled": false,
-      "file_bytes": 1391,
+      "file_bytes": 1066,
       "max_bytes": 3145728,
       "n_cells": 0
     }

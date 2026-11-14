@@ -61,6 +61,42 @@ Two facts drive the decision:
 4. Mock artefacts are produced first and replaced case by case; each replacement is a PR that also
    updates `provenance`, never a silent swap.
 
+### AOI scope: the measurement domain is one city-scale polygon
+
+The AOI is a scope decision, not a formatting detail, so it is recorded here.
+
+1. **`config/aoi/{case}.geojson` is the MEASUREMENT domain** — exactly one `Polygon`, one closed
+   exterior ring, no holes. That ring is what `pipeline/process_case.py` turns into the H3 cell set,
+   and its cells are the denominator of the coverage bar in the checklist below.
+2. **The metro exports are context only and are NOT adopted.** They were once committed by mistake;
+   that is a regression class, so `tests/test_aoi_geometry.py` now fails if a MultiPolygon appears
+   in `config/aoi/` (including under the retired `{case}-aoi.geojson` name the loader also accepts).
+3. **Málaga's detached ~1.3 km² fragment is a DECLARED EXCLUSION.** The committed
+   `config/aoi/malaga.geojson` is exactly the main part of that metro export; the tighter polygon
+   removes only the detached fragment. It must never be merged back in, and never joined to the city
+   by a fabricated corridor — that would put ground we never measured inside the domain.
+
+Measured today, equal-area on the WGS84 ellipsoid (`pyproj.Geod`), ring vertices only:
+
+| Case | Measurement domain | Metro export (context only, not committed) | Size ratio |
+|---|---|---|---|
+| `mexico-city` | 1 Polygon · 1,494.6 km² | MultiPolygon, 1 part · 7,865.4 km² | 5.3× |
+| `jakarta` | 1 Polygon · 744.9 km² | MultiPolygon, 10 parts · 5,337.4 km² | 7.2× |
+| `malaga` | 1 Polygon · 394.2 km² | MultiPolygon, 2 parts · 395.5 km² = 394.2 + a detached 1.33 (0.34 %) | 1.003× |
+
+Two reasons settle it:
+
+1. **Single-ring pipeline constraint.** `process_case.py` builds the cell set from one ring
+   (`h3.LatLngPoly(cfg.aoi_ring)`), so a MultiPolygon would need multipart support end-to-end before
+   it could be an AOI at all.
+2. **The coverage bar.** Measured on the AOI denominator, coverage is 53.69 % / 55.41 % / 57.26 %
+   (Mexico City / Jakarta / Málaga) — all three clear the 50 % bar. A 5.3–7.2× larger envelope
+   dilutes NISAR swath overlap and pushes that bar out of reach.
+
+Same polygons, different area formula: the loader's equirectangular estimate quoted in §Evidence
+reads 1,498 / 748 / 394 km², under 0.5 % from the figures above. Neither is a survey measurement;
+the guard polices a silent swap, not precision.
+
 ## Verification checklist for GUNW before it may be labelled `nisar-gunw`
 
 Run per case, record the outcome in `meta.provenance.method` or `meta.limitations`:
@@ -90,7 +126,8 @@ Run per case, record the outcome in `meta.provenance.method` or `meta.limitation
 
 - Earthdata credentials (`EARTHDATA_USER` / `EARTHDATA_PASS`) plus the ASF application approval are
   not configured on this machine; the download step exits 3 until they are.
-- Per-case download budget: 6 GB default guard for a GUNW stack. Check `sizeMB` before pulling a
-  whole stack; a plan over budget fetches nothing.
+- Per-case download budget: the CLI default is **2 GB**; any larger cap is a deliberate operator
+  choice. GUNW sizes are unknown until `--probe-sizes`, so probe before pulling a whole stack; a
+  known over-budget plan fetches nothing.
 - Primary case stays `mexico-city` (strongest signal) with `malaga` as the negative control — flip
   the one line in `config/study_cases.yaml` if coverage fails.

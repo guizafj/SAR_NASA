@@ -13,6 +13,11 @@ Case = `mexico-city`. S's exit codes: 2 usage, 3 credentials, 4 product/geometry
 
 ## 2. Step 1 — get the granule (one stack, one geometry)
 
+> **Known blocker (O-06):** the ingest and science parsers currently assign different filename
+> tokens to `track`, so P can refuse a valid multi-date chain as mixed geometry. Read
+> `docs/decisions.md` O-06 and the census in `docs/pipeline-internals.md`; fix and test both parsers
+> before expecting Step 5 to accept the chain.
+
 - [ ] `./scripts/python.sh pipeline/ingest/02_search_download.py search --cities mexico-city`
       PASS: `[mexico-city] -> data/processed/_availability/mexico-city.json chosen=...` with non-empty `sources.nisar_gunw.stacks` and `recommended_stack.track != null`.
       FAIL `available:false` ⇒ no product for this AOI (D) — stop, take the fallback. A report without `stacks` predates stack derivation; `download` then plans the legacy 3-granule preview, which the geometry guard refuses whenever it spans tracks: re-run `search`.
@@ -24,7 +29,7 @@ Case = `mexico-city`. S's exit codes: 2 usage, 3 credentials, 4 product/geometry
       FAIL exit 5 `planned size ... exceeds --max-gb 6` ⇒ a plan over budget fetches **0 bytes**; raise `--max-gb` to the printed size deliberately (recorded in `provenance.json.max_gb`).
 - [ ] **Sizes: NISAR GUNW arrives sizeless, so `0.00 GB` is not a budget check.** ASF's SearchAPI carries `sizeMB` for Sentinel-1 but not for NISAR GUNW: all 69 `mexico-city` records are `size_mb: null`, so `total_gb` is `null` and the cumulative preflight sums 0 MB. The dry run must therefore print `known size: NONE — no granule in this plan carries a size`, `BUDGET CANNOT BE PREFLIGHTED … --max-gb 6 will NOT refuse before transfer`, and `Enforcement is mid-stream only … AFTER bytes have flowed … .part file behind`. That is **not** a failure (an unknown size never refuses, S `cmd_download`); it is a warning that this guard is not doing anything yet.
 - [ ] Make the budget real before transferring: add `--probe-sizes` (one unauthenticated HEAD per planned granule, reading `Content-Length`; verified `HTTP 200`, `Content-Length 2344615936` ≈ 2.34 GB on one `mexico-city` granule — no credentials needed). The plan then prints `known size X GB` and exits 5 if X > `--max-gb`.
-- [ ] Budget arithmetic to expect: a 12-id stack at ~2.34 GB per granule is ≈ **28 GB**, far above the 6 GB default. Measure with `--probe-sizes`, then raise `--max-gb` to the printed number **deliberately** (it is recorded in `provenance.json.max_gb`). Never raise it blind.
+- [ ] Budget arithmetic to expect: a 12-id stack at ~2.34 GB per granule is ≈ **28 GB**, far above the **2 GB default** and the 6 GB example cap above. Measure with `--probe-sizes`, then raise `--max-gb` to the printed number **deliberately** (it is recorded in `provenance.json.max_gb`). Never raise it blind.
 - [ ] Same command **without** `--dry-run`. PASS: `get <granule>.h5 (2.3 GB)` per file — or `(unknown size)` when the report has no size for it (nothing is guessed) — then `provenance -> data/raw/mexico-city/nisar_gunw/provenance.json` (sizes + sha256). Rerun is safe: complete files print `skip (complete)`.
 - [ ] Know the trap this closes: a plan built from an unguarded granule list once picked an L0 `NISAR_L0_..._RRSD_...` file (**123 GB**) and began downloading it. `build_download_plan` now identity-checks every id before credentials or bytes (`PRODUCT_POLICY`: RRSD/RSLC/RIFG/RUNW reject; GCOV/GSLC/GOFF only via `--allow-product`), so that mistake exits 4 with nothing fetched, and `--max-gb` is a cumulative second stop.
 - [ ] Accept the granularity: the smallest fetchable unit is a whole stack (≤12 ids, S `STACK_GRANULE_LIMIT = 12`); there is **no flag for exactly one file**. Read one file in Steps 2–4; Step 5 needs the chain anyway.
@@ -111,5 +116,7 @@ The coverage number exists only after the aggregate, and P refuses < 4 epochs (T
 - [ ] x/y dataset names and where EPSG lives (dataset vs CF attribute) → L §3; close L §5.1.
 - [ ] Effective looks `L`: present, scalar, or absent (debias applied or not) → L §5 and `meta.limitations`.
 - [ ] Acquisition-time fields that actually resolved the pair → L §5.
-- [ ] Filename grammar: does the real id match `GRANULE_GRAMMAR["nisar-l1-l2"]` (S) **and** P's `_GRANULE_RE` (track/frame/direction)? A near-miss ⇒ fix both tables together.
+- [ ] Filename grammar: resolve **O-06**, not merely a hypothetical near-miss. Record which tokens
+  S's `GRANULE_GRAMMAR["nisar-l1-l2"]` and P's `_GRANULE_RE` call track/frame/direction, fix both
+  tables together, and add a multi-date regression proving that P accepts the connected chain.
 - [ ] Real AOI coverage: the Step 3 fraction and N cells per case → D "Still open", and delete the unknown from L §5. Anything still undecided: **decide from the file, then record it here.**

@@ -30,7 +30,6 @@ import shapely
 from shapely.geometry import Polygon
 
 from src.domain import contracts as C
-from pipeline.science.transforms import classify_regime
 
 from . import geography as G
 from .cases import CaseSpec, StudyCases
@@ -61,10 +60,6 @@ class CaseModel:
     val_t2: np.ndarray
     delta_change: np.ndarray
     series: np.ndarray  # (n_cells, n_dates) cumulative displacement, mm
-    seasonal_mm: np.ndarray  # (n_cells, n_dates) fitted seasonal component, mm
-    seasonal_amp_mm: np.ndarray
-    ratio_R: np.ndarray
-    regime: np.ndarray
     dates: tuple[str, ...]
 
     @property
@@ -297,26 +292,6 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         land_use, coherence, secular = land_use[keep], coherence[keep], secular[keep]
 
     series, fitted = cumulative_series(case, study.dates, secular)
-    elapsed_years = np.array(
-        [
-            (dt.date.fromisoformat(date) - dt.date.fromisoformat(study.dates[0])).days
-            / SECONDS_PER_YEAR
-            for date in study.dates
-        ],
-        dtype=float,
-    )
-    seasonal = series - fitted[:, None] * elapsed_years[None, :]
-    seasonal_amp = np.full(cell_ids.size, case.field.seasonal_amplitude_mm, dtype="float64")
-    ratio = np.divide(
-        np.abs(fitted),
-        seasonal_amp,
-        out=np.full(fitted.shape, np.inf, dtype="float64"),
-        where=seasonal_amp > 0.0,
-    )
-    regime = np.array(
-        [classify_regime(trend, amplitude) for trend, amplitude in zip(fitted, seasonal_amp, strict=True)],
-        dtype=object,
-    )
 
     val_t1 = series[:, 0].copy()
     val_t2 = series[:, -1].copy()
@@ -341,10 +316,6 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         val_t2=val_t2,
         delta_change=delta,
         series=series,
-        seasonal_mm=seasonal,
-        seasonal_amp_mm=seasonal_amp,
-        ratio_R=ratio,
-        regime=regime,
         dates=tuple(study.dates),
     )
 
@@ -365,9 +336,6 @@ def grid_frame(model: CaseModel, sensor: str, product: str, source: str, provena
             "val_t2": model.val_t2.astype("float64"),
             "delta_change": model.delta_change.astype("float64"),
             "velocity_mm_yr": model.velocity_mm_yr.astype("float64"),
-            "seasonal_amp_mm": model.seasonal_amp_mm.astype("float64"),
-            "ratio_R": model.ratio_R.astype("float64"),
-            "regime": model.regime.astype(str),
             "coherence": model.coherence.astype("float64"),
             "land_use": model.land_use.astype(str),
             "risk_level": model.risk_level.astype(str),
@@ -399,8 +367,6 @@ def aoi_series_frame(model: CaseModel, sensor: str, product: str, provenance: st
             "cell_id": np.full(n_dates, "aoi", dtype=object),
             "date": np.array(model.dates, dtype=object),
             "value": model.series.mean(axis=0).astype("float64"),
-            "trend_mm_yr": np.full(n_dates, model.velocity_mm_yr.mean(), dtype="float64"),
-            "seasonal_mm": model.seasonal_mm.mean(axis=0).astype("float64"),
             "unit": np.full(n_dates, C.UNIT, dtype=object),
             "sensor": np.full(n_dates, sensor, dtype=object),
             "product": np.full(n_dates, product, dtype=object),
@@ -430,8 +396,6 @@ def per_cell_series_frame(
             "cell_id": model.cell_id[cell_rows].astype(str),
             "date": np.array(model.dates, dtype=object)[date_rows],
             "value": model.series[cell_rows, date_rows].astype("float64"),
-            "trend_mm_yr": model.velocity_mm_yr[cell_rows].astype("float64"),
-            "seasonal_mm": model.seasonal_mm[cell_rows, date_rows].astype("float64"),
             "unit": np.full(cell_rows.size, C.UNIT, dtype=object),
             "sensor": np.full(cell_rows.size, sensor, dtype=object),
             "product": np.full(cell_rows.size, product, dtype=object),

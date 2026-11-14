@@ -69,6 +69,8 @@ The MOCK badge stays visible for every second of this section: all three cases c
 
 ## Closing card (one line, hold 4 s)
 
-`Three Cities, One Pump · github.com/[owner to fill]/SAR_NASA · Data: NISAR GUNW and Sentinel-1 via ASF; EGMS for Málaga · Status: MOCK — synthetic numbers, frozen schema`
+`Three Cities, One Pump · github.com/[owner to fill]/SAR_NASA · Targets: NISAR GUNW, Sentinel-1 (ASF/NASA), EGMS (Málaga) · MOCK — no granules fetched, synthetic numbers`
+
+**Why this wording.** The earlier card read "Data: NISAR GUNW and Sentinel-1 via ASF; EGMS for Málaga", which reads as sources *used*. Nothing was fetched for this submission: `data/raw/` holds no granule, the only EGMS artefact is the availability probe in `data/processed/_availability/*.json`, and every artefact file says `product=mock`. A judge who asks "where is the EGMS data?" must not be able to catch the closing card in a false claim, so the line names sources as *targets* and states the mock status in the same breath.
 
 **Editor notes** (not spoken): never crop the MOCK badge or the provenance footer out of a demo shot. Never clip the shared legend at p05: the core reaches −415.14 mm/yr and would saturate while Málaga still looked flat. Repo URL and mock/real status are the only two things to re-check on the day.

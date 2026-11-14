@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Pre-submission preflight — the hard gates of docs/submission-checklist.md §2 in one command.
 #
-#   ./scripts/preflight.sh              # full: 7 gates, ~3 min (the test suite is the slow one)
-#   ./scripts/preflight.sh --fast       # skip the two slow gates (pytest suite, clone reproduction)
+#   ./scripts/preflight.sh              # full: 7 gates, ~5 min (the test suite is the slow one)
+#   ./scripts/preflight.sh --fast       # skip the slow pytest suite only (clone + doc guards still run)
 #   ./scripts/preflight.sh --json       # machine-readable table for CI / a script
 #   ./scripts/preflight.sh --processed DIR   # artefact root to gate (default data/processed)
 #
@@ -11,6 +11,11 @@
 # executed gate failed (skips are reported, not failed). Nothing is written inside the repo: all
 # scratch files live under a mktemp -d directory removed by the EXIT trap. The clone gate is a
 # read-only `git clone` of the committed state — it never writes to this repo's git data.
+#
+# The clone gate also runs the four filesystem-only DOC/CONTRACT guards (docs_commands, docs_links,
+# the two README-number guards) inside the cloned HEAD tree: a committed doc whose printed command
+# no longer works is a red clone, exactly like a bad artefact size. They are cheap enough to run in
+# both modes; the clone gate is launched in the background so --fast stays around 30 s.
 #
 # set -e is on at the top level on purpose; inside run_gate() it is suspended so a failing gate is
 # measured and recorded instead of killing the run (see the comment there).
@@ -24,7 +29,7 @@ JSON=0
 PROCESSED=data/processed
 
 usage() {
-  sed -n '4,13p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '4,18p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while (($#)); do
@@ -158,6 +163,70 @@ run_gate() {
   return 0
 }
 
+# Background form of run_gate, used by the clone gate so its ~25 s (git clone + contracts + artefact
+# fingerprint + doc guards) overlaps the other gates instead of extending --fast. The child cannot
+# touch this shell's arrays, so it writes one NUL-separated record; collect_gate_bg() reads it back
+# and appends the row. Sorting by id afterwards keeps the table in 1..7 order.
+BG_PID=""
+run_gate_bg() {
+  local id=$1 name=$2 fn=$3 out=$4
+  (
+    set +e
+    G_STATUS=FAIL G_EXIT=- G_EVIDENCE="" G_LOG=""
+    local t0 t1 ms
+    t0=$(now_ns)
+    "$fn"
+    t1=$(now_ns)
+    ms=$(((t1 - t0) / 1000000))
+    ((ms < 0)) && ms=0
+    printf '%s\0%s\0%s\0%s\0%s\0' \
+      "$G_STATUS" "$G_EXIT" "$ms" "$G_LOG" "$G_EVIDENCE" >"$out"
+  ) &
+  BG_PID=$!
+}
+
+collect_gate_bg() {
+  local id=$1 name=$2 out=$3
+  local st=FAIL ex=- ms=0 log="" ev="gate crashed in the background"
+  wait "$BG_PID" 2>/dev/null || true
+  BG_PID=""
+  if [[ -s $out ]]; then
+    local -a rec=()
+    mapfile -d '' -t rec <"$out"
+    if ((${#rec[@]} >= 5)); then
+      st=${rec[0]} ex=${rec[1]} ms=${rec[2]} log=${rec[3]} ev=${rec[4]}
+    fi
+  fi
+  add_row "$id" "$name" "$st" "$ex" "$ms" "$ev"
+  if [[ $st == FAIL ]]; then
+    {
+      printf '\n── FAIL %s (exit %s) — last 25 lines of the gate log:\n' "$name" "$ex"
+      if [[ -n $log && -f $log ]]; then
+        tail -n 25 "$log"
+      else
+        printf '(no log captured)\n'
+      fi
+    } >&2
+  fi
+  return 0
+}
+
+# The clone gate finishes after gates 6/7 (see the run section); sort_rows_by_id restores table order.
+sort_rows_by_id() {
+  local n=${#R_ID[@]} i j t
+  for ((i = 1; i < n; i++)); do
+    for ((j = i; j > 0; j--)); do
+      ((R_ID[j - 1] <= R_ID[j])) && break
+      t=${R_ID[j - 1]} R_ID[j - 1]=${R_ID[j]} R_ID[j]=$t
+      t=${R_NAME[j - 1]} R_NAME[j - 1]=${R_NAME[j]} R_NAME[j]=$t
+      t=${R_STATUS[j - 1]} R_STATUS[j - 1]=${R_STATUS[j]} R_STATUS[j]=$t
+      t=${R_EXIT[j - 1]} R_EXIT[j - 1]=${R_EXIT[j]} R_EXIT[j]=$t
+      t=${R_MS[j - 1]} R_MS[j - 1]=${R_MS[j]} R_MS[j]=$t
+      t=${R_EV[j - 1]} R_EV[j - 1]=${R_EV[j]} R_EV[j]=$t
+    done
+  done
+}
+
 # ── context (informational; not a gate) ────────────────────────────────────────────────────────
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || printf 'unknown')
 DIRTY_PATHS=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
@@ -264,7 +333,7 @@ gate_clone() {
   fi
   ln -s "$ROOT/.venv" "$clone/.venv" >>"$G_LOG" 2>&1 || true
 
-  local crc=0 vrc=0
+  local crc=0 vrc=0 drc=0
   progress "    contracts + artefact gate inside the clone"
   (cd "$clone" && ./scripts/python.sh -m src.domain.contracts) \
     >"$TMP_PF/clone-contracts.log" 2>&1 || crc=$?
@@ -272,28 +341,53 @@ gate_clone() {
     --processed data/processed --strict-size-mb 15) \
     >"$TMP_PF/clone-gate.log" 2>&1 || vrc=$?
 
-  local cfp csize
+  # The blind spot this closes: a doc committed at HEAD can print a command that no longer works,
+  # so a teammate's checkout is not green even though the artefacts/fingerprint are fine. These
+  # four guards are filesystem-only (~20 s) and are the ones that execute the documented commands.
+  progress "    doc guards inside the clone (docs_commands, docs_links, README numbers)"
+  (cd "$clone" && ./scripts/python.sh -m pytest \
+    tests/test_docs_commands.py tests/test_docs_links.py \
+    tests/test_readme_numbers.py tests/test_pipeline_readme_numbers.py \
+    -q -x -p no:cacheprovider) >"$TMP_PF/clone-docs.log" 2>&1 || drc=$?
+
+  local cfp csize dfirst dref dtest
   cfp=$(sed -n 's/^contract fingerprint: //p' "$TMP_PF/clone-contracts.log" | head -1)
   csize=$(sed -n 's/^  total size: //p' "$TMP_PF/clone-gate.log" | head -1)
+  dfirst=$(sed -n 's/^\(FAILED\|ERROR\) //p' "$TMP_PF/clone-docs.log" | head -1)
+  dfirst=${dfirst%% - *}
+  dtest=${dfirst%%\[*}
+  # Not every guard's test id carries the line (the static check embeds the command text instead),
+  # so the doc file:line is read from the failure body too.
+  dref=$(grep -m1 -oE '[A-Za-z0-9_./-]+\.md:[0-9]+' "$TMP_PF/clone-docs.log" || true)
   CLONE_SIZE=$csize
 
-  # One combined log so the failure tail shows both sub-runs.
+  # One combined log so the failure tail shows every sub-run.
   {
     printf '\n$ (clone) python -m src.domain.contracts  [exit %s]\n' "$crc"
     cat "$TMP_PF/clone-contracts.log"
     printf '\n$ (clone) validate_artifacts.py --strict-size-mb 15  [exit %s]\n' "$vrc"
     cat "$TMP_PF/clone-gate.log"
+    printf '\n$ (clone) pytest tests/test_docs_commands.py tests/test_docs_links.py '
+    printf 'tests/test_readme_numbers.py tests/test_pipeline_readme_numbers.py  [exit %s]\n' "$drc"
+    cat "$TMP_PF/clone-docs.log"
   } >>"$G_LOG"
-  G_LOG=$TMP_PF/05-clone.log
 
   G_STATUS=PASS
-  ((crc == 0 && vrc == 0)) || G_STATUS=FAIL
+  ((crc == 0 && vrc == 0 && drc == 0)) || G_STATUS=FAIL
   if [[ $G_STATUS == PASS && -n $cfp && -n $csize ]]; then
     G_EXIT=0
-    G_EVIDENCE="clone: fp ${cfp:0:8}, $csize"
+    G_EVIDENCE="clone: fp ${cfp:0:8}, $csize, doc guards ok"
   elif [[ $G_STATUS == PASS ]]; then
     G_STATUS=FAIL
     G_EVIDENCE="clone passed but printed no fingerprint/size line"
+  elif ((drc != 0)); then
+    G_EXIT=$drc
+    if [[ -n $dfirst || -n $dref ]]; then
+      # Name the doc file and line (plus the guard id) so the fix is one edit, not archaeology.
+      G_EVIDENCE="committed doc breaks a guard: ${dref:-$dfirst}${dtest:+ ($dtest)} — the clone is not green, fix the doc or the command it prints"
+    else
+      G_EVIDENCE="committed doc guards failed (exit $drc) — the clone is not green, see the log"
+    fi
   else
     G_EXIT=$((crc != 0 ? crc : vrc))
     G_EVIDENCE="clone: contracts exit $crc, gate exit $vrc"
@@ -389,27 +483,35 @@ PY
   return 0
 }
 
+# Test hook: source this file with PREFLIGHT_LIB_ONLY=1 to load the gate functions without running
+# any of them. tests/test_preflight.py uses it to exercise gate_clone() alone against a scratch
+# clone, which is how the committed-doc catch is proved without putting a broken doc in this repo.
+if [[ ${PREFLIGHT_LIB_ONLY:-0} == 1 ]]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 # ── run ───────────────────────────────────────────────────────────────────────────────────────
 TOTAL_T0=$(now_ns)
 run_gate 1 "contract self-check" gate_contracts
 
+# Gate 5 is cloned/checked in the background and collected after gate 7: its git clone + contracts
+# + artefact fingerprint + doc guards would otherwise be added to --fast's budget. Overlapping it
+# keeps --fast near 30 s and hides it under the full suite; sort_rows_by_id restores the 1..7 table.
+run_gate_bg 5 "clone reproduction" gate_clone "$TMP_PF/05-clone.record"
+progress "[5/7] clone reproduction — running in background"
+
 if ((FAST)); then
-  record_skip 2 "pytest suite (slow)" "--fast: not executed (the ~2.5 min gate)"
+  record_skip 2 "pytest suite (slow)" "--fast: not executed (the ~4.5 min gate)"
 else
   run_gate 2 "pytest suite (slow)" gate_pytest
 fi
 
 run_gate 3 "artefact gate (size)" gate_artifacts
 run_gate 4 "phase A/B handoff" gate_phase_a
-
-if ((FAST)); then
-  record_skip 5 "clone reproduction (slow)" "--fast: not executed (needs a clone + slow imports)"
-else
-  run_gate 5 "clone reproduction (slow)" gate_clone
-fi
-
 run_gate 6 "figures regenerate" gate_figures
 run_gate 7 "demo numbers" gate_demo
+collect_gate_bg 5 "clone reproduction" "$TMP_PF/05-clone.record"
+sort_rows_by_id
 TOTAL_MS=$((($(now_ns) - TOTAL_T0) / 1000000))
 
 # ── classify ─────────────────────────────────────────────────────────────────────────────────
@@ -486,7 +588,7 @@ fi
 
 # Text table.
 mode_label="full (7 gates)"
-((FAST)) && mode_label="fast (gates 2 and 5 skipped)"
+((FAST)) && mode_label="fast (gate 2 skipped; clone + doc guards run)"
 printf 'preflight — %s\n' "$ROOT"
 printf 'commit %s · tree: %s · processed: %s · mode: %s\n' \
   "$COMMIT" \

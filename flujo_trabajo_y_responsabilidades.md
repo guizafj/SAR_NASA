@@ -662,7 +662,8 @@ Captura o resultado visual, si aplica:
 ### Primer bloque
 
 - [ ] Generar mock.
-- [ ] Levantar `app.py`.
+- [x] Levantar `app.py` — arranca en local con el mock commiteado (`/_stcore/health` → 200, `/` → 200,
+      sin credenciales NASA). Desplegar la URL pública sigue pendiente.
 - [ ] Preparar AOI.
 - [ ] Configurar CI mínimo.
 - [ ] Verificar instalación local.

@@ -12,7 +12,7 @@
 # clearest demo); malaga ships as the explicit negative control. If CDMX's NISAR GUNW fails the
 # urban-coverage check in docs/data-source-decision.md, flip this one line to `malaga` — nothing else changes.
 
-schema_version: "1.1"
+schema_version: "1.0"
 
 primary: mexico-city
 

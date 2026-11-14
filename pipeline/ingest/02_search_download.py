@@ -392,8 +392,8 @@ def _download_sample(stack: dict, stacks: list[dict]) -> dict:
     run, epochs = _best_download_run(members)
     run_ids = [granule_id for granule_id, _ in run]
     # `date_range` is the EPOCH window: the sequence of reference acquisitions. A granule is a
-    # pair, so its secondary is the partner of an earlier epoch and does not extend the window —
-    # `n_epochs` counts distinct reference days for the same reason.
+    # pair, so its secondary is the partner of an earlier epoch and does not extend the window.
+    # `_stack_epochs` separately inventories reference AND secondary days in whole-stack n_epochs.
     starts = [parsed.reference_start for _, parsed in run if parsed.reference_start]
     sample = _public(stack)
     sample.update(

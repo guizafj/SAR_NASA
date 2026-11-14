@@ -79,7 +79,7 @@ def test_human_and_json_rendering(fixture_root):
     payload = va.report_to_dict(report)
     assert payload["status"] == "pass"
     assert payload["exit_code"] == 0
-    assert payload["contract"]["schema_version"] == "1.1"
+    assert payload["contract"]["schema_version"] == "1.0"
     assert payload["cases"][0]["case_id"] == "mexico-city"
 
 
