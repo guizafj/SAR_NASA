@@ -13,7 +13,7 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 | Team | **yuls** SAR science, GIS, product · **pozo** geospatial backend, deployment · **fradiaz** frontend, interaction |
 | Challenge | NASA Space Apps 2026 — *Dancing with the SARs* |
 
-> **What works today (2026-11-14, ~hour 40 of 48).** Contract v1.0 frozen and enforced by tests ·
+> **What works today (2026-11-14, ~hour 40 of 48).** Contract v1.1 frozen and enforced by tests ·
 > three contract-conformant **mock** artefact sets · the whole offline pipeline, rehearsed on
 > synthetic granules · `./scripts/check_phase_a.sh` → PASS, and a fresh clone of this branch runs
 > the full suite green.
@@ -165,7 +165,7 @@ real data is a file replacement, not a code change.
 
 ---
 
-## 4. Data contract v1.0 — frozen
+## 4. Data contract v1.1 — frozen
 
 Four artefacts per case, under `data/processed/`. This is the whole interface between pipeline and
 app; it is versioned, validated in code and locked by a regression suite.
@@ -639,7 +639,7 @@ Short branches off `main`, one objective each, merged by PR (full detail in the 
 
 ```
 main
-├── feat/data-contract          ✅ frozen v1.0
+├── feat/data-contract          ✅ frozen v1.1
 ├── feat/pipeline-mock          ← next: unblocks the app
 ├── feat/gis-context
 ├── feat/backend-map-data
