@@ -1,4 +1,4 @@
-# Route contract v1 — Option B (static site + PMTiles)
+# Route contract v1.1 — Option B (static site + PMTiles)
 
 **Status: FROZEN as of Sat 14 Nov 2026, hackathon H0.**
 Owner: pozo (serving) · Producer: yuls (`pipeline/`) · Consumer: fradiaz (`app/src/`).
@@ -7,7 +7,7 @@ This document is normative. If an artefact or a route disagrees with it, the art
 Changes require a `contract_version` bump **and** a message in the team channel; no silent edits.
 
 ```
-contract_version = "1.0"
+contract_version = "1.1"
 ```
 
 Everything is static. There is no backend, no database, no CORS preflight, no auth.
@@ -38,7 +38,7 @@ Nothing else is served; anything else 404s.
 
 ```
 Access-Control-Allow-Origin: *
-X-Contract-Version: 1.0
+X-Contract-Version: 1.1
 ```
 
 PMTiles **must** answer `Accept-Ranges: bytes` and honour `Range: bytes=a-b` with
@@ -64,7 +64,7 @@ error: the slider is built from `meta.dates`, so it cannot request one.
 
 ```jsonc
 {
-  "contract_version": "1.0",
+  "contract_version": "1.1",
   "city": "mexico-city",
   "name": "Mexico City, MX",
   "bbox": [-99.35, 19.20, -98.85, 19.65],      // WGS84 lon/lat, [W,S,E,N]
@@ -92,10 +92,18 @@ error: the slider is built from `meta.dates`, so it cannot request one.
     "events":      { "src": "events.pmtiles", "geom": "polygon",
                      "thresholds": { "k_gamma": 2.5, "min_ddB": 3.0, "mmu_m2": 500 } }
   },
+  "thesis_metrics": {
+    "velocity_unit": "mm/year",
+    "seasonal_amplitude_unit": "mm",
+    "ratio": "abs(velocity_mm_yr) / seasonal_amp_mm",
+    "regimes": ["elastic", "transitional", "inelastic"]
+  },
   "series": "series/{z}/{x}/{y}.json",
   "cell": { "scheme": "h3", "resolution": 9, "approx_edge_m": 200 },
   "stats": {
     "median_vel": -128.0, "p05_vel": -410.0, "p95_vel": 12.0,
+    "median_seasonal_amp_mm": 9.4, "median_ratio_R": 13.617,
+    "dominant_regime": "inelastic",
     "compaction_m3_yr": 6.0e7, "n_events": 412, "n_cells": 18240,
     "detection_limit_mm_yr": 1.5          // required when the city is a null result
   }
@@ -214,7 +222,7 @@ One shared legend across all cities, so Málaga's flatness is visibly flat next 
 
 ```jsonc
 {
-  "contract_version": "1.0",
+  "contract_version": "1.1",
   "mode": "shared",
   "velocity": { "unit": "mm/yr", "range": [-450, 50],
                 "breaks": [-300, -150, -75, -25, -5, 5],
@@ -255,7 +263,7 @@ every `events.series_cell` resolving, and PMTiles magic `PMTiles\x03`. Non-zero 
 
 ## 8. Conformance checklist
 
-- [ ] every route in §1 answers with the MIME in §1 and `X-Contract-Version: 1.0`
+- [ ] every route in §1 answers with the MIME in §1 and `X-Contract-Version: 1.1`
 - [ ] PMTiles answers `Accept-Ranges: bytes` and a valid `206`/`Content-Range`
 - [ ] `meta.json` validates against §2, incl. `contract_version`, `provenance`, `revisit_days`
 - [ ] every `layers.*.src` resolves; `{date}` placeholders match `meta.dates` exactly

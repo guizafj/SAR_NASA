@@ -282,12 +282,12 @@ GET /global-scale.json
   doesn't exist.
 
 ### Definition of done
-- **yuls:** `meta.json` validates for all 3 cities; tiles load z8–z14; every layer carries
+- **yuls:** `meta.json` validates for CDMX y Málaga; Yakarta se incorpora solo como extensión; cada capa lleva
   `provenance` + `revisit_days`; events pass MMU; precision reported on a 50-event sample.
 - **pozo:** all 8 routes serve with correct MIME + `pmtiles` range-request support; TTFB < 200 ms;
   CI reproduces artefacts from clean checkout.
-- **fradiaz:** 5 views reachable; URL restores exact state; shared/independent toggle visibly
-  changes all three maps; pins keyboard-navigable; table view works.
+- **fradiaz:** las vistas de mapa, KPIs, serie temporal, comparación y educación son navegables;
+  la comparación muestra escala compartida/independiente y Málaga conserva su cota de detección.
 
 ### Bus factor
 Each member writes `docs/handoff-<name>.md` — what they own, how to run it, the one thing that
@@ -471,9 +471,10 @@ function set_scale(shared):
 (connected components) · `GDAL` CLI · `pmtiles`
 
 **App** · *fradiaz* (UI) · *pozo* (serving)
-- **Recommended:** `MapLibre GL JS` + `deck.gl`, `uPlot`/`Observable Plot` charts,
-  Vite + TypeScript, **PMTiles** (raster + vector) for single-file delivery
-- **Fastest to build:** Streamlit/Panel + `pydeck` — trade polish and slider performance for speed
+- **MVP actual:** `Streamlit` + `pydeck` + `Plotly`, consumiendo artefactos offline y loaders
+cacheados. No descarga ni procesa HDF5 durante la interacción.
+- **Evolución:** `MapLibre GL JS` + `deck.gl`, `uPlot`/`Observable Plot`, Vite + TypeScript y
+  PMTiles para una entrega estática posterior, sin cambiar el contrato.
 - **Serving:** static host + CDN (Netlify/Pages/S3), GitHub Actions for publish
 - **QC / figures:** QGIS
 
@@ -512,7 +513,7 @@ Error budget, largest first: unwrapping ≫ troposphere ≫ orbital ≫ DEM ≫ 
 ## 13. Limitations
 
 1. Málaga may sit at the detection floor — the bound *is* the result.
-2. CDMX is not coastal; don't claim a coastal framing across all three.
+2. CDMX is not coastal; don't claim a coastal framing across all cases.
 3. GUNW posting is 80 m — city scale, not building scale.
 4. Urban SAR flood mapping is confounded by double-bounce and shadow; use coherence-loss change
    detection, not thresholding.
