@@ -6,7 +6,9 @@
 #
 # `primary` is deliberately a single switch: the 48 h scope is "one case executed perfectly",
 # and the informe (Málaga as control) and the README (Mexico City for signal) disagreed.
-# DECISION PENDING TEAM CONFIRMATION — change one line here, nothing else.
+# DECIDED 2026-11-14: mexico-city is primary (strongest signal, clearest demo); malaga ships as the
+# explicit negative control. If CDMX's NISAR GUNW fails the urban-coverage check in
+# docs/data-source-decision.md, flip this one line to `malaga` — nothing else changes.
 
 schema_version: "1.0"
 
@@ -32,6 +34,12 @@ cases:
     limitations:
       - "Lacustrine clay, closed basin: rates are not transferable to the other two cities."
       - "GUNW posting 80 m: city scale, not building scale."
+      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+      # Physics of the mock amplitude, not a decoration: lacustrine clay compacts inelastically and
+      # irreversibly, so the reversible seasonal term must stay much smaller than the secular trend
+      # (|trend| > 2 * seasonal_amplitude ⇒ inelastic). A large harmonic here would read as 5 mm of
+      # seasonal uplift on the one case whose whole story is permanent, non-recoverable compaction.
+      - "Inelastic compaction: the seasonal amplitude (1.5 mm) stays far below the trend, so |trend| > 2 * A_seasonal and the case classifies as inelastic — almost none of this motion is recoverable."
     mock:                                          # parameters of the synthetic field only
       peak_velocity_mm_yr: -420
       peak_lonlat: [-99.13, 19.43]
@@ -41,7 +49,7 @@ cases:
         center: [-99.10, 19.42]
         semi_axes_km: [24.0, 22.0]
         rotation_deg: 0
-      seasonal_amplitude_mm: 9.0
+      seasonal_amplitude_mm: 1.5
 
   jakarta:
     name: "Jakarta, ID"
@@ -62,6 +70,7 @@ cases:
     limitations:
       - "Not the capital-planning case: ground truth is fragmented across agencies."
       - "Coastal: inundation, not just subsidence, drives the story."
+      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
     mock:
       peak_velocity_mm_yr: -300
       peak_lonlat: [106.85, -6.13]                 # north coast
@@ -95,6 +104,11 @@ cases:
     limitations:
       - "Rates are at or below the detection floor: the bound IS the result."
       - "Do not present flatness as absence of aquifer stress — it is a compressibility result."
+      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+      # Opposite physics to Mexico City: a karst aquifer is elastic, so a real seasonal cycle of
+      # recharge is expected to move the surface recoverably by an amount comparable to (or larger
+      # than) the tiny secular trend (|trend| < seasonal_amplitude ⇒ elastic).
+      - "Elastic karst: the seasonal amplitude (3.5 mm) is larger than the ~3 mm/yr trend, so |trend| < A_seasonal and the motion is recoverable — this is the mirror image of the inelastic Mexico City case."
     mock:
       peak_velocity_mm_yr: -3.0
       peak_lonlat: [-4.44, 36.72]
@@ -104,7 +118,7 @@ cases:
         center: [-4.45, 36.72]
         semi_axes_km: [12.0, 11.0]
         rotation_deg: 0
-      seasonal_amplitude_mm: 2.0
+      seasonal_amplitude_mm: 3.5
 
 # Analysis constants shared by every case (they belong to the method, not to a city).
 processing:

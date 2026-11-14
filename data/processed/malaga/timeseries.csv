@@ -1,0 +1,13 @@
+case_id,cell_id,date,value,unit,sensor,product,quality,provenance_id
+malaga,aoi,2026-07-02,0.000000000,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-07-14,0.573963323,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-07-26,1.058951329,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-08-07,1.432454105,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-08-19,1.676695609,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-08-31,1.779388473,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-09-12,1.734255747,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-09-24,1.541297432,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-10-06,1.206790477,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-10-18,0.743022249,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-10-30,0.167768792,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19
+malaga,aoi,2026-11-11,-0.496459983,mm,nisar,mock,fair,malaga+mock+20261114+bf460c19

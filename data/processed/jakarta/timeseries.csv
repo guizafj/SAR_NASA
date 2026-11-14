@@ -1,0 +1,13 @@
+case_id,cell_id,date,value,unit,sensor,product,quality,provenance_id
+jakarta,aoi,2026-07-02,0.000000000,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-07-14,0.788198141,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-07-26,1.271338051,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-08-07,1.372242888,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-08-19,1.029966220,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-08-31,0.202379929,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-09-12,-1.132036955,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-09-24,-2.973284432,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-10-06,-5.299841532,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-10-18,-8.069580137,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-10-30,-11.221553815,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
+jakarta,aoi,2026-11-11,-14.678585724,mm,nisar,mock,good,jakarta+mock+20261114+57d20da8
