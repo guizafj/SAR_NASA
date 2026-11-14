@@ -345,7 +345,10 @@ reads the real `Content-Length` and an over-budget plan exits 5 with nothing fet
 open is the spend — ~30 GB for 12 epochs or ~19 GB for 8 — not the mechanism.
 
 ### O-02 — Copyright holder for `LICENSE`
-MIT needs a name. Currently "Dancing with the SARs contributors".
+MIT needs a name; a collective handle grants a licence weakly.
+**Answered 2026-11-14 — `fradiaz, jvernon and frpozo-l`.** The three team handles, named
+individually so the grant is traceable to people rather than to a project label. Enforced in
+`LICENSE` line 3; nothing else quotes the holder.
 
 ### O-03 — Does the loader keep cwd-relative resolution (N-08)?
 Safer than a `__file__`-based guess (the previous version pointed one directory off once copied), but
