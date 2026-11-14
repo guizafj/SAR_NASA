@@ -14,8 +14,9 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Raw SAR / GIS downloads — NEVER commit heavy granules (README §8, flujo §3.2)
+# Raw SAR / GIS downloads & staging — NEVER commit heavy granules (README §8, flujo §3.2)
 data/raw/
+data/staging/
 *.h5
 *.hdf5
 *.he5

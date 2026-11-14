@@ -31,10 +31,20 @@ from src.data.validation import (
     validate_case_bundle,
 )
 from src.domain import contracts as C
+from examples.reference_loader import (
+    Case,
+    LoaderError,
+    aoi_series,
+    grid_frame,
+    kpis,
+    load_case,
+    map_payload,
+)
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_PROCESSED_DIR: pathlib.Path = ROOT_DIR / "data" / "processed"
 DEFAULT_STUDY_CASES_PATH: pathlib.Path = ROOT_DIR / "config" / "study_cases.yaml"
+DEFAULT_AOI_DIR: pathlib.Path = ROOT_DIR / "config" / "aoi"
 
 
 class CaseNotFoundError(FileNotFoundError):
@@ -176,6 +186,21 @@ def load_study_cases_config(
         if len(ref_raw) != 2:
             raise C.ContractError(f"Case {slug!r} reference_point must be [lon, lat]")
         poly_raw = entry.get("aoi_polygon") or ()
+        if not poly_raw:
+            aoi_geojson = (path.parent / "aoi" / f"{slug}.geojson")
+            if aoi_geojson.is_file():
+                try:
+                    geo = json.loads(aoi_geojson.read_text(encoding="utf-8"))
+                    feats = geo.get("features") if geo.get("type") == "FeatureCollection" else [geo]
+                    geom = (feats[0].get("geometry") if feats else None) or {}
+                    gtype = geom.get("type")
+                    coords = geom.get("coordinates") or ()
+                    if gtype == "Polygon" and coords:
+                        poly_raw = coords[0]
+                    elif gtype == "MultiPolygon" and coords and coords[0]:
+                        poly_raw = coords[0][0]
+                except Exception:  # noqa: BLE001
+                    poly_raw = ()
         det_lim = entry.get("detection_limit_mm_yr")
 
         cases[slug] = StudyCaseConfig(
@@ -438,17 +463,25 @@ def load_all_available_bundles(
 
 __all__ = [
     "ArtifactValidationError",
+    "Case",
     "CaseBundle",
     "CaseNotFoundError",
+    "DEFAULT_AOI_DIR",
     "DEFAULT_PROCESSED_DIR",
     "DEFAULT_STUDY_CASES_PATH",
+    "LoaderError",
     "ProcessingConfig",
     "StudyCaseConfig",
     "StudyCasesConfig",
+    "aoi_series",
     "clear_loader_cache",
+    "grid_frame",
+    "kpis",
     "list_available_cases",
     "load_all_available_bundles",
+    "load_case",
     "load_case_bundle",
     "load_study_cases_config",
+    "map_payload",
     "resolve_case_dir",
 ]

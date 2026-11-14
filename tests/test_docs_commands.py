@@ -693,6 +693,22 @@ def test_documented_dry_run_exits_zero(command: DocumentedCommand, tmp_path: Pat
         )
 
 
+def _documented_exit_code(command: DocumentedCommand) -> int:
+    """Return an explicitly documented non-zero exit code in adjacent `#` comments, else 0."""
+    lines = (REPO_ROOT / command.doc).read_text(encoding="utf-8").splitlines()
+    idx = max(0, command.line - 1)
+    # Advance past backslash-continued lines of the command itself
+    while idx < len(lines) and lines[idx].rstrip().endswith("\\"):
+        idx += 1
+    idx += 1
+    comment_lines: list[str] = []
+    while idx < len(lines) and lines[idx].lstrip().startswith("#"):
+        comment_lines.append(lines[idx])
+        idx += 1
+    match = re.search(r"\bexits\s+(\d+)\b", " ".join(comment_lines))
+    return int(match.group(1)) if match else 0
+
+
 @pytest.mark.parametrize("command", DRY_RUNS)
 def test_documented_dry_run_works_on_committed_availability(
     command: DocumentedCommand, tmp_path: Path
@@ -717,15 +733,16 @@ def test_documented_dry_run_works_on_committed_availability(
     )
     raw = tmp_path / "raw"
 
+    expected_rc = _documented_exit_code(command)
     completed = _run(
         _dry_run_argv(command, availability=availability, raw=raw),
         timeout=EXEC_TIMEOUT_S,
         env=_dry_run_env(),
     )
-    if completed.returncode != 0:
+    if completed.returncode != expected_rc:
         pytest.fail(
             f"{command.doc}:{command.line} documents a dry-run that exits "
-            f"{completed.returncode} against the committed availability report "
+            f"{completed.returncode} (expected {expected_rc}) against the committed availability report "
             f"`{source.relative_to(REPO_ROOT)}`.\n"
             f"  command: {command.text}\n"
             "  the report is stale relative to the documented command; refresh it with "

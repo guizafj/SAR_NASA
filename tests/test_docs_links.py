@@ -81,17 +81,18 @@ GLOB_MARKERS: tuple[str, ...] = ("*", "?")
 #: absence says nothing about the docs.
 ALLOWLIST_PREFIXES: dict[str, str] = {
     "data/raw/": "gitignored download tree (flujo §3.2); contents are never committed",
+    "data/staging/": "gitignored rehearsal staging tree (README §15); never committed",
 }
 
 #: Singular paths that look checkable but are legitimately absent. Each reason is one line.
 ALLOWLIST: dict[str, str] = {
-    # README §7 "Produces" and §8 "(planned)" mark these as Rol 1/2 deliverables, not present files.
+    # README §7 "Produces" and §8 "(planned)" mark these as Rol 2 deliverables, not present files.
     ".streamlit/config.toml": "planned Rol 2 Streamlit config (README §7); app not built yet",
-    "src/data/loaders.py": "handoff-mock §1 says loaders are 'yours to write'; copy examples/reference_loader.py",
-    "src/data/validation.py": "planned Rol 1 module (flujo §3.1/§4, README §8); not built yet",
     "src/ui/map_view.py": "planned Rol 2 module (flujo §3.1 'Estructura propuesta'); not built yet",
-    # route-contract §7 literally says: "Target layout only -- none of these paths exist in the
-    # MVP tree except the generator" and labels each line "(target)".
+    "data/raw": "gitignored download directory (submission-checklist §2); absent on clean clone",
+    # Post-MVP Option B target paths (route-contract & submission-checklist explicitly mark post-MVP).
+    "app/src/": "route-contract §0 post-MVP Option B static frontend directory; not built in MVP",
+    "serve/": "submission-checklist §1 post-MVP Option B static server directory; not built in MVP",
     "serve/build.py": "route-contract §7 'Target layout only'; marked (target), post-MVP",
     "serve/dev.py": "route-contract §7 'Target layout only'; marked (target), post-MVP",
     "serve/check_contract.py": "route-contract §7 'Target layout only'; marked (target), post-MVP",

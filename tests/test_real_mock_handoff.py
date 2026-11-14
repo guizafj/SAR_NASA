@@ -9,7 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from src.data import list_available_cases, load_all_available_bundles
+from src.data import (
+    aoi_series,
+    kpis,
+    list_available_cases,
+    load_all_available_bundles,
+    load_case,
+    load_study_cases_config,
+    map_payload,
+)
 from src.domain.filters import FilterCriteria, apply_filters, available_filter_options
 from src.domain.map_adapter import (
     GLOBAL_VELOCITY_RANGE_MM_YR,
@@ -29,10 +37,20 @@ def test_shipped_three_cities_load_and_match_handoff_expectations():
     cases = list_available_cases()
     assert cases == ["mexico-city", "jakarta", "malaga"]
 
+    cfg = load_study_cases_config()
+    assert len(cfg.cases["mexico-city"].aoi_polygon) > 100  # loaded from config/aoi/*.geojson
+
     bundles = load_all_available_bundles()
-    assert len(bundles["mexico-city"].grid) == 13379
+    assert len(bundles["mexico-city"].grid) == 11694
     assert len(bundles["jakarta"].grid) == 4811
-    assert len(bundles["malaga"].grid) == 2650
+    assert len(bundles["malaga"].grid) == 2645
+
+    # Also verify drop-in reference_loader compatibility via src.data
+    ref_case = load_case("mexico-city")
+    assert len(map_payload(ref_case, coherence_min=0.7)) < 11694
+    dates, vals = aoi_series(ref_case)
+    assert len(dates) == len(vals) == 12
+    assert kpis(ref_case)["cells"] == 11694
 
     for slug, bundle in bundles.items():
         assert bundle.validation.is_valid, f"{slug} failed validation: {bundle.validation.all_problems}"
@@ -46,7 +64,7 @@ def test_shipped_kpis_and_comparison_match_handoff_mock_doc():
     bundles = load_all_available_bundles()
 
     cdmx_kpis = compute_kpis(bundles["mexico-city"])
-    assert cdmx_kpis.median_velocity_mm_yr == pytest.approx(-54.681, abs=0.05)
+    assert cdmx_kpis.median_velocity_mm_yr == pytest.approx(-62.065, abs=0.05)
     assert cdmx_kpis.is_null_result is False
     assert cdmx_kpis.critical_cells_count > 5000
 

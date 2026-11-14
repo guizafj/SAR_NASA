@@ -62,3 +62,6 @@ jobs:
 
       - name: Run Phase A/B handoff gate (scripts/check_phase_a.sh)
         run: ./scripts/check_phase_a.sh
+
+      - name: Run fast pre-submission preflight (scripts/preflight.sh --fast)
+        run: ./scripts/preflight.sh --fast
