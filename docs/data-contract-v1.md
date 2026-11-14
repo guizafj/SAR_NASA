@@ -7,7 +7,7 @@
 | Versión de esquema | `1.1` |
 | Revisión | `2` |
 | Congelado | 2026-11-14 |
-| Huella (`contract_fingerprint()`) | `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e` |
+| Huella (`contract_fingerprint()`) | `9a749ceab7387326b0ec023a1b3e467bec86957a4a55c280f2df912e36762770` |
 | Fuente de verdad | `src/domain/contracts.py` (código) — este documento lo describe |
 | Prevalencia | si el código y este documento discrepan, **manda el código** y el documento se corrige |
 
@@ -27,10 +27,10 @@ los datos reales cumplen **exactamente** el mismo esquema.
 
 | Fichero | Productor | Consumidor | Contrato |
 |---|---|---|---|
-| `data/processed/nisar_grid.parquet` | pipeline (Rol 3) | loaders (Rol 1) → mapa (Rol 2) | §3 |
-| `data/processed/timeseries.csv` | pipeline | loaders → gráficos | §4 |
-| `data/processed/meta.json` | pipeline | loaders → cabecera, unidades, badges | §5 |
-| `data/processed/context_layers.geojson` | pipeline | loaders → capas de contexto | §6 |
+| `data/processed/{case_id}/nisar_grid.parquet` | pipeline (Rol 3) | loaders (Rol 1) → mapa (Rol 2) | §3 |
+| `data/processed/{case_id}/timeseries.csv` | pipeline | loaders → gráficos | §4 |
+| `data/processed/{case_id}/meta.json` | pipeline | loaders → cabecera, unidades, badges | §5 |
+| `data/processed/{case_id}/context_layers.geojson` | pipeline | loaders → capas de contexto | §6 |
 
 Nada de `PMTiles`, servidor HTTP ni backend: eso es la migración post-MVP (§2.2 del flujo). Los
 cuatro ficheros son la interfaz completa entre pipeline y aplicación.
@@ -106,7 +106,7 @@ Ejemplo de fila:
 ```
 
 Presupuesto: una ciudad de 50 × 50 km con ~15 000 celdas ocupa < 2 MB en Parquet (compresión
-zstd). `data/processed/` completo debe quedar por debajo de 15 MB (§14 del informe).
+zstd). `data/processed/` completo debe quedar por debajo de 15 MB (presupuesto de tamaño, `README.md` §8).
 
 ---
 
@@ -192,6 +192,11 @@ Claves obligatorias: `schema_version`, `case_id`, `name`, `bbox`, `crs`, `refere
 `revisit_days`, `sensor`, `product`, `thresholds`, `provenance`, `stats`, `limitations`,
 `null_policy`.
 
+Dentro de `provenance` son obligatorias: `source`, `product_id`, `processing_date`, `method`,
+`retrieved_utc`, `reference`, `license`. `method` no puede estar vacío: debe describir la
+conversión física aplicada (p. ej. «LOS→vertical con v_north≈0»), porque es lo que un evaluador
+lee para decidir si el número es creíble.
+
 Reglas validadas por `validate_meta()`:
 
 - `schema_version` debe ser exactamente `"1.1"`, `case_id` debe estar en el enum;
@@ -273,16 +278,16 @@ error del pipeline, no un caso válido.
 | `egms` | `sentinel-1` | 6 | 0.30 | 2.5 | 3.0 | 2of3 | 500 | 50 |
 | `mock` | `nisar` | 12 | 0.35 | 2.5 | 3.0 | 2of3 | 500 | 80 |
 
-`senor_profile(sensor, product)` lanza `ContractError` si la pareja no existe o no coincide. No hay
+`sensor_profile(sensor, product)` lanza `ContractError` si la pareja no existe o no coincide. No hay
 manera de escribir "umbral único": el perfil es la única puerta.
 
 **Estado real de las fuentes** (sondas en `data/processed/_availability/*.json`, 2026-11-14):
 
 | Fuente | CDMX | Jakarta | Málaga |
 |---|---|---|---|
-| NISAR GUNW (ASF) | 102 gránulos, 2025-10 → 2026-10 | 24 gránulos, 2026-06 → 2026-10 | 26 gránulos, 2026-06 → 2026-10 |
+| NISAR GUNW (ASF) | 69 gránulos, 2025-10 → 2026-10 | 25 gránulos, 2026-06 → 2026-10 | 26 gránulos, 2026-06 → 2026-10 |
 | OPERA DISP-S1 (ASF) | **0** | **0** | **0** |
-| Sentinel-1 SLC (5 años) | 250+ gránulos, ~1 TB | 250+ gránulos, ~1.2 TB | 250+ gránulos, ~0.97 TB |
+| Sentinel-1 SLC (5 años) | 250+ gránulos, ~1.07 TB | 250+ gránulos, ~1.18 TB | 250+ gránulos, ~0.96 TB |
 | EGMS | no aplica | no aplica | descarga manual en portal |
 
 Consecuencia: el `product` real de la primera integración es `nisar-gunw` (con la advertencia de
@@ -344,15 +349,15 @@ el pipeline, los loaders y CI comparten exactamente el mismo código de validaci
 
 ---
 
-## 10. Compatibilidad con los informes
+## 10. Compatibilidad con el flujo y el README
 
-| Informe / flujo | Estado |
+| Documento / flujo | Estado |
 |---|---|
 | `flujo §5.1` (`nisar_grid.parquet`) | se mantienen todos los campos; se **añaden** `velocity_mm_yr` y `velocity_unit` (§2.1) |
 | `flujo §5.2` (`timeseries.csv`) | se mantienen los 8 campos; se **añade** `cell_id` (§2.4) |
 | `flujo §5.3` (`meta.json`) | se mantienen las claves del ejemplo; se **añaden** `name`, `bbox`, `reference_point`, `revisit_days`, `thresholds{}`, `limitations`, `null_policy` y tres claves de `provenance` |
 | `flujo §3.1` (rutas) | `src/domain/contracts.py` es el fichero previsto; no se crean rutas nuevas |
-| `informe §14` (`data/processed/`) | mismos cuatro ficheros, mismo sitio, < 15 MB |
+| `README.md` §8 (`data/processed/`) | mismos cuatro ficheros, mismo sitio, < 15 MB |
 | `docs/route-contract.md` (PMTiles, Opción B) | fuera del MVP (§2.2 del flujo); queda como ruta de migración post-MVP |
 
 ---
@@ -361,9 +366,8 @@ el pipeline, los loaders y CI comparten exactamente el mismo código de validaci
 
 Estas no bloquean la congelación y se cierran en `config/study_cases.yaml`, no aquí:
 
-1. **Caso principal.** El informe §12 sugiere Málaga como caso principal y CDMX como "extremo";
-   el flujo §2.1 deja la elección abierta. Recomendación: `mexico-city` como principal (señal
-   fuerte, mejor demo) y `malaga` como control negativo explícito.
+1. **Caso principal.** El flujo §2.1 deja la elección abierta; `config/study_cases.yaml` la resuelve:
+   `mexico-city` como principal (señal fuerte, mejor demo) y `malaga` como control negativo explícito.
 2. **AOI exacto.** El contrato fija el *esquema*, no el polígono: `bbox` es la envolvente del AOI
    real, que puede ser un polígono en config.
 3. **Ventana temporal.** `dates` sale de las adquisiciones realmente descargadas.

@@ -56,7 +56,9 @@ CHANGELOG: tuple[tuple[str, str], ...] = (
 )
 
 #: Case slugs. Which one is *primary* is a config decision (`config/study_cases.yaml`), not part
-#: of the contract: informe §12 and flujo §2.1 leave it open.
+#: of the contract: flujo §2.1 leaves it open, and README §14 records the recommendation.
+#: (The three *informe* documents that originally framed this question were removed in b097b5b;
+#: they remain in git history, not in the tree.)
 CASE_IDS: tuple[str, ...] = ("mexico-city", "jakarta", "malaga")
 
 SENSORS: tuple[str, ...] = ("nisar", "sentinel-1")
@@ -213,7 +215,8 @@ STATS_REQUIRED_KEYS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class SensorProfile:
-    """Per-(sensor, product) processing parameters. Never pool across profiles (§5.4, informe §13)."""
+    """Per-(sensor, product) processing parameters. Never pool across profiles (contract §5.4;
+    the physical reasons are in README §13)."""
 
     sensor: str
     product: str
@@ -624,7 +627,8 @@ def validate_meta(meta: Mapping[str, Any]) -> list[str]:
             if not isinstance(stats.get("detection_limit_mm_yr"), (int, float)):
                 problems.append(
                     "meta: |median_velocity_mm_yr| < 5 mm/yr is a null result — "
-                    "stats.detection_limit_mm_yr is mandatory (informe §13)"
+                    "stats.detection_limit_mm_yr is mandatory (README §13: a null result must "
+                    "publish its bound)"
                 )
     elif stats is not None:
         problems.append("meta: stats must be an object")
@@ -713,6 +717,9 @@ def _selfcheck() -> int:
             "val_t2": -7.4,
             "delta_change": -7.4,
             "velocity_mm_yr": -128.0,
+            "seasonal_amp_mm": 9.4,
+            "ratio_R": 13.6170212766,
+            "regime": "inelastic",
             "coherence": 0.82,
             "land_use": "urban-dense",
             "risk_level": "critico",
@@ -731,8 +738,8 @@ def _selfcheck() -> int:
     grid = pd.DataFrame(rows)
     series = pd.read_csv(
         io.StringIO(
-            "case_id,cell_id,date,value,unit,sensor,product,quality,provenance_id\n"
-            f"mexico-city,aoi,2026-07-02,0.0,mm,nisar,nisar-gunw,good,{rows[0]['provenance_id']}\n"
+            "case_id,cell_id,date,value,trend_mm_yr,seasonal_mm,unit,sensor,product,quality,provenance_id\n"
+            f"mexico-city,aoi,2026-07-02,0.0,-128.0,0.0,mm,nisar,nisar-gunw,good,{rows[0]['provenance_id']}\n"
         )
     )
     meta = {
@@ -766,6 +773,9 @@ def _selfcheck() -> int:
             "n_cells": 15500,
             "n_dates": 12,
             "median_velocity_mm_yr": -128.0,
+            "median_seasonal_amp_mm": 9.4,
+            "median_ratio_R": 13.6170212766,
+            "dominant_regime": "inelastic",
             "p05_velocity_mm_yr": -410.0,
             "p95_velocity_mm_yr": 12.0,
         },

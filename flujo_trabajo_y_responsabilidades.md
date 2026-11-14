@@ -6,8 +6,10 @@ Documento operativo para iniciar el desarrollo de forma paralela, modular y esca
 
 Fuentes de consolidación:
 
-- [informe_readme.md](./informe_readme.md)
-- [informe_maestro_de_arquitectura_y_plan_de_choque.md](./informe_maestro_de_arquitectura_y_plan_de_choque.md)
+- `informe_readme.md` — eliminado del árbol en el commit `b097b5b` (este documento consolidado lo
+  sustituye). Recuperable con `git show b097b5b^:informe_readme.md`.
+- `informe_maestro_de_arquitectura_y_plan_de_choque.md` — eliminado en el mismo commit; recuperable con
+  `git show b097b5b^:informe_maestro_de_arquitectura_y_plan_de_choque.md`.
 
 Este documento es la definición operativa vigente. Cuando exista una diferencia con la asignación
 de responsabilidades de los informes fuente, prevalece esta versión.
