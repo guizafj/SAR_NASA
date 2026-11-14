@@ -717,6 +717,9 @@ def _selfcheck() -> int:
             "val_t2": -7.4,
             "delta_change": -7.4,
             "velocity_mm_yr": -128.0,
+            "seasonal_amp_mm": 9.4,
+            "ratio_R": 13.6170212766,
+            "regime": "inelastic",
             "coherence": 0.82,
             "land_use": "urban-dense",
             "risk_level": "critico",
@@ -735,8 +738,8 @@ def _selfcheck() -> int:
     grid = pd.DataFrame(rows)
     series = pd.read_csv(
         io.StringIO(
-            "case_id,cell_id,date,value,unit,sensor,product,quality,provenance_id\n"
-            f"mexico-city,aoi,2026-07-02,0.0,mm,nisar,nisar-gunw,good,{rows[0]['provenance_id']}\n"
+            "case_id,cell_id,date,value,trend_mm_yr,seasonal_mm,unit,sensor,product,quality,provenance_id\n"
+            f"mexico-city,aoi,2026-07-02,0.0,-128.0,0.0,mm,nisar,nisar-gunw,good,{rows[0]['provenance_id']}\n"
         )
     )
     meta = {
@@ -770,6 +773,9 @@ def _selfcheck() -> int:
             "n_cells": 15500,
             "n_dates": 12,
             "median_velocity_mm_yr": -128.0,
+            "median_seasonal_amp_mm": 9.4,
+            "median_ratio_R": 13.6170212766,
+            "dominant_regime": "inelastic",
             "p05_velocity_mm_yr": -410.0,
             "p95_velocity_mm_yr": 12.0,
         },

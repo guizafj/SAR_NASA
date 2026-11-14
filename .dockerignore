@@ -24,7 +24,7 @@ data/staging
 *.he5
 *.SAFE
 pipeline
-examples
+# examples/ stays: src/data/loaders.py imports examples/reference_loader.py at runtime.
 
 # Local tooling and editor state
 .agents
