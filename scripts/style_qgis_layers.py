@@ -45,9 +45,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import uuid
 import xml.sax.saxutils as sax
 
@@ -569,86 +571,143 @@ def emit(out_dir: pathlib.Path) -> int:
     return 0
 
 
-def snapshot(out_dir: pathlib.Path, target: pathlib.Path) -> int:
-    """Render the styled layers offscreen through QGIS itself — the only real proof."""
-    profile = out_dir / "_snapshot_project.qgs"
-    profile.write_text(_snapshot_project(out_dir))
-    completed = subprocess.run(
-        [
-            "qgis",
-            "--nologo",
-            "--project",
-            str(profile),
-            "--snapshot",
-            str(target),
-            "--width",
-            "1600",
-            "--height",
-            "900",
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        env={"QT_QPA_PLATFORM": "offscreen", "PATH": "/usr/bin:/bin", **{
-            k: v for k, v in __import__("os").environ.items() if k in {"HOME", "XDG_RUNTIME_DIR", "TMPDIR", "LD_LIBRARY_PATH", "DISPLAY", "WAYLAND_DISPLAY"}
-        }},
-        timeout=300,
-    )
-    tail = (completed.stdout + completed.stderr).strip().splitlines()[-12:]
-    print("\n".join(tail))
-    if completed.returncode != 0:
-        print(f"snapshot failed (exit {completed.returncode})", file=sys.stderr)
-        return 1
-    print(f"snapshot {target}")
-    return 0
+def project_path(out_dir: pathlib.Path) -> pathlib.Path:
+    return out_dir / "qc_project.qgs"
 
 
-def _snapshot_project(out_dir: pathlib.Path) -> str:
-    """A throwaway project with the three styled grids, one per case, side by side."""
-    layers = []
-    offset = 0
-    for case in _cases():
-        grid = ROOT / f"data/staging/qgis/{case}.geojson"
-        if not grid.exists():
-            continue
-        layers.append(
-            f'    <layer-tree-layer id="{case}" name="{case} · velocity" source="{grid}" '
-            f'providerKey="ogr" checked="Qt::Checked" expanded="0"/>\n'
-        )
-        offset += 1
-    if not layers:
+#: (role, human label, style file, visible on open). Legend order, top first.
+CASE_LAYERS: tuple[tuple[str, str, str, bool], ...] = (
+    ("velocity", "velocity", "grid_velocity.qml", True),
+    ("quality", "quality", "grid_quality.qml", False),
+    ("coherence", "coherence", "grid_coherence.qml", False),
+    ("context", "context", "context_layers.qml", True),
+    ("aoi", "AOI", "aoi_ring.qml", True),
+)
+
+
+def _layer_source(case: str, role: str) -> pathlib.Path:
+    if role == "context":
+        return ROOT / f"data/processed/{case}/context_layers.geojson"
+    if role == "aoi":
+        return ROOT / f"config/aoi/{case}.geojson"
+    return ROOT / f"data/staging/qgis/{case}.geojson"
+
+
+def build_spec(
+    out_dir: pathlib.Path, *, render_case: str | None = None, target: pathlib.Path | None = None
+) -> dict:
+    """Describe the QC project as data, so the QGIS-side builder stays dumb."""
+    cases = [case for case in _cases() if (ROOT / f"data/staging/qgis/{case}.geojson").exists()]
+    if not cases:
         raise SystemExit("no staged grids — run scripts/export_grid_geojson.py first")
-    return (
-        "<!DOCTYPE qgis PUBLIC 'http://mrcc.com.au/qgis.dtd' 'SYSTEM'>\n"
-        '<qgis version="3.40.0" projectname="snapshot">\n'
-        '  <homePath path=""/>\n'
-        "  <title></title>\n"
-        '  <projectCrs>\n    <spatialrefsys>\n      <authid>EPSG:4326</authid>\n'
-        "    </spatialrefsys>\n  </projectCrs>\n"
-        "  <layer-tree-group>\n" + "".join(layers) + "  </layer-tree-group>\n"
-        "  <projectlayers>\n" + "".join(_maplayer(case, out_dir) for case in _cases()) + "  </projectlayers>\n"
-        '  <layerorder>\n' + "".join(f"    <layer id=\"{c}\"/>\n" for c in _cases()) + "  </layerorder>\n"
-        "</qgis>\n"
-    )
+
+    layers = []
+    for case in cases:
+        for role, label, style_file, visible in CASE_LAYERS:
+            source = _layer_source(case, role)
+            style = out_dir / style_file
+            if not source.exists() or not style.exists():
+                continue
+            layers.append(
+                {
+                    "group": case,
+                    "role": role,
+                    "name": f"{case} · {label}",
+                    "source": str(source),
+                    "style": str(style),
+                    "visible": visible,
+                }
+            )
+    spec: dict = {
+        "crs": "EPSG:4326",
+        "groups": cases,
+        "layers": layers,
+        "project_path": str(project_path(out_dir)),
+    }
+    if render_case and target:
+        spec["render"] = {
+            "case": render_case,
+            "target": str(target),
+            "width": 1600,
+            "height": 900,
+            "background": "#ffffff",
+        }
+    return spec
 
 
-def _maplayer(case: str, out_dir: pathlib.Path) -> str:
-    grid = ROOT / f"data/staging/qgis/{case}.geojson"
-    style = (out_dir / "grid_velocity.qml").read_text()
-    body = style.split("<qgis", 1)[1].split(">", 1)[1].rsplit("</qgis>", 1)[0]
-    return (
-        f'    <maplayer type="vector" geometry="Point" hasScaleBasedVisibilityFlag="0" '
-        f'autoRefreshEnabled="0" refreshOnNotifyEnabled="0" refreshOnNotifyMessage="">\n'
-        f"      <id>{case}</id>\n"
-        f"      <datasource>{grid}</datasource>\n"
-        f"      <layername>{case} · velocity</layername>\n"
-        f'      <provider encoding="UTF-8">ogr</provider>\n'
-        f"      <srs>\n        <spatialrefsys>\n          <authid>EPSG:4326</authid>\n"
-        f"        </spatialrefsys>\n      </srs>\n"
-        f"{body}"
-        f"      <blendMode>0</blendMode>\n      <featureBlendMode>0</featureBlendMode>\n"
-        f"    </maplayer>\n"
-    )
+def run_qgis_builder(spec: dict, *, timeout: int = 600) -> dict:
+    """Build (and optionally render) the project with QGIS itself, in a throwaway profile.
+
+    The child needs the real environment — a scrubbed ``PATH`` cannot find ``qgis`` on NixOS — and
+    its own profile: the user's profile loads GUI plugins that dereference ``iface``, which under
+    ``offscreen`` blocks the event loop until the timeout kills it, silently.
+    """
+    with tempfile.TemporaryDirectory(prefix="qgis-build-") as tmp:
+        home = pathlib.Path(tmp)
+        (home / ".cache").mkdir(parents=True, exist_ok=True)
+        (home / "profiles").mkdir(parents=True, exist_ok=True)
+        status = home / "status.json"
+        spec_path = home / "spec.json"
+        spec_path.write_text(json.dumps({**spec, "status": str(status)}))
+        completed = subprocess.run(
+            [
+                "qgis",
+                "--nologo",
+                "--nocustomization",
+                "--profiles-path",
+                str(home / "profiles"),
+                "--profile",
+                "builder",
+                "--code",
+                str(ROOT / "scripts/qgis_project_builder.py"),
+                "--py-args",
+                str(spec_path),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "QT_QPA_PLATFORM": "offscreen",
+                "HOME": str(home),
+                "XDG_CACHE_HOME": str(home / ".cache"),
+            },
+            timeout=timeout,
+        )
+        if status.exists():
+            return json.loads(status.read_text())
+        noise = ("AI_Edit", "AI_Segmentation", "propagateSizeHints", "QNetworkDiskCache")
+        tail = "\n".join(
+            line
+            for line in (completed.stdout + completed.stderr).splitlines()
+            if line.strip() and not any(marker in line for marker in noise)
+        )[-1200:]
+        return {
+            "errors": [
+                f"the QGIS builder produced no status (exit {completed.returncode}). "
+                f"Is `qgis` on PATH?\n{tail}"
+            ]
+        }
+
+
+def _report(result: dict) -> int:
+    errors = result.get("errors") or []
+    render = result.get("render") or {}
+    print(f"{'layers styled':22s} {len(result.get('layers') or [])}")
+    for layer in result.get("layers") or []:
+        print(f"  {layer['name']:32s} {str(layer['renderer']):18s} {layer['features']} features")
+    if result.get("project_written"):
+        print(f"{'project':22s} {project_path_from(result)}")
+    if render:
+        state = "saved" if render.get("saved") else "NOT saved"
+        print(f"{'snapshot':22s} {state} {render.get('target')} {render.get('size')}")
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    return 0 if not errors else 1
+
+
+def project_path_from(result: dict) -> str:
+    return result.get("project_written_path", "qc_project.qgs")
 
 
 def _cases() -> list[str]:
@@ -659,22 +718,45 @@ def _cases() -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--out", default="data/staging/qgis/styles", help="output directory for QML")
-    parser.add_argument("--snapshot", default=None, help="render a QA PNG offscreen through QGIS")
-    parser.add_argument("--keep-project", action="store_true", help="keep the generated QA project file")
+    parser.add_argument(
+        "--project",
+        action="store_true",
+        help="also write qc_project.qgs, a ready-to-open QC project (needs qgis on PATH)",
+    )
+    parser.add_argument(
+        "--snapshot", default=None, help="render a QA PNG of one case to this path (implies --project)"
+    )
+    parser.add_argument(
+        "--snapshot-case",
+        default=None,
+        help="case to render; defaults to mexico-city (the primary case) when present",
+    )
     args = parser.parse_args(argv)
 
     out_dir = pathlib.Path(args.out)
     code = emit(out_dir)
     if code != 0:
         return code
+
+    if not (args.project or args.snapshot):
+        print("\nnext:  --project  writes qc_project.qgs ready to open in QGIS")
+        return 0
+
+    render_case = None
+    target = None
     if args.snapshot:
-        return snapshot(out_dir, pathlib.Path(args.snapshot))
-    project = out_dir / "_snapshot_project.qgs"
-    if project.exists() and not args.keep_project:
-        project.unlink()
-    return 0
+        target = pathlib.Path(args.snapshot)
+        available = _cases()
+        render_case = args.snapshot_case or ("mexico-city" if "mexico-city" in available else available[0])
+
+    spec = build_spec(out_dir, render_case=render_case, target=target)
+    result = run_qgis_builder(spec)
+    result.setdefault("project_written_path", spec["project_path"])
+    return _report(result)
 
 
 if __name__ == "__main__":
