@@ -1,4 +1,4 @@
-"""Regression suite for the FROZEN data contract v1.0 (`src/domain/contracts.py`).
+"""Regression suite for the FROZEN data contract v1.1 (`src/domain/contracts.py`).
 
 These tests are deliberately brittle. If one fails, either the change was agreed by all three
 roles and the golden snapshot must move with a `SCHEMA_VERSION` bump, or someone drifted the
@@ -33,6 +33,9 @@ def grid_row(**overrides):
         "val_t2": -7.4,
         "delta_change": -7.4,
         "velocity_mm_yr": -128.0,
+        "seasonal_amp_mm": 9.4,
+        "ratio_R": 13.6170212766,
+        "regime": "inelastic",
         "coherence": 0.82,
         "land_use": "urban-dense",
         "risk_level": "critico",
@@ -63,6 +66,8 @@ def timeseries():
                 "cell_id": "aoi",
                 "date": "2026-07-02",
                 "value": 0.0,
+                "trend_mm_yr": -128.0,
+                "seasonal_mm": 0.0,
                 "unit": "mm",
                 "sensor": "nisar",
                 "product": "nisar-gunw",
@@ -74,6 +79,8 @@ def timeseries():
                 "cell_id": "aoi",
                 "date": "2026-07-14",
                 "value": -4.2,
+                "trend_mm_yr": -128.0,
+                "seasonal_mm": 2.1,
                 "unit": "mm",
                 "sensor": "nisar",
                 "product": "nisar-gunw",
@@ -87,7 +94,7 @@ def timeseries():
 @pytest.fixture()
 def meta():
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "case_id": "mexico-city",
         "name": "Mexico City, MX",
         "bbox": [-99.35, 19.20, -98.85, 19.65],
@@ -117,6 +124,9 @@ def meta():
             "n_cells": 15482,
             "n_dates": 12,
             "median_velocity_mm_yr": -128.0,
+            "median_seasonal_amp_mm": 9.4,
+            "median_ratio_R": 13.6170212766,
+            "dominant_regime": "inelastic",
             "p05_velocity_mm_yr": -410.0,
             "p95_velocity_mm_yr": 12.0,
         },
@@ -153,23 +163,24 @@ def context():
 
 
 def test_schema_version_and_revision_are_frozen():
-    assert C.SCHEMA_VERSION == "1.0"
-    assert C.CONTRACT_REVISION == 1
-    assert C.CHANGELOG[0][0] == "1.0"
+    assert C.SCHEMA_VERSION == "1.1"
+    assert C.CONTRACT_REVISION == 2
+    assert C.CHANGELOG[0][0] == "1.1"
 
 
 def test_grid_field_order_is_frozen():
     assert [f.name for f in C.GRID_FIELDS] == [
         "cell_id", "lat", "lon", "val_t1", "val_t2", "delta_change", "velocity_mm_yr",
-        "coherence", "land_use", "risk_level", "case_id", "sensor", "product", "unit",
+        "seasonal_amp_mm", "ratio_R", "regime", "coherence", "land_use", "risk_level",
+        "case_id", "sensor", "product", "unit",
         "velocity_unit", "source", "acquisition_date", "provenance_id",
     ]
 
 
 def test_timeseries_field_order_is_frozen():
     assert [f.name for f in C.TIMESERIES_FIELDS] == [
-        "case_id", "cell_id", "date", "value", "unit", "sensor", "product", "quality",
-        "provenance_id",
+        "case_id", "cell_id", "date", "value", "trend_mm_yr", "seasonal_mm", "unit", "sensor",
+        "product", "quality", "provenance_id",
     ]
 
 
@@ -186,7 +197,8 @@ def test_required_key_lists_are_frozen():
         "limitations", "null_policy",
     )
     assert C.STATS_REQUIRED_KEYS == (
-        "n_cells", "n_dates", "median_velocity_mm_yr", "p05_velocity_mm_yr", "p95_velocity_mm_yr",
+        "n_cells", "n_dates", "median_velocity_mm_yr", "median_seasonal_amp_mm", "median_ratio_R",
+        "dominant_regime", "p05_velocity_mm_yr", "p95_velocity_mm_yr",
     )
     assert C.PROVENANCE_REQUIRED_KEYS == (
         "source", "product_id", "processing_date", "method", "retrieved_utc", "reference",

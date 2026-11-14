@@ -1,4 +1,4 @@
-"""Frozen data contract v1.0 — NASA Space Apps 2026, "Dancing with the SARs".
+"""Frozen data contract v1.1 — NASA Space Apps 2026, "Dancing with the SARs".
 
 This module is the machine-readable half of `docs/data-contract-v1.md`. Both are normative and
 must agree; when they disagree, this file wins and the doc is wrong.
@@ -22,7 +22,7 @@ Hard rules
 
 Freeze record
 -------------
-    SCHEMA_VERSION = "1.0"    CONTRACT_REVISION = 1    frozen 2026-11-14
+    SCHEMA_VERSION = "1.1"    CONTRACT_REVISION = 2    frozen 2026-11-14
 """
 
 from __future__ import annotations
@@ -35,11 +35,16 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
-SCHEMA_VERSION = "1.0"
-CONTRACT_REVISION = 1
+SCHEMA_VERSION = "1.1"
+CONTRACT_REVISION = 2
 CONTRACT_FROZEN_UTC = "2026-11-14T00:00:00Z"
 
 CHANGELOG: tuple[tuple[str, str], ...] = (
+    (
+        "1.1",
+        "Adds the thesis metrics: seasonal_amp_mm, ratio_R and regime to the grid, plus "
+        "trend_mm_yr and seasonal_mm to timeseries and aggregate thesis statistics to meta.",
+    ),
     (
         "1.0",
         "Initial freeze. Resolves six ambiguities in flujo §5: delta_change is cumulative mm and "
@@ -115,7 +120,10 @@ GRID_FIELDS: tuple[Field, ...] = (
     Field("val_t1", "float64", True, UNIT, note="Modelled displacement at first date (mm, up +)"),
     Field("val_t2", "float64", True, UNIT, note="Modelled displacement at last date (mm, up +)"),
     Field("delta_change", "float64", True, UNIT, note="val_t2 - val_t1 (negative = subsidence)"),
-    Field("velocity_mm_yr", "float64", True, VELOCITY_UNIT, note="Fitted linear trend (FROZEN ADDITION)"),
+    Field("velocity_mm_yr", "float64", True, VELOCITY_UNIT, note="Fitted linear trend"),
+    Field("seasonal_amp_mm", "float64", True, UNIT, note="Fitted seasonal amplitude"),
+    Field("ratio_R", "float64", True, "-", note="abs(trend) / seasonal amplitude"),
+    Field("regime", "string", True, enum=REGIMES, note="Secular versus seasonal regime"),
     Field("coherence", "float64", True, "-", note="0..1, bias-corrected temporal mean"),
     Field("land_use", "string", True, enum=LAND_USE),
     Field("risk_level", "string", True, enum=RISK_LEVELS, note="Derived by risk_level_from_velocity"),
@@ -135,6 +143,8 @@ TIMESERIES_FIELDS: tuple[Field, ...] = (
     Field("cell_id", "string", True, note="'aoi' for the case aggregate; an H3 index for drill-down"),
     Field("date", "string", True, note="ISO YYYY-MM-DD, member of meta.dates"),
     Field("value", "float64", True, UNIT, note="Cumulative displacement, mm, up positive"),
+    Field("trend_mm_yr", "float64", True, VELOCITY_UNIT, note="Offline secular trend"),
+    Field("seasonal_mm", "float64", True, UNIT, note="Offline seasonal component"),
     Field("unit", "string", True, enum=(UNIT,)),
     Field("sensor", "string", True, enum=SENSORS),
     Field("product", "string", True, enum=PRODUCTS),
@@ -193,6 +203,9 @@ STATS_REQUIRED_KEYS: tuple[str, ...] = (
     "n_cells",
     "n_dates",
     "median_velocity_mm_yr",
+    "median_seasonal_amp_mm",
+    "median_ratio_R",
+    "dominant_regime",
     "p05_velocity_mm_yr",
     "p95_velocity_mm_yr",
 )
@@ -373,7 +386,17 @@ def validate_grid(
         except Exception:  # noqa: BLE001
             return None
 
-    for column in ("lat", "lon", "val_t1", "val_t2", "delta_change", "velocity_mm_yr", "coherence"):
+    for column in (
+        "lat",
+        "lon",
+        "val_t1",
+        "val_t2",
+        "delta_change",
+        "velocity_mm_yr",
+        "seasonal_amp_mm",
+        "ratio_R",
+        "coherence",
+    ):
         if column not in columns:
             continue
         values = numeric(column)
@@ -388,9 +411,20 @@ def validate_grid(
                 problems.append("grid: lon outside [-180, 180]")
             if column == "coherence" and not values.dropna().between(0, 1).all():
                 problems.append("grid: coherence outside [0, 1]")
-            if column in ("val_t1", "val_t2", "delta_change", "velocity_mm_yr"):
+            if column in (
+                "val_t1",
+                "val_t2",
+                "delta_change",
+                "velocity_mm_yr",
+                "seasonal_amp_mm",
+                "ratio_R",
+            ):
                 if not values.dropna().map(_math.isfinite).all():
                     problems.append(f"grid: {column} contains non-finite values")
+            if column == "seasonal_amp_mm" and not values.dropna().ge(0).all():
+                problems.append("grid: seasonal_amp_mm must be non-negative")
+            if column == "ratio_R" and not values.dropna().ge(0).all():
+                problems.append("grid: ratio_R must be non-negative")
         except Exception:  # noqa: BLE001 - non-numeric column reported below
             problems.append(f"grid: {column} is not numeric")
 

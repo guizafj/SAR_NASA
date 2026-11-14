@@ -159,6 +159,49 @@ Four rules that exist because they were ambiguous in the source documents:
 ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed   # step 2, planned
 ```
 
+**4. Event attributes** — the property table baked into `events.pmtiles` (§4)
+
+### Build order
+
+| Window | yuls | pozo | fradiaz |
+|---|---|---|---|
+| **H0–2** | Write `meta.json` + `series` + event schemas; commit **stubs** | Static host + routes | Scaffold SPA against stubs |
+| **H2–20** | Ingest → velocity → tiles | CI auto-publish | Map + slider + charts on stubs |
+| **H20–30** | Metrics, shared scale, **event detection + chips** | Cache headers, size audit | Wire real artefacts; pins + popup |
+| **H30–40** | QC, validation table, figures | Deploy hardening | Polish, a11y, table view |
+| **H40–48** | Provenance badges, docs | Final deploy | Demo script, rehearsal |
+
+**The stub rule:** fradiaz never blocks on yuls. Ship three fake `series` files, one fake
+`meta.json`, and a hand-authored `events.geojson` in H0 — build the whole UI against them.
+
+### Explicit non-overlaps
+- yuls writes no app UI code (layer styles as JSON config only).
+- pozo touches no scientific parameters — no thresholds, no colour ranges.
+- fradiaz computes no geospatial quantity client-side; if a number isn't in an artefact, it
+  doesn't exist.
+
+### Definition of done
+- **yuls:** `meta.json` validates for CDMX y Málaga; Yakarta se incorpora solo como extensión; cada capa lleva
+  `provenance` + `revisit_days`; events pass MMU; precision reported on a 50-event sample.
+- **pozo:** all 8 routes serve with correct MIME + `pmtiles` range-request support; TTFB < 200 ms;
+  CI reproduces artefacts from clean checkout.
+- **fradiaz:** las vistas de mapa, KPIs, serie temporal, comparación y educación son navegables;
+  la comparación muestra escala compartida/independiente y Málaga conserva su cota de detección.
+
+### Bus factor
+Each member writes `docs/handoff-<name>.md` — what they own, how to run it, the one thing that
+will break.
+
+---
+
+## 6. Study areas
+
+| City | AOI | Role | Primary hazard |
+|---|---|---|---|
+| Mexico City, MX | 19.43 N, −99.13 W | Case A (extreme) | Differential subsidence → infrastructure, drainage inversion |
+| Jakarta, ID | −6.21 S, 106.85 E | Case B (coastal) | Inundation; 64% piped-water coverage drives well pumping |
+| Málaga, ES | 36.72 N, −4.42 W | **Control / negative** | Seawater intrusion; reservoir depletion |
+
 ---
 
 ## 5. Data sources — and what we actually verified
@@ -371,35 +414,13 @@ changes need all three roles; backend+data needs Rol 1 + Rol 3; UI needs Rol 2 +
 
 ## 11. Plan & definition of done
 
-| Phase | Goal | Exit criterion |
-|---|---|---|
-| **0 — sync** (H0) | case, source, contract, branches | ✅ contract frozen; all three can run the tests |
-| **1 — mock** (H0–2) | the four artefacts, fake values, real schema | app starts locally on mock only |
-| **2 — parallel build** (H2–30) | loaders/filters (Rol 1), UI (Rol 2), real source + physics (Rol 3) | map, KPIs and filters react to mock data |
-| **3 — real data** (H30–40) | replace mock with real, same schema | app runs unchanged on real artefacts |
-| **4 — validate & deploy** (H40–46) | clean-room run, sizes, cache, public URL | pipeline reproducible from scratch; URL up |
-| **5 — freeze** (H46+) | code freeze, docs, video | only critical fixes after this point |
-
-**Tonight's checklist** (flujo §10, condensed)
-
-- [x] Contract frozen; all three can run `./scripts/python.sh -m pytest tests -q`
-- [x] NISAR / OPERA / Sentinel-1 / EGMS coverage confirmed and written to `_availability/`
-- [ ] Mock artefacts committed, and the app boots on them alone
-- [ ] `config/study_cases.yaml` with the primary case and the AOI polygon
-- [ ] CI runs the contract tests and `pipeline/validate_artifacts.py`
-- [ ] Local install verified by each member, independently of the others
-- [ ] Units, thresholds and `provenance` confirmed **before** real data replaces the mock
-
-**Definition of done**
-
-- **Rol 3:** `meta.json` validates for all published cases; artefacts < 15 MB; every artefact
-  carries `provenance` + `revisit_days`; limitations documented; Málaga ships with its detection
-  limit.
-- **Rol 1:** loaders + validation reject malformed artefacts before the UI sees them; filters and
-  metrics computed once, server-side; CI reproduces artefacts from a clean checkout.
-- **Rol 2:** five views reachable; **the app starts with no NASA credentials**; URL restores the
-  exact state; units and sources always visible; keyboard-navigable; works on a phone.
-- **Everyone:** `main` runnable, PR reviewed, `./scripts/python.sh -m pytest tests -q` green.
+**App** · *fradiaz* (UI) · *pozo* (serving)
+- **MVP actual:** `Streamlit` + `pydeck` + `Plotly`, consumiendo artefactos offline y loaders
+cacheados. No descarga ni procesa HDF5 durante la interacción.
+- **Evolución:** `MapLibre GL JS` + `deck.gl`, `uPlot`/`Observable Plot`, Vite + TypeScript y
+  PMTiles para una entrega estática posterior, sin cambiar el contrato.
+- **Serving:** static host + CDN (Netlify/Pages/S3), GitHub Actions for publish
+- **QC / figures:** QGIS
 
 ---
 
@@ -433,10 +454,9 @@ Error budget, largest first: **unwrapping ≫ troposphere ≫ orbital ≫ DEM �
 **Limitations** (also shipped inside `meta.limitations`):
 
 1. Málaga may sit at the detection floor — the bound *is* the result.
-2. CDMX is not coastal; do not claim a coastal framing across all three cities.
-3. NISAR GUNW posting is 80 m — city scale, not building scale.
-4. NISAR urban coverage is not guaranteed (§5).
-5. Urban SAR flood mapping is confounded by double-bounce and shadow; use coherence-loss change
+2. CDMX is not coastal; don't claim a coastal framing across all cases.
+3. GUNW posting is 80 m — city scale, not building scale.
+4. Urban SAR flood mapping is confounded by double-bounce and shadow; use coherence-loss change
    detection, not thresholding.
 6. Coherence depends on revisit interval; **NISAR 12-day ≠ Sentinel-1 6-day**. Never pool them.
 7. "Changes in imagery" ≠ "changes on the ground" — layover/shadow move with acquisition geometry.
