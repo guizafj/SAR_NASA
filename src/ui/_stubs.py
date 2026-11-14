@@ -18,7 +18,6 @@ from src.domain.contracts import (
     CASE_IDS,
     LAND_USE,
     NULL_RESULT_MM_YR,
-    RISK_LEVELS,
     SCHEMA_VERSION,
     UNIT,
     risk_level_from_velocity,

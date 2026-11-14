@@ -13,6 +13,7 @@ import pydeck as pdk
 import streamlit as st
 
 from src.ui.color_scale import FALLBACK_DOMAIN, STOPS
+from src.ui.formatters import format_dates_span
 
 LAYER_ID = "h3-cells"
 MAP_HEIGHT = 400
@@ -128,13 +129,16 @@ def _provenance(meta: dict[str, Any] | None) -> str:
     ):
         if value not in (None, ""):
             parts.append(f"{label} {value}")
-    dates = meta.get("dates")
-    if isinstance(dates, list) and dates:
-        parts.append("dates " + " … ".join(str(item) for item in dates if item not in (None, "")))
+        else:
+            parts.append(f"{label} no declarado")
+    # provenance_id before dates so a long acquisition list cannot push it off-screen.
     provenance_id = meta.get("provenance_id") or provenance.get("provenance_id")
-    if provenance_id:
-        parts.append(f"provenance_id {provenance_id}")
-    return " · ".join(parts) if parts else "procedencia no declarada"
+    parts.append(
+        f"provenance_id {provenance_id}" if provenance_id else "provenance_id no declarado"
+    )
+    span = format_dates_span(meta.get("dates") if isinstance(meta.get("dates"), list) else None)
+    parts.append(span if span else "dates no declaradas")
+    return " · ".join(parts)
 
 
 def _figure_line(label: str, value: Any, unit: str | None, provenance_id: str | None) -> str:
@@ -149,7 +153,10 @@ def _figure_line(label: str, value: Any, unit: str | None, provenance_id: str | 
 def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> None:
     if not detail:
         st.markdown(
-            f'<div class="cockpit-card"><p>{SELECT_PROMPT}</p></div>',
+            '<div class="cockpit-card is-empty">'
+            '<p class="kicker">Inspector</p>'
+            f'<p class="empty-prompt">{html.escape(SELECT_PROMPT)}</p>'
+            "</div>",
             unsafe_allow_html=True,
         )
         return
@@ -158,7 +165,7 @@ def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> Non
     unit = detail.get("unit")
     provenance_id = detail.get("provenance_id")
     lines = [
-        f"caso: {html.escape(str(detail.get('case_id') or case_id or 'no declarado'))}",
+        f"caso: {detail.get('case_id') or case_id or 'no declarado'}",
         _figure_line("delta_change", detail.get("delta_change"), unit if isinstance(unit, str) else None, provenance_id if isinstance(provenance_id, str) else None),
         _figure_line("coherence", detail.get("coherence"), None, provenance_id if isinstance(provenance_id, str) else None),
         f"land_use: {detail.get('land_use') or 'no declarado'}",
@@ -168,10 +175,10 @@ def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> Non
         f"provenance_id: {provenance_id or 'no declarado'}",
         f"acquisition_date: {detail.get('acquisition_date') or 'no declarada'}",
     ]
-    body = "".join(f"<p>{html.escape(line)}</p>" for line in lines)
+    body = "".join(f'<p class="detail-line">{html.escape(line)}</p>' for line in lines)
     st.markdown(
         '<div class="cockpit-card">'
-        f'<p class="kicker">Inspector</p>'
+        '<p class="kicker">Inspector</p>'
         f'<span class="{chip_class}">{html.escape(risk or "risk no declarado")}</span>'
         f"{body}</div>",
         unsafe_allow_html=True,
@@ -230,8 +237,9 @@ def _render_kpis(kpis: Any) -> None:
         column.markdown(
             '<div class="cockpit-card">'
             f'<p class="kicker">{html.escape(str(item.get("label") or "kpi"))}</p>'
-            f"<p>{html.escape(shown)}{html.escape(unit_text)}</p>"
-            f"<p>{html.escape(str(source))}</p></div>",
+            f'<p class="kpi-value">{html.escape(shown)}{html.escape(unit_text)}</p>'
+            f'<p class="kpi-source" title="{html.escape(str(source))}">{html.escape(str(source))}</p>'
+            "</div>",
             unsafe_allow_html=True,
         )
 
@@ -306,7 +314,10 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
         view = _call(loaders, "get_view_state", case_id) or {}
         if "latitude" not in view or "longitude" not in view or "zoom" not in view:
             st.markdown(
-                '<div class="cockpit-card"><p>Vista no disponible.</p></div>',
+                '<div class="cockpit-card is-empty">'
+                '<p class="kicker">Mapa</p>'
+                '<p class="empty-prompt">Vista no disponible.</p>'
+                "</div>",
                 unsafe_allow_html=True,
             )
         else:

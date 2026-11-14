@@ -62,18 +62,33 @@ _CSS = f"""
 }}
 
 .mission-bar {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 0.75rem;
-  margin-bottom: 0.75rem;
+  padding: 0.15rem 0 0.85rem;
+  margin: 0 0 0.75rem;
 }}
 
-.mission-bar h1 {{
-  font-family: var(--font-display);
-  font-size: 1.75rem;
-  font-weight: 600;
+/* Not an <h1>: Streamlit wraps markdown headings in a clipped span (~36px). */
+.mission-bar .mission-title,
+.mission-bar .mission-title span {{
+  font-family: var(--font-display) !important;
+  font-size: clamp(1.35rem, 2.1vw, 1.75rem) !important;
+  font-weight: 600 !important;
   letter-spacing: -0.02em;
-  line-height: 1.2;
-  color: var(--text);
+  line-height: 1.35 !important;
+  color: var(--text) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  height: auto !important;
+  max-height: none !important;
+  max-width: 52rem;
+}}
+
+.mission-bar .telemetry {{
   margin: 0;
 }}
 
@@ -83,6 +98,14 @@ _CSS = f"""
   letter-spacing: 0.04em;
   color: var(--muted);
   margin: 0.4rem 0 0;
+  line-height: 1.45;
+  overflow: visible;
+  word-break: break-word;
+  white-space: normal;
+}}
+
+.st-key-map-meta .telemetry {{
+  margin-top: 0.35rem;
 }}
 
 .demo-banner {{
@@ -105,6 +128,21 @@ _CSS = f"""
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
   box-shadow: none;
+  min-width: 0;
+  box-sizing: border-box;
+}}
+
+.cockpit-card {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow: hidden;
+}}
+
+.cockpit-card.is-empty {{
+  min-height: 7.5rem;
+  justify-content: center;
+  gap: 0.5rem;
 }}
 
 .viewport {{
@@ -118,7 +156,7 @@ _CSS = f"""
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);
-  margin: 0 0 0.35rem;
+  margin: 0;
 }}
 
 .cockpit-card p,
@@ -126,6 +164,62 @@ _CSS = f"""
   font-family: var(--font-body);
   color: var(--muted);
   margin: 0;
+  line-height: 1.4;
+}}
+
+.cockpit-card .empty-prompt {{
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: 0;
+}}
+
+.cockpit-card .kpi-value {{
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text);
+  margin: 0;
+  word-break: break-word;
+}}
+
+.cockpit-card .kpi-source {{
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--muted);
+  margin: 0;
+  margin-top: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}}
+
+.cockpit-card .kpi-note {{
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+  margin: 0;
+}}
+
+.cockpit-card .detail-line {{
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}}
+
+.cockpit-card .chip {{
+  align-self: flex-start;
+  margin: 0.1rem 0 0.25rem;
 }}
 
 .chip {{
@@ -174,12 +268,14 @@ _CSS = f"""
 }}
 
 .null-note {{
-  margin: 0.25rem 0 0.5rem;
-  padding: 0.4rem 0.7rem;
+  margin: 0.5rem 0 0.65rem;
+  padding: 0.45rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--muted);
   font-family: var(--font-body);
+  font-size: 0.85rem;
+  line-height: 1.4;
 }}
 
 button[data-baseweb="tab"] {{
@@ -300,11 +396,17 @@ button[data-baseweb="tab"][aria-selected="true"] {{
   overflow-x: hidden;
 }}
 
+.st-key-inspector-slot .cockpit-card.is-empty {{
+  min-height: 400px;
+  justify-content: center;
+}}
+
 .st-key-map-meta {{
   position: relative;
   z-index: 2;
   margin-top: 0.5rem;
   background: var(--bg);
+  overflow: visible;
 }}
 
 .compare-row {{

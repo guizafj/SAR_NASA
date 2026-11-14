@@ -17,8 +17,10 @@ def _public_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
 def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     limits = getattr(loaders, "load_documented_limits", lambda: {})()
     st.markdown(
-        '<div class="cockpit-card"><p class="kicker">Educación</p>'
-        "<p>Sin texto científico aprobado por el Rol 3.</p></div>",
+        '<div class="cockpit-card is-empty">'
+        '<p class="kicker">Educación</p>'
+        '<p class="empty-prompt">Sin texto científico aprobado por el Rol 3.</p>'
+        "</div>",
         unsafe_allow_html=True,
     )
     caveat = limits.get("section_8_caveat") if isinstance(limits, dict) else None

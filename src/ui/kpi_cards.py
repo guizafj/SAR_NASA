@@ -28,11 +28,14 @@ def render_kpi_cards(items: list[dict[str, Any]] | None) -> None:
         unit_text = f" {unit}" if unit else " (unidad no declarada)"
         source = item.get("provenance_id") or "fuente no declarada"
         note = item.get("note") or ""
+        note_html = (
+            f'<p class="kpi-note">{html.escape(str(note))}</p>' if note else ""
+        )
         column.markdown(
             '<div class="cockpit-card">'
             f'<p class="kicker">{html.escape(str(item.get("label") or "kpi"))}</p>'
-            f"<p>{html.escape(_shown(item.get('value')))}{html.escape(unit_text)}</p>"
-            f"<p>{html.escape(str(source))}</p>"
-            f"<p>{html.escape(str(note))}</p></div>",
+            f'<p class="kpi-value">{html.escape(_shown(item.get("value")))}{html.escape(unit_text)}</p>'
+            f'<p class="kpi-source" title="{html.escape(str(source))}">{html.escape(str(source))}</p>'
+            f"{note_html}</div>",
             unsafe_allow_html=True,
         )
