@@ -20,6 +20,7 @@ inspects the rules alone, which is what "is this file invisible to ``git add -A`
 from __future__ import annotations
 
 import pathlib
+import re
 import shutil
 import subprocess
 
@@ -46,8 +47,11 @@ NEVER_COMMITTABLE = (
     # local credentials / editor + venv state — all covered by the blanket `.*` rule
     ".env",
     ".venv/lib/python3.14/site-packages/x.py",
-    # Streamlit keeps real secrets here locally; only .streamlit/*.example belongs in git
-    ".streamlit/config.toml",
+    # Streamlit's documented secrets location. `config.toml` is NOT listed here on purpose: it
+    # carries theme only, and it is committed so the app boots with the theme the demo was designed
+    # against (2026-11-14). The secret risk is policed by CONTENT instead — see
+    # test_streamlit_config_carries_no_secrets.
+    ".streamlit/secrets.toml",
     # raw downloads: one NISAR GUNW is ~2.3 GB and cannot be removed from history
     "data/raw/mexico-city/nisar_gunw/granule.h5",
     # pipeline sidecars (enrich_context.py output) are regenerated, not shipped
@@ -72,6 +76,9 @@ TRACKABLE = (
     # untracked-but-ignored: `git add -A` skips it and the published repo ships with no ignore
     # rules at all. Caught on 2026-11-14 by a cross-branch scan, not by this guard.
     ".gitignore",
+    # The app boots with this theme; it must stay trackable, which is what `!.streamlit/` plus
+    # `!.streamlit/config.toml` in .gitignore exist for.
+    ".streamlit/config.toml",
     "LICENSE",
     "CONTEXT.md",
     "docs/decisions.md",
@@ -176,4 +183,45 @@ def test_no_tracked_file_is_ignored() -> None:
     assert not ignored, (
         "tracked files are also matched by an ignore rule (invisible to `git add -A` after a "
         "re-add, e.g. following a reset):\n  " + "\n  ".join(sorted(ignored))
+    )
+
+
+#: A `config.toml` is trackable because it carries the app's theme, so the secret risk moves from
+#: the filename to the content: these key names and value shapes must never appear in it.
+#: Deliberately narrow -- `primaryColor = "#06B6D4"` is configuration, not a credential.
+SECRET_KEY_RE = re.compile(
+    r"(?i)\b(pass(word|wd)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|"
+    r"credential|auth[_-]?key|session[_-]?key|cookie)\b"
+)
+SECRET_VALUE_RE = re.compile(
+    r"(?i)(EARTHDATA|ASF_[A-Z_]*|Bearer\s|Basic\s|-----BEGIN)"  # known credential shapes
+    r"|\b[A-Za-z0-9+/_-]{32,}={0,2}\b"  # opaque blob: a token, not a colour, font or path
+)
+
+
+def test_streamlit_config_carries_no_secrets() -> None:
+    """A committed `.streamlit/config.toml` may theme the app; it may not hold a credential."""
+    config = ROOT / ".streamlit" / "config.toml"
+    tracked = config.relative_to(ROOT).as_posix() in _git("ls-files").stdout.split("\n")
+    if not tracked:
+        pytest.skip(
+            "no tracked .streamlit/config.toml (the theme is optional; secrets.toml is what "
+            "must never be tracked, and NEVER_COMMITTABLE checks that path)"
+        )
+
+    findings: list[str] = []
+    for lineno, line in enumerate(config.read_text(encoding="utf-8").splitlines(), start=1):
+        stripped = line.split("#", 1)[0].strip()
+        if not stripped or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        if SECRET_KEY_RE.search(key):
+            findings.append(f"  line {lineno}: secret-shaped key: {stripped}")
+        elif SECRET_VALUE_RE.search(value):
+            findings.append(f"  line {lineno}: credential-shaped value under {key.strip()!r}")
+
+    assert not findings, (
+        ".streamlit/config.toml is tracked (it themes the app) but looks like it holds a "
+        "credential. Streamlit reads secrets from .streamlit/secrets.toml, which is gitignored:"
+        "\n" + "\n".join(findings)
     )

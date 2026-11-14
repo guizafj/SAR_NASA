@@ -10,9 +10,13 @@
 !.gitattributes
 !.dockerignore
 !.python-version
-# `.streamlit/` is NOT re-included: Streamlit keeps real secrets in config.toml locally, so per
-# tests/test_gitignore_policy.py only a `.streamlit/*.example` belongs in git. A branch that ships
-# a real config.toml is a cross-branch inconsistency to reconcile, not an ignore-rule to widen.
+# `.streamlit/` IS re-included: the theme config the app boots with is public and carries no
+# secrets (tests/test_gitignore_policy.py checks its content for secret-shaped keys). Streamlit's
+# documented secrets location is `.streamlit/secrets.toml`, which stays ignored below — the order
+# is load-bearing, because the last matching rule wins.
+!.streamlit/
+!.streamlit/config.toml
+.streamlit/secrets.toml
 
 # `.gitignore` matches its own `.*` rule, which means it is untracked-but-ignored and `git add -A`
 # silently skips it: the published repo would ship with NO ignore rules and no protection for

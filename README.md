@@ -496,10 +496,17 @@ python3 -m venv .venv
 ./scripts/python.sh pipeline/ingest/02_search_download.py download \
     --city mexico-city --source nisar_gunw --stack recommended --max-gb 6 --dry-run
 #    Offline and reproducible: no credentials, no writes (a guard executes this exact line).
-#    But NISAR GUNW arrives SIZELESS from the ASF SearchAPI, so this plan cannot refuse on budget —
-#    it sums 0 MB. To make the cap real, add `--probe-sizes` (one unauthenticated HEAD per planned
-#    granule, ~2.34 GB each): the 12-granule CDMX plan then prints 28.23 GB and exits 5, refusing
-#    before any byte moves. Details: docs/first-granule-runbook.md.
+#    But NISAR GUNW arrives SIZELESS from the ASF SearchAPI, so this plan cannot refuse on budget:
+#    it sums 0 MB and says the cap was not preflighted, rather than pretending it was.
+#    Details: docs/first-granule-runbook.md.
+
+# 4b. The same plan with sizes resolved, which is what makes `--max-gb` real: one unauthenticated
+#     HEAD per planned granule (~2.34 GB each) reads Content-Length before any granule byte moves.
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city mexico-city --source nisar_gunw --stack recommended --max-gb 6 --probe-sizes --dry-run
+#    exits 5: the 12-granule CDMX plan sums 28.23 GB against the 6 GB cap and refuses.
+#    Raise `--max-gb` only to the size the probe printed (a deliberate act, recorded in
+#    `provenance.json.max_gb`), never blind — see step 5.
 
 # 5. Download (needs Earthdata credentials AND the one-time ASF application approval;
 #    fails closed, with an actionable message, when either is missing)
