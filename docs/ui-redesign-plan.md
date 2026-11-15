@@ -1,9 +1,9 @@
 # Plan de rediseño del cockpit — pantalla 1 ("1. Map")
 
-Fase 0 del pack `docs/opencode_pack/PROMPT_rediseno_cockpit.md`. **Sin código**: fija sujeto,
-audiencia, trabajo de la pantalla, tokens existentes y los dos wireframes que la Fase 1 implementa.
-Fuente de verdad de la presentación: `docs/presentation-integration.md`; este documento solo decide
-jerarquía y geometría.
+Fase 0 del pack de rediseño local (carpeta «opencode_pack», no versionada). **Sin código**: fija
+sujeto, audiencia, trabajo de la pantalla, tokens existentes y los dos wireframes que la Fase 1
+implementa. Fuente de verdad de la presentación: `docs/presentation-integration.md`; este documento
+solo decide jerarquía y geometría.
 
 ## 1. Sujeto y audiencia
 
