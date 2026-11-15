@@ -263,6 +263,7 @@ body,
   gap: 0.45rem;
   height: 100%;
   overflow: visible;
+  margin-bottom: 1rem;
 }}
 
 .cockpit-card.is-empty {{
