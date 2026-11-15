@@ -363,18 +363,22 @@ the one the span can identify (`_harmonic_order`). **There is no step code anywh
 `harmonic_fit` says so in its docstring ("step detection is deliberately out of scope"), and a
 step-date search would overfit a 12-date window. Nothing publishes a step duration or date.
 
-**Regime index** — *computed but not published*:
+**Regime index** — *computed and published*:
 
 ```
 R = |ṫ| / A_seasonal     →  "inelastic" > 2, "transitional" 1–2, "elastic" < 1
 ```
 
-`transforms.classify_regime` computes it and `HarmonicFit.regime` carries it, but
-`pipeline/process_case.py` never reads `fit.regime`, no contract field transports it, and no
-artefact writes it — so elastic/inelastic/transitional is **not** a published number today. What
-the app colours is the frozen risk band below, which is a velocity threshold, not a regime.
-Publishing `R` needs a stack long enough for the annual term to be identifiable; before that the
-field would assert recoverability the window cannot resolve.
+`transforms.classify_regime` computes it and `HarmonicFit.regime` carries it; the contract freezes the enum in
+`REGIMES` and **transports it**: `regime` is a required grid column, and `stats.median_ratio_R` /
+`stats.dominant_regime` carry the case-level summary, so the band is a published artefact field rather than an
+internal number. What the app *colours* on the map is the frozen risk band below — a velocity threshold, a different
+quantity — while the regime reaches the reader as a value and a card.
+
+The reason that field can be trusted is the gate in front of it: `transforms` refuses to fit below
+`MIN_SEASONAL_COVERAGE_PER_HARMONIC` cycles per harmonic and `MAX_DESIGN_CONDITION`, and a case under either publishes
+`seasonal_amp_mm = 0` ("not fitted"), `ratio_R = null` and `regime = "transitional"` instead of a recovered band.
+The field therefore never asserts recoverability the window cannot resolve.
 
 **Storage loss** — *volume implemented, coefficient designed*:
 

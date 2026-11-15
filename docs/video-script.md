@@ -9,8 +9,8 @@
 
 | Tab strip | Label | What is actually on it | Honesty beat it carries |
 |---|---|---|---|
-| first tab | `Map` | the deck on the left, the reading panel on the right (the map is twice as wide); panel order: legend row → `Whole area` or the cell id → **the series, as the hero** → a strip with velocity, coherence, ratio R → `Deformation` / `Quality` / `Provenance` groups. Under the whole row: the null-result note. At the bottom: `Case comparison and context` (collapsed) | `DEMONSTRATION DATA` banner above everything; `Case comparison and context` → `Scale and provenance` |
-| second tab | `Series and KPIs` | KPI cards, the case series with the dashed `Seasonal fit`, `Three cities, shared axis`, land-use bars with the detection-limit lines | the seasonal term shown as a fit |
+| first tab | `Map` | the deck on the left, the reading panel on the right (the map is twice as wide); the velocity legend row sits **under the deck**, before `Export filtered cells (CSV)`; panel order: `H3 cell` → `Whole area` or the cell id → **the series, as the hero** → a strip with velocity, coherence, ratio R → `Deformation` / `Quality` / `Provenance` groups. Under the same row — and only for a case whose velocity sits below its declared detection limit, i.e. Málaga — the null-result note. At the bottom: `Case comparison and context` (collapsed) | `DEMONSTRATION DATA` banner above everything; `Case comparison and context` → `Scale and provenance` |
+| second tab | `Series and KPIs` | KPI cards, the case series with the dashed `Seasonal fit`, `Three cities, shared axis`, land-use bars, with ±detection-limit reference lines only for Málaga (the case whose `stats` declares a limit) | the seasonal term shown as a fit |
 | third tab | `Hazard and infrastructure` | the delivered context features, per-layer counts and the layer glossary | `Delivered context only, not a hazard assessment` |
 | fourth tab | `Provenance and limits` | the `Case` stat cards and their `Provenance ID`, the `Real NISAR GUNW availability` card, `Known caveat`, `Known limitations`, `Full meta.json record` | the limitations, and the in-app `not GNSS-validated` |
 

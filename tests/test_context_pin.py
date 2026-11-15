@@ -230,6 +230,28 @@ def committed_pin(tmp_path: pathlib.Path, case_id: str = CASE) -> tuple[pathlib.
     return path, json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_every_contract_case_has_a_committed_pin() -> None:
+    """Every case the contract names must ship its pin, or the guard below would go quiet.
+
+    `committed_pin` and `test_the_pin_keeps_the_derived_sea_polygon` skip a case with no pin: an
+    honest state for a case whose context is the declared synthetic fallback, which was never
+    derived from OSM and has nothing to store. It is *not* an honest state for the three contract
+    cases — their pins are committed under `config/context/` — and moving that directory aside used
+    to remove 10 of this module's 47 items (`37 passed, 10 skipped`) while the file exited 0.
+
+    Deliberately *not* parametrised over `C.CASE_IDS`: a guard that discovers its own inputs cannot
+    notice its inputs disappearing, so this one asks the question directly instead.
+    """
+    missing = [case_id for case_id in C.CASE_IDS if CTX.read_pin(case_id) is None]
+    assert not missing, (
+        f"config/context/ carries no pin for {missing}. Every contract case is OSM-derived and its "
+        "pin is committed, so a missing one is a defect, not a case to skip: restore "
+        "config/context/<case>.json (or re-pin the extract with "
+        "`./scripts/python.sh pipeline/ingest/pin_context.py`)."
+    )
+    assert C.CASE_IDS, "the contract declares no case at all, so no pin could be verified"
+
+
 # ---------------------------------------------------------------------------------------------
 # 1. A raw element becomes the geometry it actually is
 # ---------------------------------------------------------------------------------------------

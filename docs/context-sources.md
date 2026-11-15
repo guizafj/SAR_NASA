@@ -542,3 +542,25 @@ Ciudad de México 7 792 / 105 de 7 897. Málaga es el extremo del motivo 2 —la
 polígono cuyo tag no tiene regla (§3)—, y es justo el caso que una lectura de una sola causa
 convertiría en cifra falsa. No hay una limitación aparte para el mar: lo que la app no debe prometer
 es una cobertura que el extracto no tiene.
+
+## 9. Qué camino escribe qué contexto
+
+Los dos caminos del pipeline **no comparten** el contexto, y hasta ahora ningún documento lo decía. Este fichero
+describe la cadena OSM como si alimentara todo artefacto publicado; alimenta uno.
+
+| camino | función | contexto que publica |
+|---|---|---|
+| mock (`generate_mock.py`) | `pipeline/context.py::load_context` (pin → extracto → fallback declarado) y luego `label_cells` | **708 / 708 / 660** features de OpenStreetMap, con la etiqueta de `land_use` celda a celda |
+| real (`process_case.py`) | `_context`, que arma el anillo del AOI y disuelve los polígonos `land_use` **de la propia grilla** | el anillo del AOI y un polígono por clase de `land_use` presente — en la práctica **2 features**, y `unknown` si no hay `land_use.csv` |
+
+`process_case.py` no menciona `config/context/`, `pin_sha256` ni `load_context` ni una sola vez: el camino real no lee
+los pines. Su propio docstring lo dice bien —«No invented infrastructure, coastline or wells: a real-data artefact says
+only what the pipeline actually derived»—, pero ningún otro documento lo repetía.
+
+Tres consecuencias que un lector debe tener delante:
+
+1. **Ninguna cifra de este documento describe un artefacto real** sin decirlo: la cobertura, el reparto de `unknown` y
+   las clases de §3 son de los tres artefactos mock publicados.
+2. Un artefacto real es honesto en sí mismo —publica sólo lo que derivó—, pero su pestaña 3 mostrará un puñado de
+   polígonos donde la demo muestra 708. No es una regresión silenciosa: es el alcance del camino real hoy.
+3. Que el camino real lleve contexto OSM sería una decisión de contrato y de licencia (§5), no un cambio de una línea.

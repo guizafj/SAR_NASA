@@ -14,6 +14,10 @@
 | Rol 1 (pozo) | `.gitignore` ignora `AGENTS.md` rastreado; elegir `git rm --cached` o quitar la línea | resuelta en esta rama: se mantiene la regla y `AGENTS.md` sale del índice; verificado con `tests/test_gitignore_policy.py` |
 | Rol 3 (yuls) | Retirar la metáfora "one pump" de la narrativa y re-scopear la tesis a `docs/science-guide.md` §3.4 | abierta |
 | Rol 3 (yuls) | Manifiesto de contexto sin sello OSM por tile ni rango, `load_extract` leyendo un tile marcado como fallido y sha256 calculado sobre el buffer y no sobre el archivo | resuelta en esta rama: las tres correcciones están en el código |
+| Todos (integración) | El dueño ordenó integrar en `main` sin la firma de O-05 | integrado por decisión del dueño; firma pendiente |
+| Rol 2 (fradiaz) | Cuatro sitios de tu ámbito tocados al integrar (`app.py`, `context_view.py`, `test_ui_smoke.py`, `test_ui_unit_fallbacks.py`) | abierta — aplicados, redacción pendiente de revisión |
+| Rol 2 (fradiaz) | Coste de render tras la capa OSM: perfil medido, el join elemento→celda se paga dos veces | abierta — propuesta, sin cambios aplicados |
+| Rol 1 + Rol 2 | `admin_boundary`: distancia y banda de riesgo sobre la envolvente de un país (`Indonesia · Critical · 1 238 148 m`) | abierta — medido por Rol 3; el join es de Rol 1, la tabla de Rol 2 |
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
 **De:** Rol 2 (fradiaz)
@@ -282,7 +286,6 @@ Pedimos una decisión: si el contrato 1.1 debe permitir procedencia por capa (p.
 **Impacto en contrato de datos:** posiblemente §6 (propiedades de contexto) y el gate; no se añade ningún campo al esquema en ningún caso.  
 **Aprobación:** Rol 1 (dueño de `src/data/validation.py`); Rol 3 documenta el resultado.  
 **Estado:** ABIERTA — pendiente de Rol 1.
-`.gitignore` y `AGENTS.md` sale del índice (`git rm --cached AGENTS.md`, sin commit). No se reescribe la regla; el archivo sigue en el árbol de trabajo para quien lo lea en local. `tests/test_gitignore_policy.py` vuelve a verde. Si `main` prefiere el otro camino, basta con revertir la línea del índice y quitar la regla; el resto del cambio no depende de esta decisión.
 
 ## Rol 1 (`.gitignore`, CI) — un `AGENTS.md` rastreado también cae en una regla de ignore
 
@@ -391,7 +394,7 @@ nuevos y sus filas en `docs/verification.md`; los números de esa entrada están
 **Aprobación:** pendiente de Rol 1 y Rol 2 (a posteriori). Dueño: Rol 3, que asume la decisión.
 **Estado:** INTEGRADO POR DECISIÓN DEL DUEÑO — firma de O-05 pendiente.
 
-## Rol 2 (`app.py`, `tests/test_ui_smoke.py`) — tres cambios de Rol 3 durante la integración
+## Rol 2 (`app.py`, `src/ui/context_view.py`, `tests/test_ui_smoke.py`) — cuatro cambios de Rol 3 durante la integración
 
 **De:** Rol 3 (yuls)
 **Para:** Rol 2 (fradiaz), dueño de `app.py` y de las pruebas de la UI
@@ -414,6 +417,14 @@ para que los revises: la redacción es tuya.
    `src/ui/components.py::kpi_card` y quitó el límite numérico de `detection_caption`, así que el fichero no
    compilaba. Lo reorienté a los sitios nuevos y trasladé allí el fallback de unidad, porque tu versión imprimía la
    unidad sólo `if unit else ""` — el hueco se había mudado, no cerrado.
+4. **`src/ui/context_view.py` — la pestaña 3 dejaba dos cosas a la interpretación del lector.** Primero, `unknown`
+   aparece como una clase más del filtro, como una barra y como una fila de la tabla, sin glosa: en Ciudad de México
+   es el **68,1 %** de las celdas, y sin una frase se lee como dato que falta. Segundo, la línea `Provenance ID
+   <caso>+mock+…` se sienta encima de filas cuyo `Source` dice OpenStreetMap, que es justo la confusión que
+   `docs/context-sources.md` §6 deshace por escrito. Añadí una `st.caption` bajo la nota de contexto que dice las dos
+   cosas en una frase y remite a la pestaña 4 para la cifra, sin recalcularla en la vista (eso sería ciencia en la
+   UI). La guarda está en `tests/test_attribution.py`, mi fichero, para no tocar tus pruebas; si prefieres otra
+   redacción, cámbiala y ajusta esas dos aserciones.
 
 **Impacto en contrato de datos:** ninguno.
 **Aprobación:** tuya, a posteriori. Dueño de la integración: Rol 3.
@@ -454,3 +465,38 @@ no está repartido, y que una parte se paga dos veces.
 
 **Impacto en contrato de datos:** ninguno; nada de esto cambia una cifra publicada.
 **Estado:** ABIERTA — propuesta de rendimiento, sin cambios aplicados por Rol 3.
+
+## Rol 1 (`src/data/ui_bridge.py`) + Rol 2 (`src/ui/context_view.py`) — la distancia «a la celda más cercana» de una envolvente no es una proximidad
+
+**De:** Rol 3 (yuls)
+**Para:** Rol 1 (pozo), dueño de `get_context_exposure`; Rol 2 (fradiaz), dueño de la tabla de la pestaña 3
+**Contexto:** medido sobre `main`, tres casos, el join de cada elemento de contexto a su celda H3 más cercana.
+
+| caso | n | mín | mediana | máx | elementos > 5 km |
+|---|---|---|---|---|---|
+| mexico-city | 708 | 10,7 m | 171,7 m | **660,2 km** | 83 |
+| jakarta | 708 | 5,2 m | 320,2 m | **1 238,1 km** | 134 |
+| malaga | 660 | 9,0 m | 163,5 m | **55,0 km** | 83 |
+
+Los tres máximos son `admin_boundary` —`México`, `Indonesia`, `Andalucía`— y los tres llevan `risk_level = critico`. La
+mediana es sana, así que el join funciona para puntos y líneas; lo que engaña es aplicarle una lectura de proximidad a un
+polígono que resume un país entero mediante un punto.
+
+**Causa:** el punto representativo de un polígono es la media aritmética de sus vértices (`_feature_point`), que para un
+contorno no es ni el centroide ni un punto interior; en un archipiélago puede caer fuera del propio polígono. Para una
+envolvente, la afirmación honesta no es una distancia sino «sin proximidad significativa».
+
+**Propuesta, una línea por sitio:**
+
+1. **Rol 1**, en `get_context_exposure`: no asignar `risk_level`/`distance_m` a `admin_boundary` (o dejarlos a `None`) y
+   decirlo en el `summary`.
+2. **Rol 2**, en la tabla: mostrar «envolvente» en la columna de distancia para esa capa y excluirla de los recuentos
+   «N on Critical, M on Moderate» — hoy aporta un `critical` por país.
+3. La nota de exposición de la pestaña 3 ya dice que la distancia de una envolvente es la de la envolvente y no la de un
+   lugar; mientras el recuento no la excluya, esa frase y la cifra se contradicen.
+
+**Por qué no lo arreglé yo:** reescribir los valores mostrados rompe `tests/test_ui_matches_artefacts.py`, que compara las
+filas de la pestaña 3 con el artefacto. Es un cambio de semántica del join, no de redacción.
+
+**Impacto en contrato de datos:** ninguno.
+**Estado:** ABIERTA — medido por Rol 3; sin cambios aplicados.

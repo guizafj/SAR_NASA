@@ -141,6 +141,67 @@ def _load(loaders: Any, case_id: Any, filters: dict[str, Any]) -> tuple[list[dic
     return _features(payload), summary, "plain"
 
 
+def context_caption(shown: pd.DataFrame) -> str:
+    """What a reader is most likely to misread on this tab, derived from the rows in front of them.
+
+    Both halves were once hard-coded, and both were wrong.
+
+    `unknown` has **two** causes — no mapped polygon contains the cell's centroid, *or* the containing polygon's tags
+    map to no class of the frozen vocabulary. Naming only the first is false: every `unknown` cell in Málaga sits
+    *inside* a mapped polygon, which is why `tests/test_limitation_disclosures.py` rejects single-cause wording.
+
+    The source claim depends on the payload. The `land_use` shapes are the dissolved H3 cells of this grid and are
+    published with the same case source string as the OpenStreetMap geometry, so calling every polygon OSM data is
+    false for those; and a synthetic-fallback artefact must not be credited to OpenStreetMap at all.
+    """
+    sources = shown["source"].astype(str) if "source" in shown.columns else pd.Series(dtype=str)
+    osm = bool(sources.str.contains("OpenStreetMap", na=False).any())
+    fallback = (not osm) and bool(sources.str.contains("mock|synthetic", case=False, na=False).any())
+    # `shown` has already been humanised for display (`land_use` -> "Land use"), so accept either spelling: the
+    # raw form arrives from a direct call, the humanised one from the rendered table.
+    layer_values = (
+        shown["layer"].astype(str).str.strip().str.lower()
+        if "layer" in shown.columns
+        else pd.Series(dtype=str)
+    )
+    is_land_use = layer_values.isin({"land_use", "land use"})
+    has_land_use = bool(is_land_use.any())
+    # The land_use shapes are dissolved grid cells published with the case source string, so a frame made only of
+    # them must not open with an OpenStreetMap claim: every row shown would be the exception, not the rule.
+    if has_land_use and "source" in shown.columns:
+        osm_others = bool(
+            shown[~is_land_use]["source"].astype(str).str.contains("OpenStreetMap", na=False).any()
+        )
+    else:
+        osm_others = osm
+    if fallback:
+        origin = (
+            "These polygons are the declared synthetic fallback, not OpenStreetMap data — the Source "
+            "column says so on every row."
+        )
+    elif has_land_use and not osm_others:
+        origin = (
+            "These are the dissolved H3 cells of this grid, not OpenStreetMap geometry; they carry the "
+            "case source string."
+        )
+    else:
+        origin = "Context polygons carry OpenStreetMap provenance (ODbL 1.0)"
+        if has_land_use:
+            origin += (
+                "; the `land_use` shapes are the dissolved H3 cells of this grid and carry the same "
+                "case source string rather than OpenStreetMap geometry"
+            )
+        origin += "."
+    return (
+        "Land use “unknown” is a published category, not missing data: either no mapped polygon "
+        "contains the cell's centroid, or the containing polygon's tags map to no class of the frozen "
+        "vocabulary — and it is never extrapolated from a neighbouring cell. The per-case share is "
+        "disclosed under “Limits of this artefact” in tab 4. "
+        + origin
+        + " The provenance ID below names this case's published product, not the origin of the polygons."
+    )
+
+
 def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     case_id = filters.get("case_id")
     rows, summary, source = _load(loaders, case_id, filters)
@@ -225,7 +286,9 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     )
     exposure_note = (
         f'<p class="kpi-note">Nearest filtered H3 cell per feature — {critical} on Critical, '
-        f"{moderate} on Moderate. Proximity is informative, not an exposure model.</p>"
+        f"{moderate} on Moderate. Proximity is informative, not an exposure model. An administrative "
+        f"envelope is summarised by its representative point, so its distance is the envelope's, not a "
+        f"site's.</p>"
         if has_exposure
         else ""
     )
@@ -236,11 +299,18 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     )
     if exposure_note:
         st.markdown(exposure_note, unsafe_allow_html=True)
+    st.caption(context_caption(shown))
     st.markdown(
         f"<p>{len(shown)} features shown of {len(frame)}</p>",
         unsafe_allow_html=True,
     )
     st.markdown(_render_table(shown, single_source), unsafe_allow_html=True)
+    # `CONTEXT_LAYER_GLOSSARY` was imported here and never rendered, so the video script promised a glossary no
+    # reader could find. Four layers with one line each is cheap, collapsed so it never displaces the table.
+    if CONTEXT_LAYER_GLOSSARY:
+        with st.expander("What each layer means", expanded=False):
+            for layer_name, meaning in CONTEXT_LAYER_GLOSSARY.items():
+                st.markdown(f"**{layer_name}** — {meaning}")
 
     text_cols = st.columns(2)
     with text_cols[0]:

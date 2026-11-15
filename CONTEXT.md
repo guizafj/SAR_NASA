@@ -122,6 +122,19 @@ Each case under `data/processed/{case}/` contains exactly four public artefacts:
 | `context_layers.geojson` | Land use, infrastructure, water, and analysis extent | Water can be context without being a displacement cell |
 | `meta.json` | Dates, thresholds, provenance, statistics, limitations, null policy | Carries the mock badge and mandatory null-result bound |
 
+The **context geometry is real, and it is not displacement**. `context_layers.geojson` carries exactly four layers
+(`land_use`, `infrastructure`, `water`, `admin_boundary`) extracted from OpenStreetMap through Overpass, frozen per case
+into `config/context/<case>.json` so a clone reproduces the artefact without the network, and published under **ODbL
+1.0** with `source` and `provenance_id` on every feature — roughly 700 features per case, not a demonstration sketch.
+
+Two consequences a reader must not miss. **`unknown` is a published land-use category, not missing data**: a cell is
+`unknown` when no mapped polygon contains its centroid, or when the containing polygon's tags map to no class of the
+frozen land-use vocabulary, and it is never extrapolated from a neighbouring cell — in the primary case it is about two
+thirds of the cells, which is a gap in OpenStreetMap, not a defect in the grid. And **the `provenance_id` names the
+case's published product** (`<case>+mock+<date>+<sha8>`), not the origin of the polygons: their origin travels in each
+feature's `source`, while `meta.provenance.license` states both facts in one sentence. `docs/context-sources.md` owns
+the detail, including the `unknown` share per case.
+
 The schema, enums, per-product thresholds, and validation rules are owned by
 `src/domain/contracts.py`; `docs/data-contract-v1.md` is their normative prose companion. Do not copy
 those tables into components or this overview.
