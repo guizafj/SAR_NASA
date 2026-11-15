@@ -46,11 +46,29 @@ def test_geometry_and_projection_agree(case):
     assert aoi["name"] == config_case["name"]
 
 
-@pytest.mark.parametrize("case", CASES)
-def test_aoi_ring_matches_the_declared_bbox(case):
+#: One run per shipped case against the real drop-in directory, plus one run of the same contract
+#: with an empty drop-in directory so the *no override* arm executes. All three shipped cases have a
+#: `config/aoi/<case>.geojson`, so without that extra case the "no override -> ring is the configured
+#: bbox" branch below was unreachable (and its `entry["aoi_polygon"]` read would now KeyError — no
+#: case declares an inline ring, on purpose).
+AOI_RING_PARAMS = [pytest.param(case, True, id=f"{case}-shipped-override") for case in CASES]
+if CASES:
+    AOI_RING_PARAMS.append(pytest.param(CASES[0], False, id=f"{CASES[0]}-no-override"))
+
+
+@pytest.mark.parametrize(("case", "use_override"), AOI_RING_PARAMS)
+def test_aoi_ring_matches_the_declared_bbox(
+    case: str, use_override: bool, tmp_path: pathlib.Path
+) -> None:
+    """The AOI ring and the configured bbox must agree, with or without a QGIS override.
+
+    `use_override=True` reads the shipped `config/aoi/` (what the pipeline does);
+    `use_override=False` points the loader at an empty directory, which is the no-override arm.
+    """
     entry = CONFIG["cases"][case]
     west, south, east, north = entry["bbox"]
-    override = ROOT / "config" / "aoi" / f"{case}.geojson"
+    directory = ROOT / "config" / "aoi" if use_override else tmp_path
+    override = directory / f"{case}.geojson"
 
     if override.exists():
         # A QGIS drop-in is allowed to be tighter than the configured bbox. It must stay inside
@@ -72,8 +90,27 @@ def test_aoi_ring_matches_the_declared_bbox(case):
                 f"{[west, south, east, north]}"
             )
     else:
-        # No override: the shipped rectangle is the contract, so ring and bbox must agree exactly.
-        ring = entry["aoi_polygon"]
+        # No override: the shipped rectangle is the contract, so the ring the loader returns and
+        # the bbox it publishes must be exactly the configured envelope.
+        from pipeline.aoi import load_aoi
+
+        aoi = load_aoi(case, entry, aoi_dir=directory)
+        ring = list(aoi.ring)
+        assert aoi.source == "bbox", (
+            f"{case}: with no override in {directory} the loader fell back to "
+            f"{aoi.source!r}, not the configured bbox"
+        )
+        assert ring == [
+            (west, south),
+            (east, south),
+            (east, north),
+            (west, north),
+            (west, south),
+        ], f"{case}: ring {ring} is not the configured bbox rectangle"
+        assert aoi.bbox == pytest.approx((west, south, east, north)), (
+            f"{case}: published bbox {aoi.bbox} differs from the configured "
+            f"{[west, south, east, north]}"
+        )
         assert ring[0] == ring[-1], f"{case}: AOI ring is not closed"
         assert min(p[0] for p in ring) == pytest.approx(west)
         assert max(p[0] for p in ring) == pytest.approx(east)

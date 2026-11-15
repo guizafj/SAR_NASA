@@ -625,7 +625,7 @@ roughly 23 pairs — so this is the corner a short stack lands in, not a hypothe
 > `median_seasonal_amp_mm`/`median_ratio_R`/`dominant_regime` **required**, and they ship as a **fit
 > result** from the same `harmonic_fit` the real path uses — not a typed constant. That is only
 > honest because the window moved to 2 years, where the gates above pass. Either way a consumer must
-> check `meta.schema_version` before assuming a shape.
+> check `meta.schema_version` before assuming a shape. <!-- prohibition-historical: quotes the v1.0 `limitations` line and explains why it existed then (no grid field to publish); it is not a claim about the 1.1 artefacts, which do publish the fitted amplitude -->
 
 ### 3.4 Regime index (computed, and published since v1.1)
 

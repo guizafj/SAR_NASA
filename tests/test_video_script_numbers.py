@@ -1014,28 +1014,8 @@ def _lines_asserting_a_case_fails(card: dict) -> list[str]:
     return failures
 
 
-def test_coverage_caveat_uses_the_denominator_the_threshold_is_defined_on(card: dict) -> None:
-    """The 50 % bar is defined on the AOI H3 cells, so the caveat must speak about those.
-
-    `docs/first-granule-runbook.md` §4 and `pipeline/process_case.py` measure coverage as
-    ``|grid ∩ AOI cells| / |AOI cells|``. The card also prints the bbox envelope for context; a
-    caveat built on the envelope declares failures that do not exist (Jakarta 47.61 % bbox vs
-    55.41 % AOI, Málaga 34.83 % vs 57.26 %). This test therefore:
-
-    * pins the card's authoritative denominator to ``aoi`` and re-derives the below-bar list from
-      the per-case AOI fractions (a card that silently switches back to bbox fails here);
-    * requires every case that really is below to be named on a line that says so;
-    * forbids the script from naming any passing case as under the bar — the regression itself;
-    * still requires a city-wide caveat line, with its evidence (the bar or the MOCK badge).
-    """
-    summary = card.get("coverage_summary") or {}
-    assert summary.get("authoritative_denominator") == "aoi", (
-        "the card must declare which coverage denominator the 50 % bar is measured on; it now "
-        f"says {summary.get('authoritative_denominator')!r} (docs/first-granule-runbook.md §4 "
-        "measures the AOI's H3 cells, not the bbox envelope)"
-    )
-    cases = card.get("cases", [])
-    assert cases, "the card loaded no cases, so the coverage caveat cannot be checked"
+def _below_bar_cases(cases: list[dict]) -> tuple[list[str], float]:
+    """(ids below the AOI coverage bar, the bar) re-derived from the card's own fractions."""
     threshold = None
     below: list[str] = []
     for case in cases:
@@ -1049,20 +1029,70 @@ def test_coverage_caveat_uses_the_denominator_the_threshold_is_defined_on(card: 
         if aoi["fraction"] < float(coverage.get("warning_threshold") or 0.5):
             below.append(str(case["case_id"]))
     assert threshold is not None, "the card publishes no coverage warning threshold"
+    return below, threshold
+
+
+def _below_bar_not_named(
+    below: list[str], threshold: float, folded: list[tuple[int, str]]
+) -> list[str]:
+    """The cases below the bar that no line of the script names as below/under/failing."""
+    missing: list[str] = []
+    for case_id in below:
+        named = any(
+            _case_tokens(case_id) & {t for t in re.split(r"[^a-z0-9-]+", text) if t}
+            and re.search(r"below|under|fails", text)
+            for _, text in folded
+        )
+        if not named:
+            missing.append(
+                f"{case_id} is below the {threshold:.0%} AOI coverage bar but the script never "
+                "says so"
+            )
+    return missing
+
+
+def test_coverage_caveat_uses_the_denominator_the_threshold_is_defined_on(card: dict) -> None:
+    """The 50 % bar is defined on the AOI H3 cells, so the caveat must speak about those.
+
+    `docs/first-granule-runbook.md` §4 and `pipeline/process_case.py` measure coverage as
+    ``|grid ∩ AOI cells| / |AOI cells|``. The card also prints the bbox envelope for context; a
+    caveat built on the envelope declares failures that do not exist (Jakarta 47.61 % bbox vs
+    55.41 % AOI, Málaga 34.83 % vs 57.26 %). This test therefore:
+
+    * pins the card's authoritative denominator to ``aoi`` and re-derives the below-bar list from
+      the per-case AOI fractions (a card that silently switches back to bbox fails here);
+    * requires every case that really is below to be named on a line that says so;
+    * forbids the script from naming any passing case as under the bar — the regression itself;
+    * still requires a city-wide caveat line, with its evidence (the bar or the MOCK badge).
+
+    The shipped tree has **no** case below the bar (53.69 / 55.41 / 57.26 % AOI), so the
+    "must name the case under the bar" loop could not fail. It is asserted empty here and the
+    loop is exercised by `test_a_sub_threshold_case_must_be_named` with a synthetic card.
+    """
+    summary = card.get("coverage_summary") or {}
+    assert summary.get("authoritative_denominator") == "aoi", (
+        "the card must declare which coverage denominator the 50 % bar is measured on; it now "
+        f"says {summary.get('authoritative_denominator')!r} (docs/first-granule-runbook.md §4 "
+        "measures the AOI's H3 cells, not the bbox envelope)"
+    )
+    cases = card.get("cases", [])
+    assert cases, "the card loaded no cases, so the coverage caveat cannot be checked"
+    below, threshold = _below_bar_cases(cases)
     assert below == list(summary.get("below_warning_threshold") or []), (
         f"the card's summary says {summary.get('below_warning_threshold')!r} are below the "
         f"{threshold:.0%} bar but the per-case AOI fractions say {below!r}"
     )
+    assert below == [], (
+        f"shipped expectation: no case is below the {threshold:.0%} AOI bar, but {below} is "
+        "(fractions: "
+        + ", ".join(f"{case['case_id']} {case['coverage']['aoi']['fraction']:.2%}" for case in cases)
+        + "). If that is real, add the line of the script that names it, delete this explicit "
+        "expectation, and keep `test_a_sub_threshold_case_must_be_named` as the branch's proof"
+    )
 
     folded = [(number, _fold(_spoken(line))) for number, line in _lines()]
-    for case_id in below:
-        assert any(
-            _case_tokens(case_id) & {t for t in re.split(r"[^a-z0-9-]+", text) if t}
-            and re.search(r"below|under|fails", text)
-            for _, text in folded
-        ), (
-            f"{case_id} is below the {threshold:.0%} AOI coverage bar but the script never says so"
-        )
+    missing = _below_bar_not_named(below, threshold, folded)
+    assert not missing, "\n".join(missing)
 
     wrong = _lines_asserting_a_case_fails(card)
     assert not wrong, (
@@ -1082,6 +1112,48 @@ def test_coverage_caveat_uses_the_denominator_the_threshold_is_defined_on(card: 
     assert caveats, (
         "docs/video-script.md has no city-wide coverage caveat: it must say what the "
         f"{threshold:.0%} AOI bar does and does not license"
+    )
+
+
+def test_a_sub_threshold_case_must_be_named(card: dict) -> None:
+    """Proof of non-vacuity for the below-bar loop: a synthetic sub-threshold case must be named.
+
+    All three shipped cases clear the bar (AOI fractions 0.554 / 0.573 / 0.537 against 0.5), so the
+    loop in the test above had nothing to iterate over and could not fail. This builds the card
+    that would trip it — Jakarta at 41 % — and shows the guard reports a script that does not say
+    so, and accepts one that does. `card` is the real card: the synthetic case is added to a copy
+    of its structure so the threshold still comes from the shipped artefact, not from this file.
+    """
+    shipped, _ = _below_bar_cases(card["cases"])
+    assert shipped == [], f"the shipped card already has case(s) below the bar: {shipped}"
+
+    cases = [
+        {
+            "case_id": "mexico-city",
+            "coverage": {"warning_threshold": 0.5, "aoi": {"fraction": 0.537}},
+        },
+        {
+            "case_id": "jakarta",
+            "coverage": {"warning_threshold": 0.5, "aoi": {"fraction": 0.41}},
+        },
+    ]
+    below, threshold = _below_bar_cases(cases)
+    assert below == ["jakarta"], f"the synthetic card did not land under the bar: {below}"
+    assert threshold == 0.5
+
+    script = [(number, _fold(_spoken(line))) for number, line in _lines()]
+    missing = _below_bar_not_named(below, threshold, script)
+    assert missing, (
+        "a card whose AOI fractions put jakarta under the bar was accepted by a script that never "
+        "says so; the requirement is vacuous"
+    )
+    assert "jakarta" in missing[0]
+
+    named = script + [
+        (1, _fold("Coverage is 41 percent of the AOI in Jakarta, below the 50 percent bar."))
+    ]
+    assert _below_bar_not_named(below, threshold, named) == [], (
+        "a line naming Jakarta as below the bar did not satisfy the requirement"
     )
 
 
@@ -1144,29 +1216,114 @@ def test_seasonal_claim_tracks_the_identifiability_verdict(card: dict) -> None:
             "amplitude must be presented as a fit, never as a measured cycle"
         )
 
-    if refused:
-        months = sorted(
-            {
-                f"{float(block['window_months']):.1f}"
-                for block in split
-                if block.get("window_months")
-            }
+    # Every shipped case clears the gate (seasonal_identifiable: true, 2.004 cycles vs 0.75), so
+    # the refusal branch below could never run. The shipped expectation is asserted explicitly and
+    # the branch is exercised by `test_a_refused_seasonal_claim_must_quote_its_window`.
+    assert refused == [], (
+        f"shipped expectation: every case is identifiable, but {refused} are refused. If a case is "
+        "really below the coverage gate, add the script line that quotes its window or the gate, "
+        "delete this expectation, and keep "
+        "`test_a_refused_seasonal_claim_must_quote_its_window` as the refusal branch's proof"
+    )
+    refusal = _seasonal_refusal_not_quoted(
+        refused, split, seasonal_lines, (card.get("honesty") or {}).get("do_not_claim") or []
+    )
+    assert not refusal, "\n".join(refusal)
+
+
+def _seasonal_refusal_not_quoted(
+    refused: list[str],
+    split: list[dict],
+    seasonal_lines: list[tuple[int, str]],
+    do_not_claim: list[str],
+) -> list[str]:
+    """The refusal that the script does not back up by quoting the window or the gate."""
+    if not refused:
+        return []
+    months = sorted(
+        {
+            f"{float(block['window_months']):.1f}"
+            for block in split
+            if block.get("window_months")
+        }
+    )
+    gate = None
+    for text in do_not_claim:
+        match = re.search(r"below the (\d+)\s*d\b", text)
+        if match:
+            gate = match.group(1)
+            break
+    quoted = any(
+        any(
+            re.search(rf"{re.escape(value)}\s*[- ]month", text, re.IGNORECASE)
+            for value in months
         )
-        gate = None
-        for text in (card.get("honesty") or {}).get("do_not_claim") or []:
-            match = re.search(r"below the (\d+)\s*d\b", text)
-            if match:
-                gate = match.group(1)
-                break
-        assert any(
-            any(
-                re.search(rf"{re.escape(value)}\s*[- ]month", text, re.IGNORECASE)
-                for value in months
-            )
-            or (gate is not None and re.search(rf"\b{gate}\s*d\b", text))
-            for _, text in seasonal_lines
-        ), (
-            f"the card refuses a seasonal amplitude for {refused} (window "
-            f"{', '.join(months)} months, {gate or '?'} d identifiability gate), so the script "
-            "must quote the window or the gate behind that refusal"
-        )
+        or (gate is not None and re.search(rf"\b{gate}\s*d\b", text))
+        for _, text in seasonal_lines
+    )
+    if quoted:
+        return []
+    return [
+        f"the card refuses a seasonal amplitude for {refused} (window "
+        f"{', '.join(months)} months, {gate or '?'} d identifiability gate), so the script "
+        "must quote the window or the gate behind that refusal"
+    ]
+
+
+def test_a_refused_seasonal_claim_must_quote_its_window(card: dict) -> None:
+    """Proof of non-vacuity for the refusal branch: a synthetic refused case must be answered.
+
+    Every shipped case carries ``seasonal_identifiable: true`` (2.004 cycles against the 0.75 gate),
+    so the requirement that the script quote the window/gate behind a refusal never executed. This
+    builds that card — one case refused on a 4.4-month window, with the card's ``do_not_claim``
+    naming its gate — and shows the guard rejects a script that answers neither, and accepts one
+    that quotes the gate (and one that quotes the window).
+    """
+    split = card.get("seasonal_split") or []
+    assert split, "the demo card publishes no seasonal_split to base the fixture on"
+    refused_block = {
+        "case_id": "jakarta",
+        "window_days": 132,
+        "window_months": 4.4,
+        "annual_coverage": 0.36,
+        "coverage_gate": 0.75,
+        "seasonal_identifiable": False,
+        "median_seasonal_amp_mm": None,
+        "median_ratio_R": None,
+        "dominant_regime": "transitional",
+    }
+    synthetic = [refused_block] + [
+        block for block in split if str(block.get("case_id")) != "jakarta"
+    ]
+    refused = sorted(
+        str(block["case_id"]) for block in synthetic if not block.get("seasonal_identifiable")
+    )
+    assert refused == ["jakarta"], f"the synthetic split did not refuse a case: {refused}"
+
+    do_not_claim = list((card.get("honesty") or {}).get("do_not_claim") or []) + [
+        "no seasonal claim below the 276 d identifiability gate"
+    ]
+    script = [(number, _fold(_spoken(line))) for number, line in _lines()]
+    seasonal_lines = [(number, text) for number, text in script if "seasonal" in text]
+
+    problems = _seasonal_refusal_not_quoted(refused, synthetic, seasonal_lines, do_not_claim)
+    assert problems, (
+        "a card that refuses jakarta's seasonal amplitude was accepted by a script that quotes "
+        "neither its window nor its gate; the requirement is vacuous"
+    )
+    assert "jakarta" in problems[0] and "4.4" in problems[0]
+
+    with_gate = seasonal_lines + [
+        (1, _fold("The seasonal amplitude is refused below the 276 d identifiability gate."))
+    ]
+    assert _seasonal_refusal_not_quoted(refused, synthetic, with_gate, do_not_claim) == [], (
+        "a line quoting the gate did not satisfy the refusal requirement"
+    )
+
+    with_window = seasonal_lines + [
+        (1, _fold("On a 4.4 month window the seasonal amplitude is not identifiable."))
+    ]
+    assert _seasonal_refusal_not_quoted(refused, synthetic, with_window, do_not_claim) == [], (
+        "a line quoting the window did not satisfy the refusal requirement"
+    )
+

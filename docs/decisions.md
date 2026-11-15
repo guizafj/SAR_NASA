@@ -488,7 +488,7 @@ reads the 1.1 fields (`grep -rn` over `app.py` and `src/` returns nothing), so t
 UI nothing. Executed as: `src/domain/contracts.py` and `tests/test_contracts.py` restored from this
 branch, `docs/data-contract-v1.md` kept at 1.0, and the fingerprint re-verified as `049376b0…` <!-- fingerprint-historical: option A's v1.0 digest; superseded by the 2026-11-15 reversal --> (D-28,
 PR #3). Option C (1.2 with nullable seasonal fields) stays the technically honest version if the
-project outlives the hackathon.
+project outlives the hackathon. <!-- prohibition-historical: records the 2026-11-14 option-A decision to stay on 1.0, when the amplitude was unpublishable on that window; superseded 2026-11-15 by the 2-year window and O-05 -->
 
 **Superseded 2026-11-15 — the reversal below replaces this answer.** The reversion described above is
 undone: this branch adopts 1.1 and widens the mock window instead, which removes the reason option A

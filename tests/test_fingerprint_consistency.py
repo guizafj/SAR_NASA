@@ -19,7 +19,10 @@ not copied here; :func:`authoritative_fingerprint` imports them from the contrac
 
 Deliberate historical quotes (a document that *intends* to record an older digest, with a reason)
 belong in :data:`HISTORICAL`, path -> reason.  It is empty today: there is no such quote in this
-tree, and it must never be used to excuse a stale live quote.
+tree, and it must never be used to excuse a stale live quote. Re-enabling it is a deliberate edit:
+``test_the_guard_scans_a_non_empty_quote_surface`` asserts that nothing was skipped, so adding an
+entry also means saying so there, and ``test_a_bad_allowlist_entry_is_reported`` proves the entry
+checks (file exists, reason non-blank) actually run.
 
 Hermetic by construction: local files only, no network, no subprocess.  The sample strings used to
 prove the checker rejects bad input are assembled at runtime, so this module does not quote a
@@ -240,6 +243,15 @@ def test_the_guard_scans_a_non_empty_quote_surface() -> None:
         "no full or abbreviated fingerprint quote found in any document or test; the guard "
         "would pass vacuously"
     )
+    # Nothing may be excused from the scan. `skipped` is the files listed in HISTORICAL; asserting
+    # it is empty keeps the allowlist from becoming a hole nobody notices (an entry is a deliberate
+    # two-file change: this assertion *and* HISTORICAL). It was computed and only printed before,
+    # which meant the exemption could be granted without the guard saying so.
+    assert not skipped, (
+        f"{skipped} were excused from the quote scan by HISTORICAL; no file may be silently skipped "
+        "— if a historical quote is genuinely needed, remove the entry from HISTORICAL or say here "
+        "why this file is exempt (and keep the reason in HISTORICAL)"
+    )
     assert any(path.startswith("docs/") for path in files_with_quotes), (
         f"no docs/*.md quotes a fingerprint; scanned: {files_with_quotes}"
     )
@@ -252,11 +264,42 @@ def test_the_guard_scans_a_non_empty_quote_surface() -> None:
     )
 
 
+def allowlist_problems(historical: dict[str, str], root: pathlib.Path = ROOT) -> list[str]:
+    """Problems with a HISTORICAL allowlist: an entry must name a real file and carry a reason.
+
+    A function rather than an inline loop because the live allowlist is empty, so the loop body
+    would never execute; the synthetic allowlists in the tests below exercise it.
+    """
+    problems: list[str] = []
+    for relative, reason in historical.items():
+        if not (root / relative).is_file():
+            problems.append(f"HISTORICAL names a missing file: {relative}")
+        elif not reason.strip():
+            problems.append(f"HISTORICAL entry {relative!r} needs a reason")
+    return problems
+
+
 def test_historical_allowlist_entries_are_existing_and_justified() -> None:
     """A HISTORICAL entry must name a real file and carry a reason, so it cannot rot into a hole."""
-    for relative, reason in HISTORICAL.items():
-        assert (ROOT / relative).is_file(), f"HISTORICAL names a missing file: {relative}"
-        assert reason.strip(), f"HISTORICAL entry {relative!r} needs a reason"
+    problems = allowlist_problems(HISTORICAL)
+    assert not problems, "\n".join(problems)
+
+
+def test_a_bad_allowlist_entry_is_reported(tmp_path: pathlib.Path) -> None:
+    """Proof the allowlist checks bite: an absent file and a blank reason are both refused.
+
+    The live allowlist is empty (see HISTORICAL), so without this the checks above would never
+    run. `README.md` is copied in so the *blank reason* case is reachable too.
+    """
+    (tmp_path / "README.md").write_text("quotes no fingerprint\n", encoding="utf-8")
+
+    missing = allowlist_problems({"does-not-exist.md": "why not"}, root=tmp_path)
+    assert missing and "does-not-exist.md" in missing[0], missing
+
+    blank = allowlist_problems({"README.md": "   "}, root=tmp_path)
+    assert blank and "needs a reason" in blank[0], blank
+
+    assert allowlist_problems({"README.md": "records the retired digest"}, root=tmp_path) == []
 
 
 def test_a_wrong_abbreviation_is_reported(tmp_path: pathlib.Path) -> None:

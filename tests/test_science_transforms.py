@@ -82,11 +82,27 @@ def test_los_ignoring_the_horizontal_term_is_a_measurable_error() -> None:
     assert abs(vertical - (-100.0)) > 1.0
 
 
-def test_incidence_outside_the_valid_domain_is_rejected() -> None:
-    for bad in (90.0, 91.0, -1.0, float("nan")):
-        with pytest.raises(ValueError):
-            T.los_unit_vector(bad, HEADING)
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(
+    ("incidence", "reason"),
+    [
+        # 90° is the tangent plane (cosθ = 0), 0° is nadir: both are outside the half-open domain.
+        (90.0, r"incidence_deg must be in \[0, 90\)"),
+        (91.0, r"incidence_deg must be in \[0, 90\)"),
+        (-1.0, r"incidence_deg must be in \[0, 90\)"),
+        # NaN is a different failure: it cannot define a look at all, so it is refused before the
+        # range check and the message must say so (asserting one reason for all four would let the
+        # two checks collapse into one).
+        (float("nan"), r"incidence_deg and heading_deg must be finite"),
+    ],
+)
+def test_incidence_outside_the_valid_domain_is_rejected(incidence: float, reason: str) -> None:
+    with pytest.raises(ValueError, match=reason):
+        T.los_unit_vector(incidence, HEADING)
+
+
+def test_a_non_finite_heading_is_rejected() -> None:
+    """A heading of `inf` cannot define a look either, and must say that rather than "out of range"."""
+    with pytest.raises(ValueError, match=r"heading_deg must be finite"):
         T.los_to_vertical(1.0, INCIDENCE, float("inf"))
 
 

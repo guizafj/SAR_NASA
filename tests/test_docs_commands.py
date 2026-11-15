@@ -619,7 +619,16 @@ def test_documented_command_static_checks(command: DocumentedCommand) -> None:
 
 
 def test_missing_docs_are_skipped_with_a_reason() -> None:
-    """A doc that does not exist yet is a visible skip, never silent coverage."""
+    """VISIBILITY DEVICE, NOT A GUARD — both arms always skip; it is not coverage of anything.
+
+    When a documented doc is absent the parametrised checks above already fail (a missing file is
+    reported, never silently treated as "nothing to check"), so there is nothing here to assert:
+    this test exists only so the absence of a doc — or the happy state where every doc exists —
+    shows up in the report instead of being invisible. Deliberately left as skips: turning one arm
+    into an assertion would duplicate the fail-closed checks above, and deleting it would hide the
+    "nothing to parse" state. `test_every_existing_doc_yields_at_least_one_command` is the guard
+    that makes sure the parser does not go blind.
+    """
     if not MISSING_DOC_PATTERNS:
         pytest.skip("every documented file exists")
     pytest.skip(

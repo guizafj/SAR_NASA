@@ -362,14 +362,27 @@ def test_phase_conversion_honours_a_masked_array():
     assert np.isnan(out[1])
 
 
-@pytest.mark.parametrize("wavelength", [None, 0.0, -0.2384, np.nan, np.inf])
-def test_phase_conversion_refuses_a_missing_or_implausible_wavelength(wavelength):
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(
+    ("wavelength", "reason"),
+    [
+        # `None` is a different refusal from an implausible number: the first says "record the
+        # wavelength", the second says "that value cannot be one". Pinning one reason for both
+        # would let the two checks collapse into a single "bad input" path.
+        (None, r"wavelength_m is None"),
+        (0.0, r"wavelength_m must be finite and positive"),
+        (-0.2384, r"wavelength_m must be finite and positive"),
+        (np.nan, r"wavelength_m must be finite and positive"),
+        (np.inf, r"wavelength_m must be finite and positive"),
+    ],
+)
+def test_phase_conversion_refuses_a_missing_or_implausible_wavelength(wavelength, reason):
+    with pytest.raises(ValueError, match=reason):
         G.phase_to_los_displacement_mm(np.array([np.pi]), wavelength)
 
 
 def test_phase_conversion_refuses_a_sign_that_is_not_a_convention():
-    with pytest.raises(ValueError):
+    """`sign` is a convention (+1 / -1), not a scale factor: 2.0 is refused, and says why."""
+    with pytest.raises(ValueError, match=r"sign must be -1 or \+1"):
         G.phase_to_los_displacement_mm(np.array([np.pi]), 0.2384, sign=2.0)
 
 

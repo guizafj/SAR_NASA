@@ -190,7 +190,18 @@ def test_empty_processed_dir_fails_and_names_the_gate(tmp_path: Path) -> None:
     result = run_preflight("--fast", "--processed", str(empty), tmp_root=tmp_root)
 
     assert result.returncode != 0, "an empty artefact root must not be reported as ready"
-    assert "NOT READY" in result.stdout
+    # The NOT READY family: this is the tool's most important behaviour (refusing to claim
+    # success), and it only ever runs when a gate is red. Without these assertions a preflight
+    # that printed READY unconditionally would pass this test, so pin the verdict *word* here and
+    # the machine-readable verdict/ready/failed triple right below.
+    assert "VERDICT: NOT READY" in result.stdout, result.stdout
+    verdict_line = next(
+        (line for line in result.stdout.splitlines() if line.startswith("VERDICT:")), ""
+    )
+    assert verdict_line.startswith("VERDICT: NOT READY —"), (
+        f"the verdict line must say NOT READY with its reason, got {verdict_line!r}"
+    )
+    assert "failed:" in result.stdout.split("VERDICT:", 1)[1], result.stdout
 
     rows = table_rows(result.stdout)
     assert gate_status(rows["artefact gate"]) == "FAIL", rows["artefact gate"]
@@ -201,6 +212,19 @@ def test_empty_processed_dir_fails_and_names_the_gate(tmp_path: Path) -> None:
     # The failing gate's log tail is surfaced on stderr, together with the artefact root it read.
     assert "FAIL artefact gate (size)" in result.stderr
     assert str(empty) in result.stderr
+
+    # Same failure, machine-readable: `verdict`/`ready`/`failed` must agree with the rows. This is
+    # the pair the text output cannot show (`--json` prints no VERDICT line), and it is a second
+    # run because the two formats are exclusive.
+    as_json = run_preflight("--fast", "--json", "--processed", str(empty), tmp_root=tmp_root)
+    assert as_json.returncode != 0, as_json.stdout
+    document = json.loads(as_json.stdout)  # raises if stdout is not clean JSON
+    assert document["verdict"] == "NOT READY", document
+    assert document["ready"] is False, document
+    assert "artefact gate (size)" in document["failed"], document
+    assert [step["name"] for step in document["steps"] if step["status"] == "FAIL"] == document[
+        "failed"
+    ], document
 
 
 def _scratch_repo_from_worktree(tmp_path: Path) -> Path:

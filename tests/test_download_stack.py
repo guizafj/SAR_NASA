@@ -1028,26 +1028,92 @@ def test_committed_recommendation_epochs(city: str, record_property) -> None:
     )
 
     if recommended.get("sample_purpose") == "download":
-        # fresh evidence: the report itself must agree with the measurement, and never hide a
-        # recommendation that cannot feed a fit
-        assert recommended["download_epochs"] == connected, (
-            f"{city}: report claims {recommended['download_epochs']} download epochs, "
-            f"measurement says {connected}"
-        )
-        assert recommended["epoch_sufficient"] is clears
-        if clears:
-            assert connected == epochs, (
-                f"{city}: a sufficient download must be a chain ({len(granule_ids)} pairs -> "
-                f"{epochs} epochs), measured {connected}"
-            )
-        else:
-            assert recommended.get("warning"), (
-                f"{city}: {connected} epochs < MIN_FIT_POINTS={M.MIN_FIT_POINTS} but the report "
-                "carries no `warning`"
-            )
+        assert_download_evidence(city, recommended)
     elif not clears:
         pytest.skip(
             f"{city}: committed evidence predates the connected-run fix — {len(granule_ids)} "
             f"even-sampled id(s) chain into {connected} epoch(s), below MIN_FIT_POINTS="
             f"{M.MIN_FIT_POINTS}; re-run `search` (needs network) to persist the contiguous run"
         )
+
+
+def assert_download_evidence(city: str, recommended: dict) -> None:
+    """The `sample_purpose == "download"` contract: the report agrees with the measurement.
+
+    A named function so the insufficient-epoch arm (the `warning`, below) can be exercised by a
+    synthetic report — every committed stack is `epoch_sufficient: true`, so that arm never ran.
+    """
+    granule_ids = recommended.get("granule_ids") or []
+    epochs = len(granule_ids) + 1
+    connected = local_chain_epochs(granule_ids)
+    clears = connected >= M.MIN_FIT_POINTS
+    assert recommended["download_epochs"] == connected, (
+        f"{city}: report claims {recommended['download_epochs']} download epochs, "
+        f"measurement says {connected}"
+    )
+    assert recommended["epoch_sufficient"] is clears
+    if clears:
+        assert connected == epochs, (
+            f"{city}: a sufficient download must be a chain ({len(granule_ids)} pairs -> "
+            f"{epochs} epochs), measured {connected}"
+        )
+    else:
+        assert recommended.get("warning"), (
+            f"{city}: {connected} epochs < MIN_FIT_POINTS={M.MIN_FIT_POINTS} but the report "
+            "carries no `warning`"
+        )
+
+
+def test_an_insufficient_download_carries_a_warning(tmp_path: pathlib.Path) -> None:
+    """The `warning` arm of `assert_download_evidence`, on a report built in `tmp_path`.
+
+    All committed stacks are `epoch_sufficient: true`, so `assert recommended.get("warning")` was
+    dead: a producer that silently accepted an insufficient download would have gone unnoticed.
+    The report below is the insufficient shape — three sampled granule ids that do NOT chain
+    (36-day cadence, so a 12-day pair never meets the next reference), so they give 2 epochs and
+    `process_case` would refuse them. First the real recommender is asked about the same granules
+    (it must reach the same verdict, which keeps this fixture from drifting away from the
+    producer), then a report dict with those three ids is written under `tmp_path` and read back
+    through the same loading path the committed-evidence test uses.
+    """
+    payload = series("079", "D", 3, cadence=36)
+    live = M.summarise(payload, 250)["recommended_stack"]
+    assert live["epoch_sufficient"] is False and live["warning"], (
+        f"the fixture no longer exercises the insufficient corner: {live}"
+    )
+
+    granule_ids = ids(payload)
+    assert len(granule_ids) == 3, granule_ids
+    connected = local_chain_epochs(granule_ids)
+    assert connected < M.MIN_FIT_POINTS, (
+        f"fixture is unusable: the 3 ids chain into {connected} epoch(s), which is sufficient "
+        f"(MIN_FIT_POINTS={M.MIN_FIT_POINTS}); they must be spaced so no pair meets the next"
+    )
+
+    report = {
+        "sources": {
+            SOURCE: {
+                "recommended_stack": {
+                    "granule_ids": granule_ids,
+                    "sample_purpose": "download",
+                    "download_epochs": connected,
+                    "epoch_sufficient": False,
+                    "warning": live["warning"],
+                }
+            }
+        }
+    }
+    path = tmp_path / "synthetic.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    recommended = (json.loads(path.read_text(encoding="utf-8"))["sources"].get(SOURCE) or {})[
+        "recommended_stack"
+    ]
+
+    assert_download_evidence("synthetic", recommended)  # the warning is present, so this passes
+
+    without = dict(recommended)
+    without.pop("warning", None)
+    with pytest.raises(AssertionError, match="carries no `warning`"):
+        assert_download_evidence("synthetic", without)
+
+
