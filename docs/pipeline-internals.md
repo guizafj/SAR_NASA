@@ -49,7 +49,8 @@ and `frame = tokens[5]`, one token left, so its "track" was the cycle bin, and t
 `track = tokens[7]` — the frame — with no frame field at all. O-06 in `docs/decisions.md` records the
 defect and its fix. The history is kept because it explains the evidence: stacks were once labelled by
 frame, so two orbits could be merged under one label. Nothing published ever depended on the parse —
-the mock path never parses a granule name, and its provenance digest hashes `case|product|seed`.
+the mock path never parses a granule name, and its provenance digest hashes
+`case|product|seed|window` — the window included so two different stacks cannot share an id.
 
 Anything unparseable is reported with what was parsed, never guessed. A name that parses but is
 **not** `L2/GUNW` is refused by the download guard, not silently reinterpreted.

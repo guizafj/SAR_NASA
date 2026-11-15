@@ -729,7 +729,7 @@ are project-level statements that no single artefact carries.
     track/frame one token left and the ingest parser read the frame *as* the track, so a genuinely
     connected multi-date stack could be refused as "mixes relative orbits" and two orbits could be
     merged under one frame label. Nothing published was affected either way: the mock path never
-    parses a granule name, and its provenance digest hashes `case|product|seed`.
+    parses a granule name, and its provenance digest hashes `case|product|seed|window`.
 12. **The LOS sign label contradicted the projection arithmetic (O-08, closed by renaming).**
     `project_to_los` builds `u = [cosθ, −sinθcosα, −sinθsinα]`, so with zero horizontals **uplift
     gives positive LOS** (toward-sensor-positive) and subsidence negative. The phase conversion's

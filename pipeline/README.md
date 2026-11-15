@@ -93,7 +93,8 @@ gate checks the ids resolve across artefacts. `meta.provenance.method` may not b
 — it is the physical claim a reviewer reads: the real chain names the LOS sign convention, the assumed
 `v_north`, wavelength source, incidence/heading source, reference pixel and the H3 mean aggregation
 (`process_case._method_text`), and the mock names its synthetic field model. Discrepancy: contract §8 calls
-the digest "the hash of the input artefact", but the mock hashes `case|product|seed` and the real path
+the digest "the hash of the input artefact", but the mock hashes `case|product|seed|window` (the
+acquisition epochs, so two different stacks cannot share an id) and the real path
 hashes sorted granule file stems — neither hashes file bytes.
 
 ## 6. Numbers a sceptic can reproduce
