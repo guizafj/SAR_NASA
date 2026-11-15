@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 from typing import Any, Mapping
 
 import streamlit as st
@@ -40,6 +41,43 @@ def _stat_card(column: Any, label: str, value: Any, unit: str | None) -> None:
         "</div>",
         unsafe_allow_html=True,
     )
+
+
+# Presentation triage (P0-2): the README §13 lines are verbatim backend copy; the UI only
+# decides what a jury reads first. Nothing here edits or paraphrases the text.
+_TECHNICAL_ID = re.compile(r"O-\d\d")
+_TECHNICAL_MAX_CHARS = 220
+_CAVEAT_LEAD_SENTENCES = 2
+
+
+def split_technical(items: list[str] | None) -> tuple[list[str], list[str]]:
+    """(reader items, technical items). Technical: >220 chars, backticks, or O-NN ids."""
+    visible: list[str] = []
+    technical: list[str] = []
+    for item in items or []:
+        text = str(item)
+        if (
+            len(text) <= _TECHNICAL_MAX_CHARS
+            and "`" not in text
+            and not _TECHNICAL_ID.search(text)
+        ):
+            visible.append(text)
+        else:
+            technical.append(text)
+    return visible, technical
+
+
+def split_caveat(caveat: str | None) -> tuple[str, str]:
+    """First two sentences lead; the rest goes to the technical notes. No text is lost."""
+    text = str(caveat or "")
+    if not text:
+        return "", ""
+    segments = text.split(". ")
+    if len(segments) <= _CAVEAT_LEAD_SENTENCES:
+        return text, ""
+    lead = ". ".join(segments[:_CAVEAT_LEAD_SENTENCES]).rstrip(".")
+    rest = ". ".join(segments[_CAVEAT_LEAD_SENTENCES:]).strip()
+    return f"{lead}.", rest
 
 
 def _case_block(meta: dict[str, Any], case_roles: Mapping[str, Any] | None = None) -> None:
@@ -160,33 +198,37 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
         )
 
     caveat = limits.get("section_8_caveat") if isinstance(limits, dict) else None
-    caveat_body = (
-        f"<p>{safe_inline(caveat)}</p>"
-        if caveat
-        else "<p>No documented caveat for this case.</p>"
-    )
+    caveat_lead, caveat_rest = split_caveat(caveat)
     items = limits.get("section_13") if isinstance(limits, dict) else None
-    items_body = (
-        "".join(f"<p>- {safe_inline(item)}</p>" for item in items)
-        if items
-        else "<p>No documented limitations for this case.</p>"
-    )
+    visible, technical = split_technical(items)
+    note_lines = [f'<p class="tech-line caveat">{safe_inline(caveat_rest)}</p>'] if caveat_rest else []
+    note_lines += [f'<p class="tech-line item">- {safe_inline(item)}</p>' for item in technical]
+    notes_count = len(note_lines)
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Known caveat</p>'
         '<p class="kpi-note">From the project documentation, not from the case artefact.</p>'
-        f"{caveat_body}"
-        "</div>",
+        + (f'<p class="caveat-lead">{safe_inline(caveat_lead)}</p>' if caveat_lead
+           else "<p>No documented caveat for this case.</p>")
+        + "</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Known limitations</p>'
         '<p class="kpi-note">From the project documentation, not from the case artefact.</p>'
-        f"{items_body}"
-        "</div>",
+        + ("".join(f'<p class="limit-line">- {safe_inline(item)}</p>' for item in visible)
+           or "<p>No reader-level limitations; see the technical notes below.</p>")
+        + "</div>",
         unsafe_allow_html=True,
     )
+    if notes_count:
+        with st.expander(f"Technical notes ({notes_count})", expanded=False):
+            st.caption(
+                "Same loader text, not trimmed. Internal ids, file paths and long method notes "
+                "live here."
+            )
+            st.markdown("".join(note_lines), unsafe_allow_html=True)
 
     shown = _public_meta(meta)
     if not shown:

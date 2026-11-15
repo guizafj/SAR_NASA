@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import re
+
 from streamlit.testing.v1 import AppTest
 
 from src.domain.contracts import CASE_IDS
@@ -105,3 +107,35 @@ def test_unknown_url_values_are_ignored_and_replaced() -> None:
     assert 0.0 <= float(app.query_params["coh"]) <= 1.0
     assert app.query_params["case"] == CASE_IDS[0]
     assert "cell" not in app.query_params
+
+
+def test_tab4_reader_plus_technical_equals_loader_total() -> None:
+    from src.data import loaders
+    from src.ui.educational import split_caveat, split_technical
+
+    limits = loaders.load_documented_limits()
+    items = limits["section_13"]
+    visible, technical = split_technical(items)
+    assert len(visible) + len(technical) == len(items)
+    assert visible and technical, "the fixture must exercise both buckets"
+    for text in technical:
+        assert len(text) > 220 or "`" in text or re.search(r"O-\d\d", text)
+
+    caveat = limits["section_8_caveat"]
+    lead, rest = split_caveat(caveat)
+    assert lead and rest
+    assert lead.count(". ") < 2
+    assert caveat.startswith(lead.rstrip(".")) and caveat.endswith(rest)
+
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    assert not app.exception
+    text = "\n".join(node.value for node in app.markdown)
+    n_visible = text.count('class="limit-line"')
+    n_tech_items = text.count('class="tech-line item"')
+    n_tech_caveat = text.count('class="tech-line caveat"')
+    assert n_visible == len(visible)
+    assert n_tech_items == len(technical)
+    assert n_tech_caveat == 1
+    labels = [exp.label for exp in app.expander]
+    assert f"Technical notes ({n_tech_items + n_tech_caveat})" in labels
