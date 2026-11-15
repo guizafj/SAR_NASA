@@ -152,9 +152,9 @@ zstd). `data/processed/` completo debe quedar por debajo de 15 MB (presupuesto d
 Reglas:
 
 - las filas `cell_id == "aoi"` son **obligatorias** y alimentan el gráfico principal: una por fecha
-  y caso (12 filas por ciudad);
+  y caso (62 filas por ciudad con la ventana actual de dos años);
 - las filas por celda son **opcionales** y solo se generan si el fichero completo sigue dentro del
-  presupuesto de 15 MB (12 fechas × ~15 000 celdas supera ese límite en CSV: por defecto **no** se
+  presupuesto de 15 MB (62 fechas × ~15 000 celdas supera ese límite en CSV: por defecto **no** se
   emiten; si se emiten, se limitan a las celdas del top-N por \|velocidad\| o a una resolución H3
   menor, y se documenta el criterio en `meta.stats`);
 - `date` nunca fuera de `meta.dates`; `value` nunca se interpola ni se rellena;

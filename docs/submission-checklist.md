@@ -56,9 +56,9 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       docs/figures -name '*.png' ! -newer "$newest"` → no output for `velocity_shared_scale.png`,
       `timeseries_three_cities.png`, `coherence.png` (`./scripts/python.sh scripts/make_figures.py`).
 - [ ] `data/processed` < 15 MB: `./scripts/python.sh pipeline/validate_artifacts.py --processed
-      data/processed --strict-size-mb 15` → `total size: 1.458 MB / 15 MB`, `RESULT: PASS (exit 0)`.
+      data/processed --strict-size-mb 15` → `total size: 1.687 MB / 15 MB`, `RESULT: PASS (exit 0)`.
       (The size changes whenever the mock or the AOIs change — re-read it, never quote a remembered
-      figure. After the AOI refresh from `config/aoi/*.geojson` it is 1.458 MB, not the earlier 1.607.)
+      figure. With the two-year v1.1 window it is 1.687 MB, not the earlier 1.458.)
 - [ ] `provenance.source` matches `product` on every layer (symmetric rule, `check_phase_a.sh` step 4/4):
       `jq -r '.product + " | " + .provenance.source' data/processed/*/meta.json` → `mock` with a source
       saying mock, a real product with nothing mock. Editing the gate, not the artefact, is forbidden.

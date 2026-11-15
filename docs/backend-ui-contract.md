@@ -117,8 +117,8 @@ def render_map(payload: MapPayload) -> None:
 
 | Mode | Domain (`velocity_mm_yr`) | Neutral grey floor | 3D Extrusion (`extrude_3d=True`) | Visual thesis |
 |---|---|---|---|---|
-| `"shared"` (default) | `[-425, +425] mm/year` (symmetric `RdBu` aligned with `docs/handoff-mock.md` §3b & `velocity_shared_scale.png`) | `[-5, +5] mm/year` (`estable` / `NULL_RESULT_MM_YR`) | Bound to `\|delta_change\|` normalised against `425 mm/year * T` (`MAX_EXTRUDE_METERS = 3000 m`) | CDMX rises in deep crimson towers; **Málaga renders visibly flat grey** |
-| `"independent"` | Seeded from `meta.stats.p05_velocity_mm_yr` / `p95_velocity_mm_yr` (at least `[-8, +8] mm/year`) | `[-detection_limit, +detection_limit]` (e.g. `±1.5 mm/year` in Málaga) | Normalised to city peak `\|delta_change\|` | Reveals local spatial structure while keeping sub-detection noise grey |
+| `"shared"` (default) | `[-425, +425] mm/year` (symmetric `RdBu` aligned with `docs/handoff-mock.md` §3b & `velocity_shared_scale.png`) | `[-5, +5] mm/year` (`estable` / `NULL_RESULT_MM_YR`) | **Signed** `\|delta_change\|` mapped two-sided around `COLUMN_BASELINE_M = MAX_EXTRUDE_METERS / 2 = 1500 m`, normalised against `425 mm/year * T` when shared: subsidence extrudes **downward**, uplift upward | CDMX sinks in deep crimson towers below the baseline; **Málaga's cells sit within metres of it** |
+| `"independent"` | Seeded from `meta.stats.p05_velocity_mm_yr` / `p95_velocity_mm_yr` (at least `[-8, +8] mm/year`) | `[-detection_limit, +detection_limit]` (e.g. `±1.5 mm/year` in Málaga) | Normalised to city peak `\|delta_change\|`, two-sided around the same `COLUMN_BASELINE_M` | Reveals local spatial structure while keeping sub-detection noise grey |
 
 When `kpis.is_null_result` is `True`, the UI **must** display `kpis.detection_limit_mm_yr`
 (e.g. *"Málaga median velocity −1.4 mm/year — within detection limit ±1.5 mm/year"*).
@@ -135,4 +135,4 @@ To stay strictly honest with what the frozen contract stores:
 2. **Cell click (`selected_cell_id`):**
    - Highlights the clicked H3 cell on the map (`is_selected=True`, white border).
    - If `timeseries.csv` contains rows for `cell_id == selected_cell_id`, `SeriesView` returns that cell's exact curve (`is_fallback_to_aoi = False`).
-   - If per-cell rows were omitted to stay under the 15 MiB budget (contract §4), `SeriesView` returns the `"aoi"` curve with `is_fallback_to_aoi = True` alongside the clicked cell's static `cell_static_velocity_mm_yr`, `cell_coherence` and `cell_risk_level` from `nisar_grid.parquet` so the UI labels both honestly.
+   - If per-cell rows were omitted to stay under the 15 MB budget (contract §4), `SeriesView` returns the `"aoi"` curve with `is_fallback_to_aoi = True` alongside the clicked cell's static `cell_static_velocity_mm_yr`, `cell_coherence` and `cell_risk_level` from `nisar_grid.parquet` so the UI labels both honestly.
