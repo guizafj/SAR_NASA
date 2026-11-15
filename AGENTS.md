@@ -59,10 +59,10 @@ Fuente de verdad: `src/domain/contracts.py` (`SCHEMA_VERSION` **1.1**, revisión
 
 ## Diseño
 
-`docs/desing/DESIGN.md` y `docs/desing/stitch/` no están en el árbol (ausente). Los tokens vigentes están aquí y en `.streamlit/config.toml`.
+`docs/desing/DESIGN.md` y `docs/desing/stitch/` no están en el árbol (ausente). Los tokens vigentes están en `src/ui/theme.py` (`DARK` / `LIGHT`), aquí, y espejados en `.streamlit/config.toml`.
 
-- Oscuro, fijado: fondo `#0B0F19`, superficie `#0F172A`, borde 1px `#1E293B`, acento `#06B6D4`, coherencia `#10B981`, alerta `#F59E0B`, coral `#F43F5E` solo para alertas graves o interferogramas inválidos, texto `#F8FAFC` / `#94A3B8`.
-- Claro, papel de instrumento: fondo `#F4F7FB`, superficie `#FFFFFF`, borde `#C5D0DC`, acento `#0E7490`, coherencia `#047857`, alerta `#9A3412`, coral `#BE123C`, texto `#0B1220` / `#526070`. No copies los hex oscuros sobre papel.
+- Oscuro, fijado: fondo `#0B0F19`, superficie `#0F172A`, borde 1px `#1E293B`, acento `#06B6D4`, coherencia `#10B981`, alerta `#F59E0B`, coral `#F43F5E` solo para alertas graves o interferogramas inválidos, texto `#F8FAFC` / `#CBD5E1`.
+- Claro, papel de instrumento: fondo `#F1F5F9`, superficie `#FFFFFF`, borde `#94A3B8`, acento `#0B647D`, coherencia `#047857`, alerta `#9A3412`, coral `#BE123C`, texto `#0B1220` / `#334155`. No copies los hex oscuros sobre papel.
 - Radio 4px. Sin sombras difusas. Botones con borde de acento, nunca relleno sólido a ancho completo.
 - Space Grotesk (títulos), Inter (texto), JetBrains Mono (cifras, coordenadas, IDs), con fallback a fuentes del sistema.
 - `.streamlit/config.toml` declara `[theme.dark]` y `[theme.light]`. Streamlit 1.67 sigue `prefers-color-scheme`. No vuelvas a fijar un solo tema.
@@ -81,9 +81,11 @@ Python solo vía `./scripts/python.sh`. `.venv` existe.
 | Tests | `./scripts/python.sh -m pytest tests -q` |
 | Contrato | `./scripts/python.sh -m src.domain.contracts` |
 | Artefactos | `./scripts/python.sh -m src.data.validation --processed data/processed --require-cases` |
+| Gate de artefactos | `./scripts/check_phase_a.sh` — contrato → suites de artefactos → `/15 MB` → tabla de handoff. Un árbol sin `data/processed/*/nisar_grid.parquet` falla aquí. |
+| Gate de entrega | `./scripts/preflight.sh` — 7 gates y `VERDICT: READY` solo con cero FAIL. `--fast` **omite el gate de pytest**: bajo `--fast` un árbol con la suite en rojo igual imprime `VERDICT: READY`, así que `--fast` no sirve como prueba de entrega. |
 | Lint | (pendiente). No hay ruff, flake8 ni pre-commit. |
 
-`pytest` está en `requirements.txt` (`pytest>=8.0`). CI: `.github/workflows/ci.yml`. `pipeline/validate_artifacts.py` existe; el gate de despliegue usa `src.data.validation`.
+`pytest` está en `requirements.txt` (`pytest>=8.0`). CI: `.github/workflows/ci.yml`, que corre contrato, `pytest tests -q`, `src.data.validation --require-cases`, `check_phase_a.sh` y `preflight.sh --fast` como pasos separados — ahí `--fast` no sustituye la suite, solo evita repetirla. `pipeline/validate_artifacts.py` existe (`--processed`, `--strict-size-mb`); el gate de despliegue usa `src.data.validation`.
 
 ## Git
 
@@ -99,4 +101,4 @@ Commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`. No hagas commit ni push sa
 - Los filtros actualizan mapa, KPIs y gráficos.
 - Cada cifra muestra unidad y fuente.
 - Sin valores ni nombres de caso hardcodeados.
-- Tests pasan.
+- Tests pasan: `./scripts/python.sh -m pytest tests -q` en verde y `./scripts/check_phase_a.sh` en PASS. Para entrega, `./scripts/preflight.sh` completo (no `--fast`) con `VERDICT: READY`.
