@@ -216,7 +216,7 @@ def render_filters(
     # expander is the portable way to keep filters from owning the first screen
     # on a phone while staying open on desktop. `?compact=1` ships it closed.
     compact = st.query_params.get("compact") == "1"
-    with st.expander("Filters", expanded=not compact):
+    with st.expander("Filters", expanded=not compact, key="filters"):
         case_col, land_col, coherence_col, risk_col, extrude_col, theme_col = st.columns(6)
         with case_col:
             st.selectbox(

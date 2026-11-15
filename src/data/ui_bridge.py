@@ -659,6 +659,149 @@ def load_context_layers(
     }
 
 
+def get_context_exposure(
+    case_id: str,
+    filters: Mapping[str, Any] | None = None,
+    *,
+    processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
+) -> dict[str, Any] | None:
+    """Context features joined to their nearest filtered H3 cell — informative only.
+
+    For every feature of `context_layers.geojson` this returns the closest cell of the
+    *filtered* grid and that cell's `risk_level` and `land_use`. It is a proximity
+    cross-reference for the reader, **not** a hazard assessment: it says "this feature
+    sits next to a cell whose velocity band is X", never "this asset is at risk".
+    """
+    payload = load_context_layers(case_id, processed_dir=processed_dir)
+    if not payload:
+        return None
+    bundle = load_case_bundle(case_id, processed_dir=processed_dir)
+    view = apply_filters(bundle, _dict_to_criteria(filters))
+    grid = view.grid
+    if grid.empty:
+        return {"case_id": case_id, "features": [], "summary": {"n_features": 0, "by_risk": {}}}
+    lats = grid["lat"].to_numpy(dtype=np.float64)
+    lons = grid["lon"].to_numpy(dtype=np.float64)
+    cells = grid["cell_id"].astype(str).to_numpy()
+    risks = grid["risk_level"].astype(str).to_numpy()
+    land = grid["land_use"].astype(str).to_numpy()
+    earth_radius_m = 6_371_000.0
+    rows: list[dict[str, Any]] = []
+    by_risk: dict[str, int] = {}
+    for feature in payload.get("geojson", {}).get("features") or []:
+        if not isinstance(feature, Mapping):
+            continue
+        props = feature.get("properties") if isinstance(feature.get("properties"), Mapping) else {}
+        point = _feature_point(feature.get("geometry"))
+        row = {
+            "layer": props.get("layer"),
+            "class": props.get("class"),
+            "name": props.get("name"),
+            "source": props.get("source"),
+            "provenance_id": props.get("provenance_id"),
+            "nearest_cell_id": None,
+            "risk_level": None,
+            "land_use": None,
+            "distance_m": None,
+        }
+        if point is not None:
+            lat0, lon0 = point
+            phi0 = np.radians(lat0)
+            phi = np.radians(lats)
+            dphi = phi - phi0
+            dlam = np.radians(lons - lon0)
+            hav = np.sin(dphi / 2.0) ** 2 + np.cos(phi0) * np.cos(phi) * np.sin(dlam / 2.0) ** 2
+            dist = 2.0 * earth_radius_m * np.arcsin(np.sqrt(np.clip(hav, 0.0, 1.0)))
+            nearest = int(np.argmin(dist))
+            row["nearest_cell_id"] = str(cells[nearest])
+            row["risk_level"] = str(risks[nearest])
+            row["land_use"] = str(land[nearest])
+            row["distance_m"] = round(float(dist[nearest]), 1)
+            by_risk[row["risk_level"]] = by_risk.get(row["risk_level"], 0) + 1
+        rows.append(row)
+    return {
+        "case_id": case_id,
+        "features": rows,
+        "summary": {"n_features": len(rows), "by_risk": by_risk},
+    }
+
+
+def _feature_point(geometry: Any) -> tuple[float, float] | None:
+    """Representative (lat, lon) of a GeoJSON geometry: the point, or the vertex mean."""
+    if not isinstance(geometry, Mapping):
+        return None
+    kind = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if kind == "Point" and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        return float(coords[1]), float(coords[0])
+    pairs: list[tuple[float, float]] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, (list, tuple)) and len(node) >= 2 and all(
+            isinstance(value, (int, float)) for value in node[:2]
+        ):
+            pairs.append((float(node[0]), float(node[1])))
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+
+    walk(coords)
+    if not pairs:
+        return None
+    lon = sum(pair[0] for pair in pairs) / len(pairs)
+    lat = sum(pair[1] for pair in pairs) / len(pairs)
+    return lat, lon
+
+
+_EXPORT_COLUMNS = (
+    "cell_id",
+    "lat",
+    "lon",
+    "val_t1",
+    "val_t2",
+    "delta_change",
+    "velocity_mm_yr",
+    "seasonal_amp_mm",
+    "ratio_R",
+    "regime",
+    "coherence",
+    "land_use",
+    "risk_level",
+    "case_id",
+    "sensor",
+    "product",
+    "unit",
+    "velocity_unit",
+    "source",
+    "provenance_id",
+    "acquisition_date",
+)
+
+
+def get_filtered_export_csv(
+    case_id: str,
+    filters: Mapping[str, Any] | None = None,
+    *,
+    processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
+) -> str:
+    """CSV of the filtered H3 cells with contract columns only (no `color`/`height`)."""
+    bundle = load_case_bundle(case_id, processed_dir=processed_dir)
+    view = apply_filters(bundle, _dict_to_criteria(filters))
+    frame = view.grid
+    ordered = [column for column in _EXPORT_COLUMNS if column in frame.columns]
+    return frame[ordered].to_csv(index=False)
+
+
+def get_cell_export(
+    case_id: str,
+    cell_id: str,
+    *,
+    processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
+) -> dict[str, Any] | None:
+    """Attributes plus the series of one cell, ready to download as JSON."""
+    return get_cell_detail(case_id, cell_id, processed_dir=processed_dir)
+
+
 def load_availability(
     case_id: str,
     *,
@@ -753,22 +896,56 @@ def _extract_case_roles(config_path: pathlib.Path) -> dict[str, dict[str, Any]]:
     return out
 
 
+_PHYSICS_HEADING = "### Scattering physics: surface roughness, dielectric constant, L-band vs C-band"
+
+
+def _extract_physics(path: pathlib.Path) -> list[dict[str, str]]:
+    """Read the three scattering bullets from `README.md` (title + verbatim text)."""
+    if not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8")
+    start = text.find(_PHYSICS_HEADING)
+    if start == -1:
+        return []
+    body = text[start + len(_PHYSICS_HEADING) :]
+    stop = body.find("\n## ")
+    if stop != -1:
+        body = body[:stop]
+    items: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    bullet = re.compile(r"^-\s+\*\*(.+?)\*\*\s*(.*)$")
+    for line in body.splitlines():
+        stripped = line.strip()
+        match = bullet.match(stripped)
+        if match:
+            if current is not None:
+                items.append(current)
+            current = {"title": match.group(1).rstrip("."), "text": match.group(2).strip()}
+        elif current is not None and stripped:
+            current["text"] = f"{current['text']} {stripped}".strip()
+    if current is not None:
+        items.append(current)
+    return items
+
+
 def load_documented_limits(
     readme_path: pathlib.Path | str = ROOT_DIR / "README.md",
     *,
     science_path: pathlib.Path | str = ROOT_DIR / "docs" / "science-guide.md",
     study_cases_path: pathlib.Path | str = DEFAULT_STUDY_CASES_PATH,
 ) -> dict[str, Any]:
-    """Extract documented GNSS caveat, §13 limitations, §1 science summary and case roles."""
+    """Extract the GNSS caveat, §13 limitations, §1 science summary, case roles and physics."""
     path = pathlib.Path(readme_path)
     science_summary = _extract_science_section_1(pathlib.Path(science_path))
     case_roles = _extract_case_roles(pathlib.Path(study_cases_path))
+    physics = _extract_physics(path)
     if not path.is_file():
         return {
             "section_8_caveat": None,
             "section_13": [],
             "science_section_1": science_summary,
             "case_roles": case_roles,
+            "physics": physics,
         }
     text = path.read_text(encoding="utf-8")
     caveat: str | None = None
@@ -814,13 +991,17 @@ def load_documented_limits(
         "section_13": items,
         "science_section_1": science_summary,
         "case_roles": case_roles,
+        "physics": physics,
     }
 
 
 __all__ = [
     "get_case_series",
     "get_cell_detail",
+    "get_cell_export",
     "get_color_scale",
+    "get_context_exposure",
+    "get_filtered_export_csv",
     "get_land_use_bars",
     "get_layer_counts",
     "get_map_kpis",

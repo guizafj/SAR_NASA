@@ -130,7 +130,7 @@ def three_cities_figure(
             showarrow=False,
             xanchor="left",
             xshift=6,
-            font={"color": palette["text"], "size": 10},
+            font={"color": palette["text"], "size": 11},
         )
     style_figure(
         figure,
@@ -193,7 +193,7 @@ def bars_figure(
             yanchor="bottom",
             text=f"Detection limit {format_number(limit)} {unit}",
             showarrow=False,
-            font={"color": palette["muted"], "size": 10},
+            font={"color": palette["muted"], "size": 11},
         )
     return figure
 

@@ -42,8 +42,12 @@ Thumbs.db
 .env
 .env.*
 .streamlit/secrets.toml
-tests
-# Exclude heavy doc figures/design notes from the image, EXCEPT docs/science-guide.md which
-# src/data/ui_bridge.py::load_documented_limits reads at runtime for Tab 4's physics summary.
-docs/*
-!docs/science-guide.md
+
+# Test suite, heavy documentation assets and deployment scaffolding are not read at runtime.
+# README.md, docs/*.md (notably docs/science-guide.md, read by load_documented_limits for Tab 4)
+# and examples/ MUST stay: loaders.py imports examples/reference_loader.py at runtime.
+tests/
+deploy/
+docs/figures/
+docs/opencode_pack/
+docs/desing/

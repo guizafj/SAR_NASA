@@ -7,6 +7,8 @@ draws them.
 from __future__ import annotations
 
 import html
+import json
+import re
 from typing import Any
 
 import pydeck as pdk
@@ -16,9 +18,7 @@ from src.ui.color_scale import FALLBACK_DOMAIN, STOPS
 from src.ui.formatters import (
     NOT_DECLARED,
     SCALE_LABELS,
-    SOURCE_NOT_DECLARED,
     UNIT_NOT_DECLARED,
-    format_dates_span,
     format_number,
     humanize,
     is_shared_scale,
@@ -34,7 +34,8 @@ EMPTY_HINT = "Pick a cell on the map or in the list."
 SATURATION_NOTE = "Values outside the range are saturated."
 LIMIT_MISSING = "detection limit not available"
 # Reading panel: the series is the hero of the right column (plan Fase 1).
-HERO_HEIGHT = 280
+# 225 px keeps the whole figure above the fold at 1440x900 with the filters open.
+HERO_HEIGHT = 225
 HERO_MIN_HEIGHT = 420
 
 _RISK_CLASS = {
@@ -57,8 +58,7 @@ def detection_caption(above_limit: bool | None, limit: Any, unit: str | None) ->
         return None
     if isinstance(limit, bool) or not isinstance(limit, (int, float)):
         return LIMIT_MISSING
-    unit_text = f" {unit}" if unit else ""
-    return f"No detectable signal above the detection limit of {limit:g}{unit_text}"
+    return "No detectable signal above the detection limit (the neutral band above)"
 
 
 def _limit_from_meta(meta: dict[str, Any] | None) -> tuple[Any, str | None]:
@@ -131,62 +131,60 @@ def _legend_inline(scale: dict[str, Any], mode: str) -> str:
         span = f"{format_number(vmin, 1)} … {format_number(vmax, 1)}"
     else:
         span = ""
+    flag = '<span class="legend-flag">saturated</span>' if scale.get("saturated") else ""
     return (
         '<div class="cockpit-card legend-inline">'
         f'<span class="legend-inline-label">{html.escape(humanize(metric))} · {html.escape(str(unit))}</span>'
         f'<div class="legend-bar" style="background: linear-gradient(90deg, {gradient})"></div>'
         f'<span class="legend-inline-range">{html.escape(span)}</span>'
+        f"{flag}"
         "</div>"
     )
 
 
-def _legend_details(
-    scale: dict[str, Any],
-    mode: str,
-    provenance_text: str,
-    counts_text: str,
-) -> str:
-    """Full legend text (adapter caption, saturation, counts, provenance) for the expander."""
-    caption = scale.get("caption")
-    if caption:
-        caption = str(caption).replace("meta.stats ", "")
-    if not caption and scale.get("fallback"):
-        unit = scale.get("unit") or UNIT_NOT_DECLARED
-        caption = (
-            f"Provisional domain [{format_number(scale.get('min'), 1)}, "
-            f"{format_number(scale.get('max'), 1)}] {unit}."
-        )
-    parts = [f'<p class="legend-meta">{html.escape(str(caption))}</p>'] if caption else []
+def _legend_details(scale: dict[str, Any], counts_text: str) -> str:
+    """Scale note for the expander: origin + neutral band, saturation and counts."""
+    caption = _scale_caption(scale)
+    parts = [f'<p class="legend-meta">{html.escape(caption)}</p>'] if caption else []
     if scale.get("saturated"):
         parts.append(f'<p class="legend-meta">{html.escape(SATURATION_NOTE)}</p>')
     if counts_text:
         parts.append(f'<p class="legend-meta">{html.escape(counts_text)}</p>')
-    parts.append(
-        f'<p class="kpi-note">{html.escape(str(SCALE_LABELS.get(mode, str(mode))))} · {html.escape(provenance_text)}</p>'
-    )
     return '<div class="legend-details">' + "".join(parts) + "</div>"
 
 
-def _provenance(meta: dict[str, Any] | None) -> str:
+def _provenance(meta: dict[str, Any] | None) -> tuple[str, str]:
+    """(source, provenance_id) of the case. Sensor/product/unit/dates live in the header."""
     if not isinstance(meta, dict):
-        return f"provenance {NOT_DECLARED}"
+        return NOT_DECLARED, NOT_DECLARED
     provenance = meta.get("provenance") if isinstance(meta.get("provenance"), dict) else {}
+    source = provenance.get("source") or meta.get("source") or NOT_DECLARED
+    provenance_id = meta.get("provenance_id") or provenance.get("provenance_id") or NOT_DECLARED
+    return str(source), str(provenance_id)
+
+
+def _scale_caption(scale: dict[str, Any]) -> str:
+    """Trim the adapter caption to what the ramp does not already say.
+
+    The gradient and its ticks are the single representation of the domain, so the
+    prose keeps only the origin (p05/p95) and the neutral band.
+    """
+    caption = str(scale.get("caption") or "").replace("meta.stats ", "").strip()
+    if not caption:
+        if scale.get("fallback"):
+            unit = scale.get("unit") or UNIT_NOT_DECLARED
+            return (
+                f"Provisional domain [{format_number(scale.get('min'), 1)}, "
+                f"{format_number(scale.get('max'), 1)}] {unit}."
+            )
+        return ""
+    band = re.search(r"neutral band ±([\d.]+)\s*([a-zA-Z/]+)", caption)
     parts: list[str] = []
-    for label, value in (
-        ("Sensor", meta.get("sensor")),
-        ("Product", meta.get("product")),
-        ("Unit", meta.get("unit")),
-        ("Source", provenance.get("source") or meta.get("source")),
-    ):
-        parts.append(f"{label} {value}" if value not in (None, "") else f"{label} {NOT_DECLARED}")
-    # provenance_id before dates so a long acquisition list cannot push it off-screen.
-    provenance_id = meta.get("provenance_id") or provenance.get("provenance_id")
-    parts.append(
-        f"Provenance ID {provenance_id}" if provenance_id else f"Provenance ID {NOT_DECLARED}"
-    )
-    span = format_dates_span(meta.get("dates") if isinstance(meta.get("dates"), list) else None)
-    parts.append(span.capitalize() if span else f"Dates {NOT_DECLARED}")
-    return " · ".join(parts)
+    if "p05" in caption:
+        parts.append("Domain seeded from p05/p95.")
+    if band:
+        parts.append(f"Neutral band ±{band.group(1)} {band.group(2)}.")
+    return " ".join(parts) if parts else caption
 
 
 def _figure_line(
@@ -208,7 +206,7 @@ def _figure_line(
 
 
 def _risk_hint(value: str) -> str:
-    return f"Risk band: {risk_label(value)} (derived from |velocity|, not a separate measurement)."
+    return f"Risk band: {risk_label(value)} (from |velocity|, not a separate measurement)."
 
 
 def _candidate_cells(frame: Any, current: str | None, limit: int = 25) -> list[str]:
@@ -319,7 +317,7 @@ def _inspector_groups(detail: dict[str, Any], case_id: str | None) -> None:
                     detail.get("velocity_unit") if isinstance(detail.get("velocity_unit"), str) else None,
                 ),
                 # Rol 3: positive is toward the sensor, which reads as uplift here.
-                "Positive = toward the sensor (uplift in this geometry); not GNSS-validated.",
+                "Positive = toward the sensor (uplift); not GNSS-validated.",
             ],
         ),
         (
@@ -399,6 +397,15 @@ def _reading_panel(
             ]
         )
         _inspector_groups(detail, case_id)
+        export = _call(loaders, "get_cell_export", str(case_id), str(detail.get("cell_id")))
+        if isinstance(export, dict) and export:
+            st.download_button(
+                "Export selected cell (JSON)",
+                data=json.dumps(export, ensure_ascii=False, indent=2, default=str),
+                file_name=f"{case_id}_{detail.get('cell_id')}.json",
+                mime="application/json",
+                key=f"export-cell-{case_id}",
+            )
     else:
         kpis = _call(loaders, "get_map_kpis", case_id, filters) or []
         stats = [
@@ -446,48 +453,17 @@ def _render_series(
     height: int = HERO_HEIGHT,
     selected: bool = True,
 ) -> None:
-    unit = next((row.get("unit") for row in series if row.get("unit")), None)
-    provenance_id = next((row.get("provenance_id") for row in series if row.get("provenance_id")), None)
     st.plotly_chart(_series_figure(series, height), width="stretch", theme=None, config={"displayModeBar": False})
-    source = provenance_id or SOURCE_NOT_DECLARED
-    unit_text = unit or UNIT_NOT_DECLARED
     if not selected:
-        st.caption(f"Whole-area aggregate series · {unit_text} · Provenance ID {source}")
+        st.caption("Whole-area aggregate series")
         return
     if scope == "aoi":
         note = "This H3 cell has no series of its own; showing the area aggregate"
         if _artefact_omits_cell_series(meta):
             note += " (the artefact does not emit per-cell series)"
-        st.caption(f"{note} · {unit_text} · Provenance ID {source}")
+        st.caption(note)
         return
-    st.caption(f"Cell series · {unit_text} · Provenance ID {source}")
-
-
-def _render_kpis(kpis: Any) -> None:
-    if not isinstance(kpis, list) or not kpis:
-        return
-    columns = st.columns(len(kpis))
-    sources: list[str] = []
-    for column, item in zip(columns, kpis):
-        if not isinstance(item, dict):
-            continue
-        unit = item.get("unit")
-        value = item.get("value")
-        shown = NOT_DECLARED if value in (None, "") else format_number(value)
-        unit_text = f" {unit}" if unit else ""
-        source = item.get("provenance_id")
-        if source:
-            sources.append(str(source))
-        column.markdown(
-            '<div class="cockpit-card">'
-            f'<p class="kicker">{html.escape(str(item.get("label") or "kpi"))}</p>'
-            f'<p class="kpi-value">{html.escape(shown)}{html.escape(unit_text)}</p>'
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    unique = list(dict.fromkeys(sources))
-    if unique:
-        st.caption(f"Provenance ID {' · '.join(unique)}")
+    st.caption("Cell series")
 
 
 def _render_comparison(
@@ -506,14 +482,10 @@ def _render_comparison(
             unsafe_allow_html=True,
         )
     rows = []
-    sources: list[str] = []
     for item in report["cases"]:
         unit = item.get("unit") or UNIT_NOT_DECLARED
         peak = item.get("peak")
         peak_text = format_number(peak) if isinstance(peak, (int, float)) else NOT_DECLARED
-        source = item.get("provenance_id")
-        if source:
-            sources.append(str(source))
         case_id = str(item.get("id") or "")
         case_name = (case_labels or {}).get(case_id, case_id)
         # In per-case mode `share` is 1.0 for every case, so a bar would read as
@@ -541,16 +513,12 @@ def _render_comparison(
             if shared
             else "Each case is on its own scale: bars are omitted, compare the numbers."
         )
-        + "</p>"
-    )
-    unique = list(dict.fromkeys(sources))
-    source_note = (
-        f'<p class="kpi-note">Provenance ID {" · ".join(unique)}</p>' if unique else ""
+        + " Case provenance lives in the Provenance and limits tab.</p>"
     )
     st.markdown(
         '<div class="cockpit-card compare-card">'
         '<p class="kicker">Relative magnitude across cases</p>'
-        f"{note}{''.join(rows)}{source_note}"
+        f"{note}{''.join(rows)}"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -749,12 +717,19 @@ def render_map_tab(
             )
         else:
             _render_deck(frame, active, view, context_groups, case_id)
+        # The ramp belongs to the canvas: directly under it, before the export.
+        st.markdown(_legend_inline(scale, mode), unsafe_allow_html=True)
+        export_csv = _call(loaders, "get_filtered_export_csv", case_id, active)
+        if isinstance(export_csv, str) and export_csv:
+            st.download_button(
+                "Export filtered cells (CSV)",
+                data=export_csv,
+                file_name=f"{case_id}_filtered_grid.csv",
+                mime="text/csv",
+                key=f"export-grid-{case_id}",
+            )
 
     with panel_col:
-        # One compact ramp row keeps the hero series above the fold; the full
-        # adapter caption, saturation note, counts and provenance live in the
-        # lower expander ("Scale and provenance").
-        st.markdown(_legend_inline(scale, mode), unsafe_allow_html=True)
         with st.container(key="reading-slot"):
             selector_key = f"inspector_cell_{case_id}"
             # A previous run asked for "Clear selection"; the selectbox must be
@@ -806,12 +781,12 @@ def render_map_tab(
     with st.expander("Case comparison and context", expanded=False):
         st.markdown('<p class="kicker">Scale and provenance</p>', unsafe_allow_html=True)
         counts_text = f"{shown} of {total} cells" if isinstance(shown, int) and isinstance(total, int) else ""
-        st.markdown(
-            _legend_details(scale, mode, _provenance(meta), counts_text),
-            unsafe_allow_html=True,
-        )
+        st.markdown(_legend_details(scale, counts_text), unsafe_allow_html=True)
+        # One provenance line per selected case in this tab; the full per-case IDs
+        # (all three cities) live in "Provenance and limits".
+        source, provenance_id = _provenance(meta)
+        st.caption(f"Source {source} · Provenance ID {provenance_id}")
         _render_comparison(_call(loaders, "get_scale_comparison", mode), mode, case_labels)
         context_legend = _context_legend(context_groups)
         if context_legend:
             st.markdown(context_legend, unsafe_allow_html=True)
-        _render_kpis(_call(loaders, "get_map_kpis", case_id, active))

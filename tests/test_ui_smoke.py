@@ -253,3 +253,89 @@ def test_reading_panel_separates_series_scope_from_grid_statistics() -> None:
     assert "Grid statistics for the current filter" in captions
     # One provenance line per block: the standalone card is gone in the empty state.
     assert '<p class="kicker">Provenance</p>' not in text
+
+
+def test_export_buttons_exist_for_grid_context_and_cell() -> None:
+    from src.data import loaders
+
+    cell = str(loaders.get_map_layer_df(CASE_IDS[0], {})["cell_id"].iloc[0])
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.query_params["cell"] = cell
+    app.run()
+    labels = [button.label for button in app.get("download_button")]
+    assert "Export filtered cells (CSV)" in labels
+    assert "Export context (CSV)" in labels
+    assert "Export selected cell (JSON)" in labels
+
+
+def test_context_tab_cross_references_nearest_cell_risk() -> None:
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    assert not app.exception
+    assert any(multiselect.label == "Layer" for multiselect in app.multiselect)
+    assert any(select.label == "Nearest cell risk" for select in app.selectbox)
+    assert any(button.label == "Jump to cell on Map" for button in app.button)
+    text = "\n".join(node.value for node in app.markdown)
+    assert "Nearest filtered H3 cell per feature" in text
+    assert "not a hazard assessment" in text
+
+
+def test_physics_topics_cover_roughness_dielectric_and_bands() -> None:
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    radio = next(r for r in app.radio if r.label == "Physics topic")
+    topics = list(radio.options)
+    assert any("L-Band vs C-Band" in topic for topic in topics)
+    assert any("Surface Roughness & Dielectric Constant" in topic for topic in topics)
+    assert any("Elastic vs Inelastic" in topic for topic in topics)
+
+    radio.set_value(topics[1]).run()
+    text = "\n".join(node.value for node in app.markdown)
+    assert "Surface roughness." in text
+    assert "Dielectric constant." in text
+
+
+def _render_map_tab_only() -> None:
+    """Render Tab 1 alone so per-tab duplication can be counted without the other tabs."""
+    import streamlit as st
+
+    from src.data import loaders
+    from src.ui.map_view import render_map_tab
+
+    meta = loaders.load_meta("malaga")
+    st.session_state.setdefault("ui_theme_mode", "system")
+    filters = {
+        "case_id": "malaga",
+        "land_use": None,
+        "coherence_min": 0.35,
+        "risk_level": None,
+        "extrude_3d": False,
+        "scale_mode": "independent",
+    }
+    render_map_tab(filters, loaders, meta, {"malaga": "Málaga, ES"})
+
+
+def test_map_tab_shows_provenance_and_kpis_exactly_once() -> None:
+    """One visible source per datum inside Tab 1: provenance 1x, each KPI label 1x."""
+    from src.data import loaders
+
+    app = AppTest.from_function(_render_map_tab_only, default_timeout=90)
+    app.run()
+    assert not app.exception
+
+    text = "\n".join(node.value for node in app.markdown)
+    captions = "\n".join(getattr(node, "value", "") for node in getattr(app, "caption", []))
+    blob = text + "\n" + captions
+    provenance_id = loaders.load_meta("malaga")["provenance"]["provenance_id"]
+
+    assert blob.count(provenance_id) == 1, blob.count(provenance_id)
+    assert blob.count("Provenance ID") == 1, blob.count("Provenance ID")
+    for label in ("Median velocity", "Median displacement", "Minimum coherence"):
+        assert blob.count(label) == 1, (label, blob.count(label))
+    # Tab 1 no longer duplicates these: seasonal amplitude lives in Tab 2, and the
+    # header fields are not repeated inside the map tab.
+    assert "Median seasonal amplitude" not in blob
+    assert "Sensor nisar" not in blob
+    assert "Unit mm" not in blob
+    assert "Dates 2024-11-10" not in blob
+    assert "Source mock" in blob
