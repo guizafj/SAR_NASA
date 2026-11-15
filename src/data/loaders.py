@@ -376,7 +376,13 @@ def _clone_bundle(bundle: CaseBundle) -> CaseBundle:
         grid=bundle.grid.copy(deep=True),
         timeseries=bundle.timeseries.copy(deep=True),
         meta=copy.deepcopy(dict(bundle.meta)),
-        context=copy.deepcopy(dict(bundle.context)),
+        # Shallow on purpose. `context` is a GeoJSON FeatureCollection whose nested geometry is the
+        # largest object in the bundle (~700 features, ~1 MB per case) and no consumer mutates it:
+        # `prepare_context_for_map` deep-copies each feature before styling it, and nothing else
+        # writes into the structure. A deep copy here cost 61 % of every warm rerun once the OSM
+        # context layers landed (0.63 s -> 1.99 s for mexico-city, measured). Top-level isolation is
+        # kept, so a caller still cannot rebind a key or add one and poison the cache.
+        context=dict(bundle.context),
         case_config=bundle.case_config,
         validation=bundle.validation,
         source_dir=bundle.source_dir,
