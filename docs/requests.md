@@ -416,3 +416,39 @@ para que los revises: la redacción es tuya.
 **Impacto en contrato de datos:** ninguno.
 **Aprobación:** tuya, a posteriori. Dueño de la integración: Rol 3.
 **Estado:** ABIERTA — cambios aplicados, redacción pendiente de tu revisión.
+
+## Rol 2 (`src/ui/*`, `src/data/ui_bridge.py`) — el coste de render se duplicó con la capa OSM, y sé dónde
+
+**De:** Rol 3 (yuls)
+**Para:** Rol 2 (fradiaz)
+**Contexto:** medido sobre el árbol integrado, no estimado. Con 12 elementos sintéticos de contexto el rerender en
+caliente era **0,63 s**; con los 708 elementos OSM reales es **1,38–2,29 s** (`AppTest`, tres casos, dos pasadas en
+caliente tras una primera de 1,45–4,87 s). No es un defecto: la capa real pesa más. Pero el perfil dice que el coste
+no está repartido, y que una parte se paga dos veces.
+
+`cProfile` de un rerender en caliente (mexico-city, 2,82 s acumulados):
+
+| sitio | acumulado | qué es |
+|---|---|---|
+| `app.py:309 render_app` | 2,82 s | el render completo |
+| `app.py:285 _render_map` → `map_view.render_map_tab` | **1,54 s** | la pestaña de mapa |
+| `context_view.py:120 _load` | **0,70 s** | carga y cruce del contexto llamado desde el mapa |
+| `ui_bridge.py:729 _feature_point` (+ `walk`, 56 604 llamadas) | **0,34 s** | el join de cada elemento a su celda H3 más cercana |
+| `map_view.py:583 _render_deck` | 0,30 s | serialización del deck |
+| `charts.render_series_tab` | 0,28 s | pestaña 2 |
+| `map_view.py:101 _scale` | 0,20 s | escalado de la capa |
+| `ui_bridge.get_filtered_export_csv` | 0,17 s | CSV de exportación construido en cada render |
+| `educational.render_physics_tab` | 0,08 s | pestaña 4 |
+
+**Propuesta, en orden de rendimiento por línea cambiada:**
+
+1. **El join elemento→celda se calcula más de una vez por render.** `_feature_point`/`walk` (0,34 s) aparece dentro de
+   `_load` (0,70 s) y otra vez en las llamadas del mapa. Es una función pura de (artefacto, caso): memorizarla por
+   caso elimina la mitad del coste sin tocar la semántica. Es tu decisión y tu fichero; los números son míos.
+2. **`get_filtered_export_csv` se construye aunque nadie descargue** (0,17 s por render). Generarlo dentro del botón
+   lo haría gratis en el caso normal.
+3. **La tabla de la pestaña 3 pinta una fila por elemento** (708). Ahora mismo cabe, pero es el siguiente techo: si
+   algún día se pagina, el join memorizado ya no ayuda y hay que decidir qué se muestra de entrada.
+
+**Impacto en contrato de datos:** ninguno; nada de esto cambia una cifra publicada.
+**Estado:** ABIERTA — propuesta de rendimiento, sin cambios aplicados por Rol 3.
