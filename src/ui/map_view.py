@@ -36,6 +36,13 @@ _RISK_CLASS = {
     "moderado": "chip chip-alert",
     "estable": "chip",
 }
+# Presentation strokes only. Not a risk scale. Unknown layers fall back to muted.
+_CONTEXT_ROLE = {
+    "land_use": "accent",
+    "water": "coherence",
+    "infrastructure": "alert",
+    "admin_boundary": "muted",
+}
 
 
 def detection_caption(above_limit: bool | None, limit: Any, unit: str | None) -> str | None:
@@ -190,7 +197,57 @@ def _candidate_cells(frame: Any, current: str | None, limit: int = 25) -> list[s
     return cells
 
 
-def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> None:
+def _hex_rgba(value: str, alpha: int = 180) -> list[int]:
+    color = value.lstrip("#")
+    return [int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16), alpha]
+
+
+def _context_groups(geojson: dict[str, Any] | None) -> list[tuple[str, str, dict[str, Any]]]:
+    """Split delivered features by `layer`. Does not invent a missing layer."""
+    if not isinstance(geojson, dict):
+        return []
+    features = geojson.get("features")
+    if not isinstance(features, list):
+        return []
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        props = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
+        layer = str(props.get("layer") or "")
+        if not layer:
+            continue
+        grouped.setdefault(layer, []).append(feature)
+    palette = active_palette()
+    groups: list[tuple[str, str, dict[str, Any]]] = []
+    for layer, rows in grouped.items():
+        role = _CONTEXT_ROLE.get(layer, "muted")
+        color = str(palette.get(role, palette["muted"]))
+        groups.append((layer, color, {"type": "FeatureCollection", "features": rows}))
+    return groups
+
+
+def _artefact_omits_cell_series(meta: dict[str, Any] | None) -> bool:
+    if not isinstance(meta, dict):
+        return False
+    stats = meta.get("stats")
+    block = stats.get("per_cell_series") if isinstance(stats, dict) else None
+    return isinstance(block, dict) and block.get("enabled") is False
+
+
+def _coord_line(label: str, value: Any) -> str:
+    if value in (None, ""):
+        return f"{label}: {NOT_DECLARED}"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{label}: {value:.5f} deg"
+    return f"{label}: {value}"
+
+
+def _render_inspector(
+    detail: dict[str, Any] | None,
+    case_id: str | None,
+    meta: dict[str, Any] | None = None,
+) -> None:
     if not detail:
         st.markdown(
             '<div class="cockpit-card is-empty">'
@@ -204,18 +261,27 @@ def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> Non
     chip_class = _RISK_CLASS.get(risk, "chip chip-muted")
     unit = detail.get("unit")
     provenance_id = detail.get("provenance_id")
+    source_id = provenance_id if isinstance(provenance_id, str) else None
+    unit_text = unit if isinstance(unit, str) else None
     lines = [
+        "sign: positive = up",
         f"case: {detail.get('case_id') or case_id or NOT_DECLARED}",
-        _figure_line("delta_change", detail.get("delta_change"), unit if isinstance(unit, str) else None, provenance_id if isinstance(provenance_id, str) else None),
+        _coord_line("lat", detail.get("lat")),
+        _coord_line("lon", detail.get("lon")),
+        _figure_line("val_t1", detail.get("val_t1"), unit_text, source_id),
+        _figure_line("val_t2", detail.get("val_t2"), unit_text, source_id),
+        _figure_line("delta_change", detail.get("delta_change"), unit_text, source_id),
         _figure_line(
             "velocity_mm_yr",
             detail.get("velocity_mm_yr"),
             detail.get("velocity_unit") if isinstance(detail.get("velocity_unit"), str) else None,
-            provenance_id if isinstance(provenance_id, str) else None,
+            source_id,
         ),
-        _figure_line("coherence", detail.get("coherence"), None, provenance_id if isinstance(provenance_id, str) else None),
-        f"regime: {detail.get('regime') or NOT_DECLARED}",
-        _figure_line("ratio_R", detail.get("ratio_R"), None, provenance_id if isinstance(provenance_id, str) else None),
+        _figure_line("coherence", detail.get("coherence"), None, source_id),
+        "risk_level: derived band from |velocity|, not a separate measurement",
+        f"regime: {detail.get('regime') or NOT_DECLARED} · secular versus seasonal",
+        _figure_line("ratio_R", detail.get("ratio_R"), None, source_id),
+        "ratio_R: abs(trend) / seasonal amplitude",
         _figure_line(
             "seasonal_amp_mm",
             detail.get("seasonal_amp_mm"),
@@ -241,10 +307,14 @@ def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> Non
     if not isinstance(series, list) or not series:
         st.caption("No series for this cell.")
         return
-    _render_series(series, str(detail.get("series_scope") or "cell"))
+    _render_series(series, str(detail.get("series_scope") or "cell"), meta)
 
 
-def _render_series(series: list[dict[str, Any]], scope: str = "cell") -> None:
+def _render_series(
+    series: list[dict[str, Any]],
+    scope: str = "cell",
+    meta: dict[str, Any] | None = None,
+) -> None:
     import plotly.graph_objects as go
 
     dates = [row.get("date") for row in series if row.get("date")]
@@ -270,7 +340,10 @@ def _render_series(series: list[dict[str, Any]], scope: str = "cell") -> None:
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     source = provenance_id or SOURCE_NOT_DECLARED
     if scope == "aoi":
-        st.caption("Aggregated AOI series (per-cell series not emitted)")
+        note = "Aggregated AOI series (per-cell series not emitted)"
+        if _artefact_omits_cell_series(meta):
+            note += ". The artefact did not emit a per-cell series."
+        st.caption(note)
         return
     st.caption(f"series · {unit or UNIT_NOT_DECLARED} · {source}")
 
@@ -299,7 +372,11 @@ def _render_kpis(kpis: Any) -> None:
         )
 
 
-def _render_comparison(report: dict[str, Any] | None, mode: str) -> None:
+def _render_comparison(
+    report: dict[str, Any] | None,
+    mode: str,
+    case_labels: dict[str, str] | None = None,
+) -> None:
     if not isinstance(report, dict) or not report.get("cases"):
         return
     shared = is_shared_scale(mode)
@@ -319,9 +396,11 @@ def _render_comparison(report: dict[str, Any] | None, mode: str) -> None:
         peak = item.get("peak")
         peak_text = f"{peak:g}" if isinstance(peak, (int, float)) else NOT_DECLARED
         source = item.get("provenance_id") or SOURCE_NOT_DECLARED
+        case_id = str(item.get("id") or "")
+        case_name = (case_labels or {}).get(case_id, case_id)
         rows.append(
             '<div class="compare-row">'
-            f'<span class="compare-case">{html.escape(str(item.get("id")))}</span>'
+            f'<span class="compare-case">{html.escape(case_name)}</span>'
             '<div class="compare-track">'
             f'<div class="compare-fill" style="width:{width}%"></div></div>'
             f'<span class="compare-meta">{html.escape(peak_text)} {html.escape(str(unit))} · {html.escape(str(source))}</span>'
@@ -336,7 +415,29 @@ def _render_comparison(report: dict[str, Any] | None, mode: str) -> None:
     )
 
 
-def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
+def _context_legend(groups: list[tuple[str, str, dict[str, Any]]]) -> str:
+    if not groups:
+        return ""
+    rows = "".join(
+        '<p class="detail-line">'
+        f'<span class="swatch" style="background:{html.escape(color)}"></span>'
+        f"{html.escape(layer)}</p>"
+        for layer, color, _payload in groups
+    )
+    return (
+        '<div class="cockpit-card">'
+        '<p class="kicker">Context strokes</p>'
+        '<p class="kpi-note">Stroke color is presentation only. It is not a risk class.</p>'
+        f"{rows}</div>"
+    )
+
+
+def render_map_tab(
+    filters: dict[str, Any],
+    loaders: Any,
+    meta: dict[str, Any] | None,
+    case_labels: dict[str, str] | None = None,
+) -> None:
     case_id = filters.get("case_id")
     if st.session_state.get("scale_mode") not in SCALE_LABELS:
         st.session_state.scale_mode = "independent"
@@ -348,7 +449,6 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
         key="scale_mode",
     )
     active = {**filters, "scale_mode": mode}
-    _render_comparison(_call(loaders, "get_scale_comparison", mode), mode)
     frame = _call(loaders, "get_map_layer_df", case_id, active)
     counts = _call(loaders, "get_layer_counts", case_id, active) or {}
     shown = counts.get("shown")
@@ -357,18 +457,6 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
         shown = len(frame)
     if isinstance(shown, int) and isinstance(total, int) and (shown > ROW_WARN or total > ROW_WARN):
         st.warning("More than 50000 rows. Ask the backend to aggregate; the UI does not aggregate.")
-    if isinstance(shown, int) and isinstance(total, int):
-        st.caption(f"{shown} cells shown of {total}")
-
-    _render_kpis(_call(loaders, "get_map_kpis", case_id, active))
-    status = _call(loaders, "get_signal_status", case_id) or {}
-    limit, limit_unit = _limit_from_meta(meta)
-    if limit is None:
-        limit = status.get("detection_limit")
-        limit_unit = status.get("detection_limit_unit")
-    caption = detection_caption(status.get("above_limit"), limit, limit_unit if isinstance(limit_unit, str) else None)
-    if caption:
-        st.markdown(f'<div class="null-note">{html.escape(caption)}</div>', unsafe_allow_html=True)
 
     map_col, inspector_col = st.columns([8, 4], gap="medium", vertical_alignment="top")
     with map_col:
@@ -404,16 +492,17 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
             layers = [layer]
             ctx_payload = _call(loaders, "load_context_layers", case_id)
             ctx_geojson = ctx_payload.get("geojson") if isinstance(ctx_payload, dict) else None
-            if isinstance(ctx_geojson, dict) and ctx_geojson.get("features"):
+            context_groups = _context_groups(ctx_geojson if isinstance(ctx_geojson, dict) else None)
+            for layer_name, color, collection in context_groups:
                 layers.append(
                     pdk.Layer(
                         "GeoJsonLayer",
-                        data=ctx_geojson,
-                        id="context-geojson",
+                        data=collection,
+                        id=f"context-{layer_name}",
                         pickable=False,
                         stroked=True,
                         filled=False,
-                        get_line_color=[6, 182, 212, 160],
+                        get_line_color=_hex_rgba(color),
                         get_line_width=20,
                         line_width_min_pixels=1,
                         point_radius_min_pixels=4,
@@ -466,6 +555,9 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
             scale = _scale(loaders, str(case_id), active)
             with st.container(key="map-meta"):
                 st.markdown(_legend(scale, mode), unsafe_allow_html=True)
+                legend = _context_legend(context_groups)
+                if legend:
+                    st.markdown(legend, unsafe_allow_html=True)
                 st.markdown(
                     '<div class="cockpit-card provenance-card">'
                     '<p class="kicker">Provenance</p>'
@@ -490,4 +582,21 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                 st.session_state.selected_cell_id = chosen or None
             cell_id = st.session_state.get("selected_cell_id")
             detail = _call(loaders, "get_cell_detail", case_id, cell_id) if cell_id else None
-            _render_inspector(detail if isinstance(detail, dict) else None, str(case_id) if case_id else None)
+            _render_inspector(
+                detail if isinstance(detail, dict) else None,
+                str(case_id) if case_id else None,
+                meta if isinstance(meta, dict) else None,
+            )
+
+    _render_comparison(_call(loaders, "get_scale_comparison", mode), mode, case_labels)
+    if isinstance(shown, int) and isinstance(total, int):
+        st.caption(f"{shown} cells shown of {total}")
+    _render_kpis(_call(loaders, "get_map_kpis", case_id, active))
+    status = _call(loaders, "get_signal_status", case_id) or {}
+    limit, limit_unit = _limit_from_meta(meta)
+    if limit is None:
+        limit = status.get("detection_limit")
+        limit_unit = status.get("detection_limit_unit")
+    caption = detection_caption(status.get("above_limit"), limit, limit_unit if isinstance(limit_unit, str) else None)
+    if caption:
+        st.markdown(f'<div class="null-note">{html.escape(caption)}</div>', unsafe_allow_html=True)

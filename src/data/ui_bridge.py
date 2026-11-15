@@ -613,12 +613,20 @@ def load_documented_limits(
         return {"section_8_caveat": None, "section_13": []}
     text = path.read_text(encoding="utf-8")
     caveat: str | None = None
-    for line in text.splitlines():
-        # Match the verb in any form: the caveat sentence uses "validated"/"unvalidated"
-        # as often as "validate", and a tense change must not silently drop the caveat.
-        if re.search(r"validat\w* against GNSS", line):
-            caveat = " ".join(line.strip("* ").split())
+    paragraphs = [
+        " ".join(line.strip() for line in block.splitlines() if line.strip())
+        for block in re.split(r"\n\s*\n", text)
+    ]
+    gnss_re = re.compile(r"validat\w*\s+(?:the\s+convention\s+)?against\s+GNSS", re.IGNORECASE)
+    for para in paragraphs:
+        if gnss_re.search(para) and "Sign and heading conventions" in para:
+            caveat = para
             break
+    if caveat is None:
+        for para in paragraphs:
+            if gnss_re.search(para):
+                caveat = para
+                break
 
     start = text.find("## 13.")
     end = text.find("## 14.")

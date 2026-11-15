@@ -26,28 +26,45 @@ def _shown(value: Any) -> str:
     return str(value)
 
 
-def _regime_cards(meta: dict[str, Any] | None) -> None:
-    if not isinstance(meta, dict):
-        return
-    stats = meta.get("stats") if isinstance(meta.get("stats"), Mapping) else None
-    if not isinstance(stats, dict) or not stats:
-        return
-    cards = [
-        ("dominant_regime", stats.get("dominant_regime"), None),
-        ("median_ratio_R", stats.get("median_ratio_R"), None),
-        ("median_velocity_mm_yr", stats.get("median_velocity_mm_yr"), "mm/year"),
-    ]
-    columns = st.columns(len(cards))
-    for column, (label, value, unit) in zip(columns, cards):
-        unit_text = f" {unit}" if unit and value not in (None, "") else ""
-        column.markdown(
-            '<div class="cockpit-card">'
-            f'<p class="kicker">{html.escape(label)}</p>'
-            f'<p class="kpi-value">{html.escape(_shown(value))}{html.escape(unit_text)}</p>'
-            "</div>",
-            unsafe_allow_html=True,
-        )
+def _stat_card(column: Any, label: str, value: Any, unit: str | None) -> None:
+    unit_text = f" {unit}" if unit and value not in (None, "") else ""
+    column.markdown(
+        '<div class="cockpit-card">'
+        f'<p class="kicker">{html.escape(label)}</p>'
+        f'<p class="kpi-value">{html.escape(_shown(value))}{html.escape(unit_text)}</p>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
+
+def _case_block(meta: dict[str, Any]) -> None:
+    stats = meta.get("stats") if isinstance(meta.get("stats"), Mapping) else {}
+    cards: list[tuple[str, Any, str | None]] = []
+    if isinstance(stats, dict):
+        if "dominant_regime" in stats:
+            cards.append(("dominant_regime", stats.get("dominant_regime"), None))
+        if "median_ratio_R" in stats:
+            cards.append(("median_ratio_R", stats.get("median_ratio_R"), None))
+        if "median_velocity_mm_yr" in stats:
+            cards.append(("median_velocity_mm_yr", stats.get("median_velocity_mm_yr"), "mm/year"))
+        if "detection_limit_mm_yr" in stats:
+            cards.append(("detection_limit_mm_yr", stats.get("detection_limit_mm_yr"), "mm/year"))
+        if isinstance(stats.get("n_cells"), int) and not isinstance(stats.get("n_cells"), bool):
+            cards.append(("n_cells", stats.get("n_cells"), "cells"))
+        series = stats.get("per_cell_series")
+        if isinstance(series, dict) and "enabled" in series:
+            cards.append(("per_cell_series.enabled", series.get("enabled"), None))
+    st.markdown(
+        '<div class="cockpit-card">'
+        '<p class="kicker">Case</p>'
+        "<p>Quoted from the loader. Not an observation lecture.</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    if cards:
+        columns = st.columns(len(cards))
+        for column, (label, value, unit) in zip(columns, cards):
+            _stat_card(column, label, value, unit)
     null_policy = meta.get("null_policy")
     if null_policy:
         st.markdown(
@@ -70,39 +87,51 @@ def _regime_cards(meta: dict[str, Any] | None) -> None:
 
 def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     limits = getattr(loaders, "load_documented_limits", lambda: {})()
-    st.markdown(
-        '<div class="cockpit-card is-empty">'
-        '<p class="kicker">Education</p>'
-        '<p class="empty-prompt">No scientific text approved by Role 3.</p>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    has_meta = isinstance(meta, dict) and bool(meta)
+    has_docs = isinstance(limits, dict) and bool(limits.get("section_8_caveat") or limits.get("section_13"))
+    if not has_meta and not has_docs:
+        st.markdown(
+            '<div class="cockpit-card is-empty">'
+            '<p class="kicker">Education</p>'
+            '<p class="empty-prompt">Educational notes are not available for this case yet.</p>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        return
 
-    _regime_cards(meta)
+    if has_meta:
+        _case_block(meta)
+    else:
+        st.markdown(
+            '<div class="cockpit-card is-empty">'
+            '<p class="kicker">Case</p>'
+            '<p class="empty-prompt">The loader did not return case meta.</p>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
     caveat = limits.get("section_8_caveat") if isinstance(limits, dict) else None
     caveat_body = (
         f"<p>{html.escape(str(caveat))}</p>"
         if caveat
-        else "<p>README §8 does not provide a citable limitation.</p>"
-    )
-    st.markdown(
-        '<div class="cockpit-card">'
-        '<p class="kicker">README §8</p>'
-        f"{caveat_body}"
-        "</div>",
-        unsafe_allow_html=True,
+        else "<p>No documented caveat for this case.</p>"
     )
     items = limits.get("section_13") if isinstance(limits, dict) else None
     items_body = (
         "".join(f"<p>- {html.escape(str(item))}</p>" for item in items)
         if items
-        else "<p>README §13 is not available.</p>"
+        else "<p>No documented limitations for this case.</p>"
     )
     st.markdown(
         '<div class="cockpit-card">'
-        '<p class="kicker">README §13 limitations</p>'
-        '<p class="kpi-note">The numbered limitation list is in README §13, not in §8.</p>'
+        '<p class="kicker">Known caveat</p>'
+        f"{caveat_body}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="cockpit-card">'
+        '<p class="kicker">Known limitations</p>'
         f"{items_body}"
         "</div>",
         unsafe_allow_html=True,

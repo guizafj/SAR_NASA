@@ -123,7 +123,7 @@ _CSS = f"""
   --card-pad-y: 0.85rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
-  --map-height: clamp(420px, 60vh, 740px);
+  --map-height: clamp(380px, calc(100vh - 430px), 640px);
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
@@ -172,7 +172,7 @@ body,
 }}
 
 .block-container {{
-  padding-top: 0.75rem !important;
+  padding-top: 2.5rem !important;
   padding-bottom: 1.5rem !important;
   padding-left: clamp(0.85rem, 2.2vw, 2.25rem) !important;
   padding-right: clamp(0.85rem, 2.2vw, 2.25rem) !important;
@@ -263,6 +263,7 @@ body,
   gap: 0.45rem;
   height: 100%;
   overflow: visible;
+  margin-bottom: 1rem;
 }}
 
 .cockpit-card.is-empty {{
@@ -389,6 +390,15 @@ body,
   border-color: color-mix(in srgb, var(--coral) 50%, transparent);
   background: color-mix(in srgb, var(--coral) 14%, var(--surface));
   color: var(--coral) !important;
+}}
+
+.swatch {{
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border: 1px solid var(--border);
+  vertical-align: middle;
 }}
 
 .chip-muted {{
@@ -1037,7 +1047,7 @@ button[data-baseweb="tab"]:focus-visible {{
     --map-height: clamp(300px, 46vh, 420px);
   }}
   .block-container {{
-    padding-top: 0.5rem !important;
+    padding-top: 2rem !important;
     padding-left: 0.65rem !important;
     padding-right: 0.65rem !important;
   }}

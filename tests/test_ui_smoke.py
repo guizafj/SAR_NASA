@@ -29,7 +29,10 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert "DEMONSTRATION DATA" in text
     assert "Dancing with the SARs: NISAR Interferometry Cockpit" in text
     assert "Median velocity" in text
-    assert "No scientific text approved by Role 3" in text
+    assert "coherence floor" in text
+    assert "Known caveat" in text
+    assert "Known limitations" in text
+    assert "A context class is not the grid land_use filter." in text
     # Tab 3: either empty-state copy or a delivered context summary (st.caption/json).
     hazard = "\n".join(
         [
@@ -38,7 +41,7 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
         ]
     )
     assert (
-        "No context_layers.geojson" in hazard
+        "No context layers are available" in hazard
         or "Delivered layers" in hazard
         or "n_features" in hazard
         or "Context" in text

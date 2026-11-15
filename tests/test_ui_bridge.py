@@ -126,4 +126,5 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
 
     limits = loaders.load_documented_limits()
     assert limits["section_8_caveat"] is not None
+    assert len(limits["section_8_caveat"].split()) >= 20
     assert len(limits["section_13"]) >= 6
