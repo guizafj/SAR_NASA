@@ -41,6 +41,23 @@ def test_the_credit_does_not_claim_the_displacement_is_third_party() -> None:
     assert "synthetic" in credit, credit
 
 
+def test_tab_three_glosses_unknown_and_separates_the_polygons_from_the_credit() -> None:
+    """A reader meets `unknown` and the mock/OSM pairing on tab 3 and must be told what they are.
+
+    Without this, `unknown` reads as missing data (it is 68.1 % of Mexico City's cells) and the provenance credit
+    sitting above a table of real OpenStreetMap rows reads as a claim about the polygons. The number is deliberately
+    not asserted here — the per-case share belongs to the artefact's own sentence, and recomputing it in the view
+    would be science in the UI.
+    """
+    at = AppTest.from_file(APP, default_timeout=300)
+    at.run()
+    assert not list(at.exception), [str(e.value) for e in at.exception]
+    tab = at.tabs[2]
+    text = "\n".join(str(element.value) for element in [*tab.caption, *tab.markdown])
+    assert "published category" in text, "tab 3 shows `unknown` without saying it is a published category"
+    assert "not the polygons" in text, "tab 3 does not separate the mock provenance id from the OSM polygons"
+
+
 def test_every_published_case_carries_the_licence_into_its_artefact() -> None:
     for case in CASES:
         meta = json.loads(pathlib.Path(f"data/processed/{case}/meta.json").read_text())

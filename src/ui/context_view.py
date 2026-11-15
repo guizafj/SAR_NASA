@@ -234,6 +234,18 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         f'<p class="kpi-note">{html.escape(note)}</p>',
         unsafe_allow_html=True,
     )
+    # The two facts a reader is most likely to misread on this tab, said where they are met. `unknown` first
+    # arrives as a peer of the real classes in the filter and as a table row, with no gloss; and the provenance
+    # credit above the table names the mock product while the rows underneath name OpenStreetMap. Neither needs a
+    # number here: the per-case share is already disclosed by the artefact's own sentence, and recomputing it in
+    # the view would put science in the UI.
+    st.caption(
+        "Land use “unknown” is a published category, not missing data: OpenStreetMap has no mapped "
+        "polygon there, and it is never extrapolated from a neighbouring cell — the per-case share is "
+        "disclosed under “Limits of this artefact” in tab 4. These context polygons are real "
+        "OpenStreetMap data (ODbL 1.0); the provenance ID above names this case's mock SAR product, "
+        "not the polygons."
+    )
     if exposure_note:
         st.markdown(exposure_note, unsafe_allow_html=True)
     st.markdown(
