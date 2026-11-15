@@ -117,6 +117,8 @@ Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentaci�
 | tarjetas de pestañas 3 y 4 sin `Provenance ID` | `Provenance ID` bajo las tarjetas de resumen y `Dominant regime` humanizado | `load_context_layers`, `load_meta` |
 | `?cell=` borrado en el primer arranque | `selected_cell_id` se conserva si pertenece al caso activo y se limpia si es inválida o cambia el caso | `st.query_params` + `get_cell_detail` |
 | serie del AOI y KPIs de rejilla en el mismo grupo, y procedencia repetida en tarjeta aparte | serie rotulada "Whole-area aggregate series"; los KPIs llevan "Grid statistics for the current filter"; una sola línea de procedencia (la de la franja) | `get_case_series`, `get_map_kpis`, `load_meta` |
+| inspector con 11 líneas apiladas a ancho completo | grid de 2 columnas (`.detail-head` a ancho completo) y mono de 0.62 rem: 475 → 288 px | `get_cell_detail` |
+| leyenda dentro del panel derecho | rampa de una fila bajo el mapa (junto a la exportación), visible en móvil tras el lienzo | `get_color_scale` |
 | leyenda de la pestaña 1 en tarjeta alta (caption, saturación, conteo y procedencia) empujando la serie fuera del pliegue | rampa de una fila (30 px) con métrica+unidad y rango; el resto del texto pasa a "Scale and provenance" dentro del expander inferior; el radio de escala pierde la etiqueta visible | `get_color_scale`, `load_meta` |
 
 Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.

@@ -138,7 +138,7 @@ _CSS = f"""
   --card-pad-y: 0.6rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
-  --map-height: clamp(450px, calc(100vh - 450px), 700px);
+  --map-height: clamp(415px, calc(100vh - 485px), 700px);
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
@@ -400,9 +400,9 @@ body,
 }}
 
 .cockpit-card.inspector .detail-line {{
-  font-size: 0.68rem;
-  line-height: 1.35;
-  padding: 0.12rem 0;
+  font-size: 0.62rem;
+  line-height: 1.3;
+  padding: 0.1rem 0;
 }}
 
 .cockpit-card.inspector .detail-head {{
@@ -1067,7 +1067,9 @@ button[data-baseweb="tab"]:focus-visible {{
   width: 100%;
   max-width: 100%;
   height: var(--map-height) !important;
+  min-height: var(--map-height) !important;
   max-height: var(--map-height) !important;
+  flex: 0 0 auto !important;
   overflow: hidden !important;
   padding: 0 !important;
   background: var(--surface);
