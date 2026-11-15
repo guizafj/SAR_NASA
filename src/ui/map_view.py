@@ -449,7 +449,6 @@ def render_map_tab(
         key="scale_mode",
     )
     active = {**filters, "scale_mode": mode}
-    _render_comparison(_call(loaders, "get_scale_comparison", mode), mode, case_labels)
     frame = _call(loaders, "get_map_layer_df", case_id, active)
     counts = _call(loaders, "get_layer_counts", case_id, active) or {}
     shown = counts.get("shown")
@@ -458,18 +457,6 @@ def render_map_tab(
         shown = len(frame)
     if isinstance(shown, int) and isinstance(total, int) and (shown > ROW_WARN or total > ROW_WARN):
         st.warning("More than 50000 rows. Ask the backend to aggregate; the UI does not aggregate.")
-    if isinstance(shown, int) and isinstance(total, int):
-        st.caption(f"{shown} cells shown of {total}")
-
-    _render_kpis(_call(loaders, "get_map_kpis", case_id, active))
-    status = _call(loaders, "get_signal_status", case_id) or {}
-    limit, limit_unit = _limit_from_meta(meta)
-    if limit is None:
-        limit = status.get("detection_limit")
-        limit_unit = status.get("detection_limit_unit")
-    caption = detection_caption(status.get("above_limit"), limit, limit_unit if isinstance(limit_unit, str) else None)
-    if caption:
-        st.markdown(f'<div class="null-note">{html.escape(caption)}</div>', unsafe_allow_html=True)
 
     map_col, inspector_col = st.columns([8, 4], gap="medium", vertical_alignment="top")
     with map_col:
@@ -600,3 +587,16 @@ def render_map_tab(
                 str(case_id) if case_id else None,
                 meta if isinstance(meta, dict) else None,
             )
+
+    _render_comparison(_call(loaders, "get_scale_comparison", mode), mode, case_labels)
+    if isinstance(shown, int) and isinstance(total, int):
+        st.caption(f"{shown} cells shown of {total}")
+    _render_kpis(_call(loaders, "get_map_kpis", case_id, active))
+    status = _call(loaders, "get_signal_status", case_id) or {}
+    limit, limit_unit = _limit_from_meta(meta)
+    if limit is None:
+        limit = status.get("detection_limit")
+        limit_unit = status.get("detection_limit_unit")
+    caption = detection_caption(status.get("above_limit"), limit, limit_unit if isinstance(limit_unit, str) else None)
+    if caption:
+        st.markdown(f'<div class="null-note">{html.escape(caption)}</div>', unsafe_allow_html=True)
