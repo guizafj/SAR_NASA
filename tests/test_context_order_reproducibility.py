@@ -49,6 +49,7 @@ if str(ROOT) not in sys.path:  # pytest from the repo root, exactly like the pip
 from pipeline import context as CTX  # noqa: E402
 from pipeline.ingest import pin_context as PIN  # noqa: E402
 from pipeline.mock import artifacts as A  # noqa: E402
+from src.domain import contracts as C  # noqa: E402
 
 PROCESSED = ROOT / "data" / "processed"
 CONTEXT_FILE = "context_layers.geojson"
@@ -74,21 +75,54 @@ NO_ARTEFACTS = (
 )
 
 
-def _published_context_cases() -> list[str]:
-    """Cases that actually ship a context layer (an absent one has no order to check)."""
-    if not PROCESSED.is_dir():
-        return []
-    return sorted(
-        path.name
-        for path in PROCESSED.iterdir()
-        if path.is_dir()
-        and not path.name.startswith(("_", "."))
-        and (path / CONTEXT_FILE).is_file()
+#: Contract cases whose context layer is actually on disk. Parametrising only over published cases
+#: keeps the per-case comparisons from erroring on a tree where `data/processed/` has not been
+#: generated. What it does *not* do is shout: an empty `parametrize` is collected as **one skip per
+#: function**, and this module used to add a `skipif(not CASES)` on top, so a tree without artefacts
+#: reported six quiet `s` markers and exit status 0. Measured on this repository (moving
+#: `data/processed/` aside): `12 passed` -> `6 skipped`.
+#: `test_every_contract_case_is_published_here` and `test_every_contract_case_has_a_committed_pin`
+#: below are the fail-closed half this module needs: all three cases and all three pins are
+#: committed, so their absence is a defect to report, not a condition to skip.
+CASES: tuple[str, ...] = tuple(
+    case for case in C.CASE_IDS if (PROCESSED / case / CONTEXT_FILE).is_file()
+)
+
+
+def test_every_contract_case_is_published_here() -> None:
+    """Every case the contract names must have a published context layer in this repository.
+
+    Deliberately *not* parametrised over `CASES`: that is the whole point. A guard that discovers
+    its own inputs cannot notice its inputs disappearing, and this module exists because the order
+    of a committed file must not drift from the committed pin without a word.
+    """
+    missing = [case for case in C.CASE_IDS if case not in CASES]
+    assert not missing, (
+        f"{PROCESSED} carries no {CONTEXT_FILE} for {missing}, so every per-case check in this "
+        f"module would skip and the file would report green. {NO_ARTEFACTS}"
+    )
+    assert CASES, (
+        "no published case at all — this suite has nothing to check and must not pass. "
+        f"{NO_ARTEFACTS}"
     )
 
 
-CASES = _published_context_cases()
-pytestmark = pytest.mark.skipif(not CASES, reason=NO_ARTEFACTS)
+def test_every_contract_case_has_a_committed_pin() -> None:
+    """Every contract case must ship its pin, because all three were derived from an OSM extract.
+
+    `_pin` skips a case with no pin, which is honest for a case whose context is the declared
+    synthetic fallback (never derived from OSM, so no stored order to compare). It is not honest for
+    `mexico-city`, `jakarta` or `malaga`: their pins are committed under `config/context/`, and
+    moving that directory aside used to remove 9 of this module's 12 items (`3 passed, 9 skipped`)
+    while the file still exited green. Not parametrised over the pins, for the same reason as above.
+    """
+    missing = [case for case in C.CASE_IDS if CTX.read_pin(case) is None]
+    assert not missing, (
+        f"config/context/ carries no pin for {missing}, so the order checks below would skip them "
+        "instead of comparing anything. Every contract case is OSM-derived and its pin is "
+        "committed: restore config/context/<case>.json rather than skipping the comparison"
+    )
+    assert C.CASE_IDS, "the contract declares no case at all, so there is no pin to check"
 
 
 def _artefact(case: str) -> dict:
@@ -101,7 +135,9 @@ def _pin(case: str) -> dict:
     `read_pin` returns `None` for a case with no committed pin, which is a legitimate state: a case
     whose context is the declared synthetic fallback was never derived from OSM, so there is no
     stored order to compare against and no claim to test. A missing pin for an OSM-derived artefact
-    is caught by `tests/test_context_pin_reproducibility.py`, which owns that question.
+    is caught by `tests/test_context_pin_reproducibility.py`, which owns that question; a missing pin
+    for a *contract* case is caught by `test_every_contract_case_has_a_committed_pin` below, because
+    all three of those cases are OSM-derived and their pins are committed.
     """
     payload = CTX.read_pin(case)
     if payload is None:

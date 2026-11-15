@@ -630,6 +630,44 @@ def _sea_lines(report: K.CaseReport) -> list[str]:
     return [line for line in report.checks if line.startswith("sea:")]
 
 
+def test_every_contract_case_ships_the_pins_and_grids_this_gate_reads() -> None:
+    """The two committed inputs of the artefact half must be present, or this file must say so.
+
+    Section 5 loops over `C.CASE_IDS` and skips the case whose pin is absent; section 6 does the
+    same for a case with no pin *or* no published grid, and then skips itself when no case was
+    tested at all. Each is an honest per-case condition; together they are a hole, because the
+    artefact half is the part that checks what a judge sees. Measured here: moving
+    `data/processed/` aside leaves this file at `19 passed, 1 skipped` — the whole "the published
+    grid agrees" half gone, and the file green; moving `config/context/` aside removes the coverage
+    loop as well.
+
+    Both trees are **committed** (`git ls-files data/processed config/context` lists every artefact
+    and every pin), so their absence is a defect in this repository, not a condition of the tree the
+    file happens to run on. What is deliberately *not* asserted is that every case stores a sea:
+    Mexico City is a closed basin and legitimately stores none, and demanding one would fail a
+    correct artefact. The guard only asks for the files the loop reads.
+
+    Not parametrised over the cases: a guard that discovers its own inputs cannot notice its inputs
+    disappearing.
+    """
+    missing_pins = [case_id for case_id in C.CASE_IDS if CTX.read_pin(case_id) is None]
+    missing_grids = [
+        case_id
+        for case_id in C.CASE_IDS
+        if not (PROCESSED_DIR / case_id / "nisar_grid.parquet").is_file()
+    ]
+    assert not missing_pins, (
+        f"config/context/ carries no pin for {missing_pins}, so the sea and coverage checks below "
+        "would skip them instead of reading anything. Every pin here is committed: restore it"
+    )
+    assert not missing_grids, (
+        f"{PROCESSED_DIR} carries no nisar_grid.parquet for {missing_grids}, so the artefact half "
+        "of the sea gate would skip every case and this file would report green. Regenerate with "
+        "`pipeline/generate_mock.py` or restore the committed artefacts"
+    )
+    assert C.CASE_IDS, "the contract declares no case at all, so no artefact could be gated"
+
+
 def test_the_sea_gate_has_its_branches_and_the_published_grid_agrees(
     sea_gate_evidence, monkeypatch, tmp_path
 ):

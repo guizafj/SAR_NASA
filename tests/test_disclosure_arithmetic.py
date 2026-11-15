@@ -40,7 +40,9 @@ For every case in `contracts.CASE_IDS` that has a directory under `data/processe
    polygons are the dissolved H3 cells of this grid;
 5. ``water`` is a context class, never a grid class: no published row is labelled ``water``, yet the
    matching ``water`` layer is present when `config/context/<case>.json` pins one (skipped only
-   when that pin is absent, because then there is nothing to compare);
+   when that pin is absent, because then there is nothing to compare — and
+   `test_every_contract_case_has_a_committed_pin` fails if a contract case is unpinned, because all
+   three pins are committed);
 6. the parser matched exactly one sentence per case, so tests 1-4 cannot pass vacuously.
 
 Read-only, offline, filesystem-only. No `unittest.mock`, no producer import: the assertions are made
@@ -89,6 +91,33 @@ def test_every_contract_case_is_published_here() -> None:
         f"or restore the committed artefacts."
     )
     assert PUBLISHED, "no published case at all — this suite has nothing to check and must not pass"
+
+
+#: Same fail-closed argument for the pins. `test_water_is_context_not_a_grid_class` skips a case
+#: whose pin is absent, because then "there is nothing to cross-check the water layer against" —
+#: true only for a case that was never pinned. All three contract pins are committed, and hiding
+#: `config/context/` used to turn three of this file's items quiet (`16 passed, 3 skipped`) while
+#: `PUBLISHED` stayed full, so the artefact guard above cannot see it.
+PINNED: tuple[str, ...] = tuple(
+    case for case in C.CASE_IDS if (CONTEXT_PINS / f"{case}.json").is_file()
+)
+
+
+def test_every_contract_case_has_a_committed_pin() -> None:
+    """Every case the contract declares must ship its pin, or the water check would go quiet.
+
+    Deliberately *not* parametrised over ``PINNED``, for the same reason as the guard above: this
+    file's whole job is to notice a claim drifting away from the artefact behind it, and a guard
+    that discovers its own inputs cannot notice its inputs disappearing.
+    """
+    missing = [case for case in C.CASE_IDS if case not in PINNED]
+    assert not missing, (
+        f"config/context/ carries no pin for {missing}; every case here is OSM-derived, so the "
+        f"water cross-check in test 5 would skip them and the file would report green. Restore "
+        f"config/context/<case>.json (the pins are committed)."
+    )
+    assert PINNED, "no committed pin at all — the water cross-check has nothing to compare"
+
 
 #: The OSM-branch sentence, anchored on stable phrases rather than the whole prose so a rewording
 #: does not break the guard — but with the three numbers and the licence captured, because those are
