@@ -29,7 +29,7 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Visible | Hook | Campos usados | Hueco |
 |---|---|---|---|
 | Título fijo | ninguno | — | Correcto: no es un dato. |
-| Telemetría | `load_meta` | `sensor`, `product`, `unit`, `dates`, `coherence_threshold` | v1.1 guarda el suelo en `thresholds.coherence_min`; si falta, `app.py` cae a `thresholds.coherence_min` y la cabecera lo imprime como `coherence floor`. El slider lee el mismo valor. |
+| Telemetría | `load_meta` | `sensor`, `product`, `unit`, `dates`, `coherence_threshold` | v1.1 guarda el suelo en `thresholds.coherence_min`; si el artefacto no trae la clave superior `coherence_threshold`, `app.py` toma `thresholds.coherence_min` y la cabecera lo imprime como `Coherence floor`. El slider lee el mismo valor. |
 | Aviso mock | `load_meta` | `product`, `provenance.source` | Correcto. |
 | Caso | `load_study_cases` | `id`, `label` | Correcto. |
 | Uso del suelo | `load_land_use_options(case_id)` | valores presentes en la grilla | No explica que es una clase del artefacto, no un mapa de uso oficial. |
@@ -78,7 +78,7 @@ Corrección de Rol 3 (`docs/requests.md`, 2026-11-15): el GeoJSON **sí** trae `
 | Visible | Origen | Lectura | Hueco |
 |---|---|---|---|
 | **Real NISAR GUNW availability** | `load_availability` (lee `data/processed/_availability/{case}.json`) | Cita el registro de búsqueda de ASF: stacks reales catalogados (track, dirección, frame, nº de granulos, ventana), HTTP, fecha de la búsqueda y la advertencia de cobertura urbana. **No es una descarga**: el artefacto publicado sigue siendo `mock` y el bloque lo dice. | El hook es aditivo y lo añadió Rol 2 desde `fradiaz`; falta la firma de Rol 1 (fila en `docs/requests.md`) |
-| "Educational notes are not available for this case yet." | literal de la UI | Cierto para un módulo educativo. | Contradice las tarjetas de abajo, que sí citan el artefacto y el README. |
+| "Educational notes are not available for this case yet." | literal de la UI | Cierto para un módulo educativo. | No contradice nada: `educational.py` pinta ese texto sólo cuando **no** hay `meta` ni documentos, y retorna ahí mismo, así que no hay tarjetas debajo que citar. |
 | Cuatro tarjetas | `meta.stats` | `dominant_regime`, `median_ratio_R`, `median_velocity_mm_yr`, `median_seasonal_amp_mm`. | Ignora `n_cells`, `n_dates`, `p05`/`p95`, `per_cell_series`, y el límite de Málaga. |
 | `null_policy`, `limitations` | `meta` | Texto del artefacto. Citarlo, no parafrasearlo. | No se distingue "dato" de "limitación del generador mock". |
 | README §8 y §13 | `load_documented_limits` | Cita literal del README. | No es el `meta.json` del caso. Hay que etiquetarlo como documentación del repo, no como observación. |
