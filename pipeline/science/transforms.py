@@ -418,8 +418,10 @@ def harmonic_order(n_epochs: int, span_years: float) -> int:
     that column required, a *publisher* must not ship order ``0`` as "no seasonality".
     ``pipeline/process_case.py`` therefore publishes that state explicitly instead of refusing:
     ``seasonal_amp_mm`` is ``0.0``, ``ratio_R`` is null, ``regime`` is ``"transitional"`` and
-    ``meta.limitations`` carries the reason. (``pipeline/mock/model.py`` always fits at least one
-    harmonic because its window is two years, so it never takes this path.)
+    ``meta.limitations`` carries the reason. ``pipeline/mock/model.py`` takes the same path — its
+    ``seasonal_order`` returns ``0`` when a case injects no seasonality or when its window is below
+    the gate — and publishes the identical not-fitted state, so both producers answer this question
+    the same way.
     """
     for k in (2, 1):
         if span_years >= MIN_SEASONAL_COVERAGE_PER_HARMONIC * k and n_epochs >= 2 + 2 * k:
