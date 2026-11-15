@@ -77,6 +77,7 @@ Corrección de Rol 3 (`docs/requests.md`, 2026-11-15): el GeoJSON **sí** trae `
 
 | Visible | Origen | Lectura | Hueco |
 |---|---|---|---|
+| **Real NISAR GUNW availability** | `load_availability` (lee `data/processed/_availability/{case}.json`) | Cita el registro de búsqueda de ASF: stacks reales catalogados (track, dirección, frame, nº de granulos, ventana), HTTP, fecha de la búsqueda y la advertencia de cobertura urbana. **No es una descarga**: el artefacto publicado sigue siendo `mock` y el bloque lo dice. | El hook es aditivo y lo añadió Rol 2 desde `fradiaz`; falta la firma de Rol 1 (fila en `docs/requests.md`) |
 | "No scientific text approved by Role 3." | literal de la UI | Cierto para un módulo educativo. | Contradice las tarjetas de abajo, que sí citan el artefacto y el README. |
 | Tres tarjetas | `meta.stats` | `dominant_regime`, `median_ratio_R`, `median_velocity_mm_yr`. | Ignora `n_cells`, `n_dates`, `p05`/`p95`, `median_seasonal_amp_mm`, `per_cell_series`, y el límite de Málaga. |
 | `null_policy`, `limitations` | `meta` | Texto del artefacto. Citarlo, no parafrasearlo. | No se distingue "dato" de "limitación del generador mock". |

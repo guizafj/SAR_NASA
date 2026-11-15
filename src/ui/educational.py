@@ -175,6 +175,70 @@ def _case_block(
         )
 
 
+def _availability_block(loaders: Any, meta: dict[str, Any] | None) -> None:
+    """Cite the ASF search record: real stacks exist, nothing was downloaded."""
+    function = getattr(loaders, "load_availability", None)
+    case_id = (meta or {}).get("case_id")
+    if function is None or not case_id:
+        return
+    try:
+        info = function(str(case_id))
+    except TypeError:
+        return
+    if not isinstance(info, Mapping):
+        return
+    available = bool(info.get("available"))
+    product = str((meta or {}).get("product") or NOT_DECLARED)
+    state = "available" if available else "not available"
+    if product == "mock":
+        headline = (
+            f"From the ASF search record ({state}). Nothing was downloaded for this demo: "
+            f"the published artefact is {product}."
+        )
+    else:
+        headline = f"From the ASF search record ({state}). Published artefact: {product}."
+    lines: list[str] = []
+    if available:
+        stacks = [s for s in info.get("stacks") or [] if isinstance(s, Mapping)]
+        recommended = next((s for s in stacks if s.get("recommended")), stacks[0] if stacks else None)
+        if recommended:
+            date_range = recommended.get("date_range")
+            window = ""
+            if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+                window = f" · {str(date_range[0])[:10]} → {str(date_range[1])[:10]}"
+            lines.append(
+                f"Recommended stack: track {recommended.get('track')} "
+                f"{str(recommended.get('direction') or '').lower()}"
+                f" · frame {recommended.get('frame')} · {recommended.get('n_granules')} granules"
+                f"{window}"
+            )
+        if len(stacks) > 1:
+            others = ", ".join(
+                f"{s.get('track')} {str(s.get('direction') or '').lower()[:4]}" for s in stacks if s is not recommended
+            )
+            lines.append(f"{len(stacks)} stacks catalogued in total · also {others}")
+    else:
+        lines.append(f"Search result: {info.get('error') or 'no intersecting NISAR GUNW stack declared'}")
+    run = str(info.get("generated_utc") or NOT_DECLARED)
+    http_status = info.get("http_status")
+    granules = info.get("n_granules")
+    summary = f"Search {run} · HTTP {http_status if http_status is not None else NOT_DECLARED}"
+    if isinstance(granules, int) and not isinstance(granules, bool):
+        summary += f" · {granules} granules catalogued"
+    coverage = info.get("coverage_note")
+    coverage_html = f'<p class="kpi-note">{safe_inline(coverage)}</p>' if coverage else ""
+    body = "".join(f'<p class="detail-line">{safe_inline(line)}</p>' for line in lines)
+    st.markdown(
+        '<div class="cockpit-card">'
+        '<p class="kicker">Real NISAR GUNW availability</p>'
+        f'<p class="kpi-note">{html.escape(headline)}</p>'
+        f"{body}{coverage_html}"
+        f'<p class="kpi-note">{html.escape(summary)}</p>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     limits = getattr(loaders, "load_documented_limits", lambda: {})()
     has_meta = isinstance(meta, dict) and bool(meta)
@@ -198,6 +262,7 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
             median,
             median_unit,
         )
+        _availability_block(loaders, meta)
     else:
         st.markdown(
             '<div class="cockpit-card is-empty">'
@@ -209,18 +274,20 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
 
     science_summary = limits.get("science_section_1") if isinstance(limits, Mapping) else None
     if science_summary:
-        st.markdown(
-            '<div class="cockpit-card">'
-            '<p class="kicker">SAR physics and regime classification</p>'
-            '<p class="kpi-note">From docs/science-guide.md §1 and docs/data-contract-v1.md §7.5.</p>'
-            f"<p>{safe_inline(science_summary)}</p>"
-            '<p class="detail-line"><strong>Regime index R = |velocity| / seasonal amplitude:</strong> '
-            "R &gt; 2 Inelastic (secular trend dominates, permanent compaction) · "
-            "1 &le; R &le; 2 Transitional (mixed regime) · "
-            "R &lt; 1 Elastic (seasonal cycle dominates, recoverable motion).</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        with st.expander("How this measurement works (SAR physics)", expanded=False):
+            st.markdown(
+                '<p class="kpi-note"><strong>SAR physics and regime classification</strong> · from '
+                "docs/science-guide.md §1 and docs/data-contract-v1.md §7.5.</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"<p>{safe_inline(science_summary)}</p>", unsafe_allow_html=True)
+            st.markdown(
+                '<p class="detail-line"><strong>Regime index R = |velocity| / seasonal amplitude:</strong> '
+                "R &gt; 2 Inelastic (secular trend dominates, permanent compaction) · "
+                "1 &le; R &le; 2 Transitional (mixed regime) · "
+                "R &lt; 1 Elastic (seasonal cycle dominates, recoverable motion).</p>",
+                unsafe_allow_html=True,
+            )
 
     caveat = limits.get("section_8_caveat") if isinstance(limits, dict) else None
     caveat_lead, caveat_rest = split_caveat(caveat)

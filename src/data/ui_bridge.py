@@ -6,6 +6,7 @@ Re-exported from `src.data.loaders` so `app.py._loaders()` automatically switche
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 from typing import Any, Mapping
@@ -604,6 +605,66 @@ def load_context_layers(
     }
 
 
+def load_availability(
+    case_id: str,
+    *,
+    processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
+) -> dict[str, Any] | None:
+    """Declared NISAR search availability for `case_id` (catalogue metadata, no download).
+
+    Reads `data/processed/_availability/{case_id}.json`, the record produced by the ASF
+    search step. Nothing here is a measurement: it says which real stacks exist, whether
+    they were downloaded (they are not) and what the query returned.
+    """
+    path = pathlib.Path(processed_dir) / "_availability" / f"{case_id}.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    sources = data.get("sources") if isinstance(data, dict) else None
+    nisar = sources.get("nisar_gunw") if isinstance(sources, dict) else None
+    if not isinstance(nisar, dict):
+        return None
+    recommended = nisar.get("recommended_stack") if isinstance(nisar.get("recommended_stack"), dict) else None
+    stacks: list[dict[str, Any]] = []
+    for stack in nisar.get("stacks") or []:
+        if not isinstance(stack, dict):
+            continue
+        stacks.append(
+            {
+                "track": stack.get("track"),
+                "direction": stack.get("direction"),
+                "frame": stack.get("frame"),
+                "n_granules": stack.get("n_granules"),
+                "date_range": stack.get("date_range"),
+                "mean_interval_days": stack.get("mean_interval_days"),
+                "recommended": bool(
+                    recommended
+                    and stack.get("track") == recommended.get("track")
+                    and stack.get("direction") == recommended.get("direction")
+                    and stack.get("frame") == recommended.get("frame")
+                ),
+            }
+        )
+    return {
+        "case_id": case_id,
+        "generated_utc": data.get("generated_utc"),
+        "attempted": nisar.get("attempted"),
+        "available": nisar.get("available"),
+        "endpoint": nisar.get("endpoint"),
+        "http_status": nisar.get("http_status"),
+        "n_granules": nisar.get("n_granules"),
+        "total_gb": nisar.get("total_gb"),
+        "date_range": nisar.get("date_range"),
+        "deltas_available": nisar.get("deltas_available"),
+        "coverage_note": nisar.get("coverage_note"),
+        "error": nisar.get("error"),
+        "stacks": stacks,
+    }
+
+
 def _extract_science_section_1(science_path: pathlib.Path) -> str | None:
     """Extract §1 'The physics in one paragraph' verbatim from `docs/science-guide.md`."""
     if not science_path.is_file():
@@ -714,6 +775,7 @@ __all__ = [
     "get_series_kpis",
     "get_signal_status",
     "get_view_state",
+    "load_availability",
     "load_context_layers",
     "load_documented_limits",
     "load_land_use_options",

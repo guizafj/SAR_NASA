@@ -540,6 +540,11 @@ def load_context_layers() -> dict[str, Any] | None:
 _SCIENCE_GUIDE = Path(__file__).resolve().parents[2] / "docs" / "science-guide.md"
 
 
+def load_availability(case_id: str | None = None) -> dict[str, Any] | None:
+    """No ASF search record without the processed tree; the UI shows the absence."""
+    return None
+
+
 def load_documented_limits() -> dict[str, Any]:
     """Quotes README.md, docs/science-guide.md §1 and config/study_cases.yaml verbatim."""
     science_summary = None

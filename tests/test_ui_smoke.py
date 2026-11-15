@@ -226,3 +226,15 @@ def test_median_velocity_is_one_figure_across_tabs() -> None:
     # The raw artefact record may still print -62.065 verbatim; no card may print -62.06.
     assert "-62.06 mm" not in text
     assert ">-62.06<" not in text
+
+
+def test_tab4_cites_real_nisar_availability() -> None:
+    """The demo must prove the real catalogue was searched, without claiming a download."""
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    assert not app.exception
+    text = "\n".join(node.value for node in app.markdown)
+    assert "Real NISAR GUNW availability" in text
+    assert "Recommended stack" in text
+    assert "Nothing was downloaded for this demo" in text
+    assert "granules catalogued" in text
