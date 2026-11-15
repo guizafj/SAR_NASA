@@ -17,6 +17,7 @@
 | Todos (integración) | El dueño ordenó integrar en `main` sin la firma de O-05 | integrado por decisión del dueño; firma pendiente |
 | Rol 2 (fradiaz) | Cuatro sitios de tu ámbito tocados al integrar (`app.py`, `context_view.py`, `test_ui_smoke.py`, `test_ui_unit_fallbacks.py`) | abierta — aplicados, redacción pendiente de revisión |
 | Rol 2 (fradiaz) | Coste de render tras la capa OSM: perfil medido, el join elemento→celda se paga dos veces | abierta — propuesta, sin cambios aplicados |
+| Rol 1 + Rol 2 | `admin_boundary`: distancia y banda de riesgo sobre la envolvente de un país (`Indonesia · Critical · 1 238 148 m`) | abierta — medido por Rol 3; el join es de Rol 1, la tabla de Rol 2 |
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
 **De:** Rol 2 (fradiaz)
@@ -462,3 +463,38 @@ no está repartido, y que una parte se paga dos veces.
 
 **Impacto en contrato de datos:** ninguno; nada de esto cambia una cifra publicada.
 **Estado:** ABIERTA — propuesta de rendimiento, sin cambios aplicados por Rol 3.
+
+## Rol 1 (`src/data/ui_bridge.py`) + Rol 2 (`src/ui/context_view.py`) — la distancia «a la celda más cercana» de una envolvente no es una proximidad
+
+**De:** Rol 3 (yuls)
+**Para:** Rol 1 (pozo), dueño de `get_context_exposure`; Rol 2 (fradiaz), dueño de la tabla de la pestaña 3
+**Contexto:** medido sobre `main`, tres casos, el join de cada elemento de contexto a su celda H3 más cercana.
+
+| caso | n | mín | mediana | máx | elementos > 5 km |
+|---|---|---|---|---|---|
+| mexico-city | 708 | 10,7 m | 171,7 m | **660,2 km** | 83 |
+| jakarta | 708 | 5,2 m | 320,2 m | **1 238,1 km** | 134 |
+| malaga | 660 | 9,0 m | 163,5 m | **55,0 km** | 83 |
+
+Los tres máximos son `admin_boundary` —`México`, `Indonesia`, `Andalucía`— y los tres llevan `risk_level = critico`. La
+mediana es sana, así que el join funciona para puntos y líneas; lo que engaña es aplicarle una lectura de proximidad a un
+polígono que resume un país entero mediante un punto.
+
+**Causa:** el punto representativo de un polígono es la media aritmética de sus vértices (`_feature_point`), que para un
+contorno no es ni el centroide ni un punto interior; en un archipiélago puede caer fuera del propio polígono. Para una
+envolvente, la afirmación honesta no es una distancia sino «sin proximidad significativa».
+
+**Propuesta, una línea por sitio:**
+
+1. **Rol 1**, en `get_context_exposure`: no asignar `risk_level`/`distance_m` a `admin_boundary` (o dejarlos a `None`) y
+   decirlo en el `summary`.
+2. **Rol 2**, en la tabla: mostrar «envolvente» en la columna de distancia para esa capa y excluirla de los recuentos
+   «N on Critical, M on Moderate» — hoy aporta un `critical` por país.
+3. La nota de exposición de la pestaña 3 ya dice que la distancia de una envolvente es la de la envolvente y no la de un
+   lugar; mientras el recuento no la excluya, esa frase y la cifra se contradicen.
+
+**Por qué no lo arreglé yo:** reescribir los valores mostrados rompe `tests/test_ui_matches_artefacts.py`, que compara las
+filas de la pestaña 3 con el artefacto. Es un cambio de semántica del join, no de redacción.
+
+**Impacto en contrato de datos:** ninguno.
+**Estado:** ABIERTA — medido por Rol 3; sin cambios aplicados.
