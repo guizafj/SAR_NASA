@@ -388,3 +388,31 @@ nuevos y sus filas en `docs/verification.md`; los números de esa entrada están
 
 **Aprobación:** pendiente de Rol 1 y Rol 2 (a posteriori). Dueño: Rol 3, que asume la decisión.
 **Estado:** INTEGRADO POR DECISIÓN DEL DUEÑO — firma de O-05 pendiente.
+
+## Rol 2 (`app.py`, `tests/test_ui_smoke.py`) — tres cambios de Rol 3 durante la integración
+
+**De:** Rol 3 (yuls)
+**Para:** Rol 2 (fradiaz), dueño de `app.py` y de las pruebas de la UI
+**Contexto:** al integrar la capa de contexto OSM (62 ficheros, `902d0e1`) y el rediseño de `main` (`6d3e158`), tres
+sitios de tu ámbito dejaron de ser ciertos o de cumplirse. Los toqué para no entregar un árbol en rojo, y los declaro
+para que los revises: la redacción es tuya.
+
+1. **`app.py` — falta la atribución ODbL en pantalla.** El árbol tenía la licencia en `LICENSE`,
+   `docs/context-sources.md` §5 y `meta.provenance.license`, y **cero** menciones en `app.py` o `src/ui/`; con la capa
+   OSM la aplicación pinta 708 polígonos reales por caso sin acreditar a nadie. Añadí `render_attribution()`, una
+   `st.caption` a nivel de aplicación (las dos pestañas que muestran los polígonos), con el texto canónico de §5 más
+   una frase que aclara que los valores de desplazamiento son sintéticos. Si prefieres otra colocación o redacción,
+   cambia la función: la guarda `tests/test_attribution.py` sólo exige que la línea esté en pantalla, que siga
+   diciendo `mock` y que los tres artefactos conserven la misma cadena.
+2. **`tests/test_ui_smoke.py` — afirmaba un nombre sintético que ya no existe.** Asertaba
+   `"Zócalo Metro Station (synthetic)"`, que sólo existía mientras la capa de contexto eran 12 elementos inventados.
+   Ahora toma un nombre **del artefacto** (`data/processed/mexico-city/context_layers.geojson`) y comprueba que llega
+   a pantalla; no se retipea ninguna constante.
+3. **`tests/test_ui_unit_fallbacks.py` — seguía importando `_render_kpis`.** Tu rediseño lo movió a
+   `src/ui/components.py::kpi_card` y quitó el límite numérico de `detection_caption`, así que el fichero no
+   compilaba. Lo reorienté a los sitios nuevos y trasladé allí el fallback de unidad, porque tu versión imprimía la
+   unidad sólo `if unit else ""` — el hueco se había mudado, no cerrado.
+
+**Impacto en contrato de datos:** ninguno.
+**Aprobación:** tuya, a posteriori. Dueño de la integración: Rol 3.
+**Estado:** ABIERTA — cambios aplicados, redacción pendiente de tu revisión.
