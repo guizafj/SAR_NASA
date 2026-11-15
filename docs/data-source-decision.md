@@ -23,20 +23,31 @@ Reproduce with:
 ```
 
 Raw JSON: `data/processed/_availability/{case}.json` (probe run 2026-11-14, unauthenticated ASF
-SearchAPI, AOI = the authoritative `config/aoi/{case}.geojson` polygon — 1,498 / 748 / 394 km²).
+SearchAPI). The query footprint is each case's declared **bbox envelope** — `asf_search(aoi["bbox"], …)`
+over `pipeline/ingest/aois.json`, mirrored from `config/study_cases.yaml` and recorded as `aoi_bbox`
+in every report — not the measurement-domain polygon in `config/aoi/{case}.geojson`
+(1,498 / 748 / 394 km²). Every count below is therefore *granules intersecting the envelope*: see
+fact 2 below.
 
 | Source | Mexico City | Jakarta | Málaga |
 |---|---|---|---|
 | NISAR GUNW | 69 granules · 2025-10-25 → 2026-10-08 | 25 granules · 2026-06-26 → 2026-10-01 | 26 granules · 2026-06-20 → 2026-10-06 |
 | OPERA DISP-S1 | **0** | **0** | **0** |
-| Sentinel-1 SLC (5 y) | 250+ granules · ~1.07 TB | 250+ granules · ~1.18 TB | 250+ granules · ~0.96 TB |
+| Sentinel-1 SLC (5 y query window) | 250 granules, truncated · size in `sources.sentinel1_slc.total_gb` | 250 granules, truncated · size in `sources.sentinel1_slc.total_gb` | 250 granules, truncated · size in `sources.sentinel1_slc.total_gb` |
 | EGMS | not eligible (non-EU) | not eligible (non-EU) | eligible, manual portal download |
+
+Read the Sentinel-1 row from the artefact, not from a remembered terabyte figure: `n_granules` is
+capped at 250 per query (`n_granules_truncated: true`), so neither the count nor `total_gb` is a
+full 5-year archive total, and `total_gb` is summed decimal MB divided by 1024
+(`pipeline/ingest/02_search_download.py`), not bytes/1e9. Per-case granule counts are restated in
+the contract's product section, `docs/data-contract-v1.md` §7.3.
 
 Two facts drive the decision:
 
 1. **OPERA DISP-S1 does not exist for any of our AOIs.** The older README example metadata and the
-   flujo doc's example both said `opera-disp-s1`; that was wrong for these three cities and is now
-   excluded by the contract's product enum.
+   flujo doc's example both said `opera-disp-s1`; that was wrong for these three cities. The enum
+   keeps the value (`contracts.PRODUCTS`), its `SENSOR_PROFILES` entry records it as absent here,
+   and no artefact for these AOIs may ship it.
 2. **NISAR GUNW exists, but intersecting is not covering.** GUNW is provisional and
    cryosphere-derived (SME2 excludes urban areas). A granule whose footprint touches our bbox can
    still be useless over the city we want to show.
@@ -124,10 +135,11 @@ Run per case, record the outcome in `meta.provenance.method` or `meta.limitation
 
 ## Still open
 
-- Earthdata credentials (`EARTHDATA_USER` / `EARTHDATA_PASS`) plus the ASF application approval are
-  not configured on this machine; the download step exits 3 until they are.
-- Per-case download budget: the CLI default is **2 GB**; any larger cap is a deliberate operator
-  choice. GUNW sizes are unknown until `--probe-sizes`, so probe before pulling a whole stack; a
-  known over-budget plan fetches nothing.
+- Earthdata credentials (`EARTHDATA_USER` / `EARTHDATA_PASS`, or a `machine urs.earthdata.nasa.gov`
+  line in `~/.netrc`) plus the ASF application approval are not configured on this machine; the
+  download step fails closed with exit `3` (`RC_CREDENTIALS`) until they are.
+- Per-case download budget: the CLI default is **2 GB** (`--max-gb 2.0`); any larger cap is a
+  deliberate operator choice. GUNW sizes are unknown until `--probe-sizes`, so probe before pulling
+  a whole stack; a known over-budget plan fetches nothing and exits `5` (`RC_BUDGET_GUARD`).
 - Primary case stays `mexico-city` (strongest signal) with `malaga` as the negative control — flip
   the one line in `config/study_cases.yaml` if coverage fails.
