@@ -8,18 +8,23 @@ whole suite. This file renders `app.py` with Streamlit's in-process `AppTest` an
 
 Layers checked per case:
 
-1. The formatted KPI cards (tab 1 and tab 2) against `meta.json::stats`, within the app's own
-   display rounding. The cards are *computed from the grid parquet* by `get_series_kpis` /
-   `get_map_kpis` (`src/data/ui_bridge.py`), so this is genuinely a cross-artefact parity check:
-   the number on the card must agree with the number the case published.
+1. The formatted KPI figures against `meta.json::stats`, within the app's own display rounding.
+   The redesign publishes the same datum through three components: the tab-1 `reading-stat`
+   strip (`map_view._stats_strip`), the tab-2 `kpi_card` row (`kpi_cards.render_kpi_cards`) and
+   the tab-4 stat cards (`educational._case_block`). All three are scraped. The numbers are
+   *computed from the grid parquet* by `get_series_kpis` / `get_map_kpis` (`src/data/ui_bridge.py`),
+   so this is genuinely a cross-artefact parity check: every visible card must agree with the
+   number the case published.
 2. The panels that echo an artefact: the tab-4 `meta.json` block (rendered by
    `src/ui/formatters.format_json_block`) and the tab-4 "case" stat cards, plus the tab-3 context
    cards and feature table against the selected case's `context_layers.geojson`. Tab 4 labels a
    stat card with `formatters.humanize(key)` and the table echoes the app's display translation
    (`humanize`, `translate_feature_name`, `risk_label`), so the expected text is derived from those
-   formatters instead of copied out of the app.
-3. The acquisition span `(62)` in the mission bar and the map footer against `meta.dates` /
-   `meta.stats.n_dates`, and the `N of M cells` count in the map footer against `meta.stats.n_cells`.
+   formatters instead of copied out of the app. The feature count on the tab-3 card is also
+   cross-checked against `meta.stats.n_context_features`, so the GeoJSON and `meta.json` must agree.
+3. The acquisition span `(62)` in the mission bar (the redesign prints it once; the retired map
+   footer duplicate is no longer required) against `meta.dates` / `meta.stats.n_dates`, and the
+   `N of M cells` count in the map footer against `meta.stats.n_cells`.
 4. The null-result detection limit: shown only where `meta.stats` declares one.
 
 Assertions never use a literal copied from the app for the *expected number*: every expected value
@@ -28,11 +33,15 @@ from the frozen contract constant (`src.domain.contracts`) the loader formats wi
 DOM anchors, not expected values; `test_kpi_cards_are_labelled_as_the_bridge_publishes` re-derives
 them from `src.data.ui_bridge` so a relabelled card cannot silently make the number checks vacuous.
 
-Provenance is credited once per card group: `src/ui/map_view.py::_render_kpis`,
-`src/ui/kpi_cards.py::render_kpi_cards`, `src/ui/context_view.py::_render_table` and
-`src/ui/educational.py::_case_block` each print one `Provenance ID …` line for the group. The guard
-walks the rendered tree in order, pairs every KPI card group with the provenance line that follows
-it, and requires that line to name exactly the case's published `provenance_id`.
+Provenance is credited once per card group, and the guard follows the render order rather than
+assuming a widget: `src/ui/kpi_cards.py::render_kpi_cards` (tab-2 row), the tab-1
+`Source … · Provenance ID …` caption that closes the `reading-stat` strip,
+`src/ui/context_view.py::_render_table` (one note above the table, or a per-row column when the
+rows disagree) and `src/ui/educational.py::_case_block` (tab-4 stat cards) each print one
+`Provenance ID …` line for the group. The guard pairs every KPI figure group with the provenance
+line that follows it, and requires that line to name exactly the case's published `provenance_id`.
+The tab-1 comparison strip no longer credits an id (its note sends the reader to the provenance
+tab), so that strip is checked on the peaks it still publishes.
 
 Anti-vacuity
 ------------
@@ -46,12 +55,13 @@ imports). No `src/**` file is edited and `data/**` is only ever read.
 
 Known gaps this file cannot close without touching `src/**` (reported, not fixed):
 
-* `stats.annual_coverage`, `stats.n_dates`, `stats.n_context_features`, `stats.p05_velocity_mm_yr`,
+* `stats.annual_coverage`, `stats.n_dates`, `stats.p05_velocity_mm_yr`,
   `stats.p95_velocity_mm_yr`, `stats.design_condition` and `stats.per_cell_series.*` are never
   formatted into a KPI card with a provenance badge; the only element that carries them is the
   whole-`meta.json` block in tab 4. A stale value would still be caught there, but no card-level
-  provenance exists. `median_ratio_R` and `n_cells` *are* tab-4 stat cards now (checked here); their
-  credit is the one `Provenance ID …` caption printed for the whole tab-4 stat-card group.
+  provenance exists. `stats.n_context_features` is cross-checked against the GeoJSON count (tab 3)
+  and `median_ratio_R` / `n_cells` *are* tab-4 stat cards now (checked here); their credit is the
+  one `Provenance ID …` caption printed for the whole tab-4 stat-card group.
 """
 
 from __future__ import annotations
@@ -85,9 +95,6 @@ APP = ROOT / "app.py"
 _MM_DECIMALS = 2
 _PCT_DECIMALS = 1
 
-#: `src/ui/educational.py` prints its stat cards with `f"{value:g}"`, i.e. six significant digits.
-_STAT_DIGITS = 6
-
 #: Card labels published by `src/data/ui_bridge.py` (pinned there by `tests/test_ui_bridge.py`).
 #: These are DOM anchors for the scraper, never an expected number.
 _VELOCITY_LABEL = "Median velocity"
@@ -96,7 +103,18 @@ _COVERAGE_LABEL = "Coherent coverage"
 _ABOVE_LABEL = "Cells above threshold"
 _CRITICAL_LABEL = "Critical cells"
 
-_CARD_RE = re.compile(r'<div class="cockpit-card">(.*?)</div>', re.S)
+# The redesigned card (`src/ui/components.py::kpi_card`) is `cockpit-card kpi-card` and prints
+# the unit inside `<span class="kpi-unit">`, so the class list must be matched, not the old
+# bare `cockpit-card`, and the value must be flattened before it is parsed as a number.
+_CARD_RE = re.compile(r'<div class="cockpit-card[^"]*"[^>]*>(.*?)</div>', re.S)
+# Tab 1 renders its three grid KPIs as a `reading-stat` strip (`map_view._stats_strip`), not
+# through `kpi_card`. One match per figure: value (with its own unit span) then label.
+_READING_STAT_RE = re.compile(
+    r'<span class="stat-value">(?P<value>.*?)</span><span class="stat-label">'
+    r"(?P<label>.*?)</span>",
+    re.S,
+)
+_UNIT_SPAN_RE = re.compile(r'<span class="(?:kpi|stat)-unit">\s*')
 _BANNER_RE = re.compile(r'<div class="demo-banner" role="status">(.*?)</div>', re.S)
 _NUMBER_RE = re.compile(r"^(?P<num>[+-]?\d+(?:\.\d+)?)(?:\s+(?P<unit>.*))?$")
 # `formatters.format_dates_span` output, capitalised at the start of the mission-bar run.
@@ -113,10 +131,6 @@ _CONTEXT_SUMMARY_RE = re.compile(
 # One credit per group: a bare caption, or the note line inside the group's own markup.
 _CAPTION_CREDIT_RE = re.compile(r"Provenance ID (?P<ids>\S+(?: · \S+)*)\s*$")
 _NOTE_CREDIT_RE = re.compile(r'<p class="kpi-note">Provenance ID (?P<ids>[^<]+?)</p>')
-#: DOM anchor: the phrase `src/ui/map_view.py::detection_caption` emits around the artefact value.
-_DETECTION_RE = re.compile(
-    r"detection limit of (?P<num>[+-]?\d+(?:\.\d+)?)(?: (?P<unit>[^<\s]+))?"
-)
 #: Tab-4 renders `meta.json` through `formatters.format_json_block`, one `<div class="json-line">`
 #: per JSON line; stripping the spans restores the exact JSON text.
 _JSON_LINE_RE = re.compile(r'<div class="json-line"[^>]*>(.*?)</div>', re.S)
@@ -213,18 +227,44 @@ def _field(block: str, css_class: str) -> str:
     return html.unescape(match.group(1)) if match else ""
 
 
+def _plain_value(raw: str) -> str:
+    """Card text as a reader sees it: the unit span becomes `value unit`, tags are dropped.
+
+    `components.kpi_card` emits `<p class="kpi-value">value<span class="kpi-unit">unit</span></p>`
+    with no separating space (the gap is CSS), so the span is replaced by a space *before* stripping
+    tags; otherwise `-64.68` and `mm/year` would fuse into one unparseable token.
+    """
+    spaced = _UNIT_SPAN_RE.sub(" ", raw)
+    return " ".join(html.unescape(_TAG_RE.sub("", spaced)).split())
+
+
 def _cards(at: AppTest) -> list[dict[str, str]]:
-    """Every rendered KPI card, in DOM order (tab 1, tab 2, tab 3, tab 4)."""
+    """Every rendered KPI figure, in DOM order (tab 1, tab 2, tab 3, tab 4).
+
+    Two components publish the same kind of figure: `kpi_card` (tab 2, tab 3, tab 4) and the
+    tab-1 `reading-stat` strip. Both are scraped so a value cannot hide on the tab the guard
+    does not read.
+    """
+    text = _markdown(at)
     cards = []
-    for block in _CARD_RE.findall(_markdown(at)):
+    for block in _CARD_RE.findall(text):
         if "kpi-value" not in block:
             continue
         cards.append(
             {
                 "label": _field(block, "kicker"),
-                "value": _field(block, "kpi-value"),
+                "value": _plain_value(_field(block, "kpi-value")),
                 "source": _field(block, "kpi-source"),
                 "note": _field(block, "kpi-note"),
+            }
+        )
+    for match in _READING_STAT_RE.finditer(text):
+        cards.append(
+            {
+                "label": _plain_value(match["label"]),
+                "value": _plain_value(match["value"]),
+                "source": "",
+                "note": "",
             }
         )
     return cards
@@ -263,11 +303,13 @@ def _ordered_elements(at: AppTest) -> list[tuple[str, str]]:
 
 
 def _card_labels(markup: str) -> list[str]:
-    return [
+    labels = [
         _field(block, "kicker")
         for block in _CARD_RE.findall(markup)
         if "kpi-value" in block
     ]
+    labels.extend(_plain_value(match["label"]) for match in _READING_STAT_RE.finditer(markup))
+    return labels
 
 
 def _credit_ids(kind: str, value: str) -> list[str]:
@@ -322,16 +364,6 @@ def _card_groups_with_credit(at: AppTest) -> list[tuple[list[str], list[str]]]:
             groups.append((labels, ids))
             labels = []
     return groups
-
-
-def _compare_credit_ids(at: AppTest) -> list[str]:
-    """The `provenance_id`s the tab-1 comparison strip credits."""
-    for kind, value in _ordered_elements(at):
-        if kind == "markdown" and '<div class="cockpit-card compare-card">' in value:
-            ids = _credit_ids(kind, value)
-            assert ids, f"the comparison strip lost its provenance line: {value[-300:]!r}"
-            return ids
-    raise AssertionError("tab 1 no longer renders the comparison strip")
 
 
 def _span_occurrences(at: AppTest) -> list[re.Match[str]]:
@@ -509,29 +541,16 @@ def _assert_shows(shows: str, artefact: float, *, decimals: int, what: str) -> N
     )
 
 
-def _assert_shows_significant(shows: str, artefact: float, *, what: str) -> None:
-    """`f"{value:g}"` display: the artefact rounded to `_STAT_DIGITS` significant digits."""
-    match = _NUMBER_RE.match(shows)
-    assert match, f"{what}: {shows!r} is not a formatted number"
-    number = float(match["num"])
-    if artefact == 0:
-        tolerance = 10 ** (1 - _STAT_DIGITS) + 1e-12
-    else:
-        exponent = math.floor(math.log10(abs(float(artefact))))
-        tolerance = 0.5 * 10 ** (exponent - (_STAT_DIGITS - 1)) + 1e-12
-    assert abs(number - float(artefact)) <= tolerance, (
-        f"{what}: the app shows {match['num']} but the artefact publishes {artefact!r} "
-        f"(a {_STAT_DIGITS}-significant-digit display allows ±{tolerance:.3g})"
-    )
-
-
 def assert_velocity_cards_match_meta(
     at: AppTest, meta: dict[str, Any], case_id: str
 ) -> None:
-    """Tab 1 + tab 2 `Median velocity` vs `meta.stats.median_velocity_mm_yr`."""
+    """Every visible `Median velocity` (tab 1 strip, tab 2 card, tab 4 stat) vs the artefact."""
     published = meta["stats"]["median_velocity_mm_yr"]
     cards = _cards_labelled(at, _VELOCITY_LABEL)
-    assert len(cards) >= 2, f"{case_id}: Median velocity must appear on tab 1 and tab 2"
+    assert len(cards) >= 2, (
+        f"{case_id}: Median velocity must appear at least on the tab-2 card and one other "
+        f"visible source; found {len(cards)}"
+    )
     for card in cards:
         _assert_shows(
             card["value"],
@@ -546,7 +565,8 @@ def assert_seasonal_cards_match_meta(at: AppTest, meta: dict[str, Any], case_id:
     stats = meta["stats"]
     cards = _cards_labelled(at, _SEASONAL_LABEL)
     assert len(cards) >= 2, (
-        f"{case_id}: the seasonal amplitude must appear on tab 1 and tab 2"
+        f"{case_id}: the seasonal amplitude must appear under more than one visible source "
+        f"(tab 2 card + tab 4 stat); found {len(cards)}"
     )
     for card in cards:
         _assert_shows(
@@ -777,12 +797,17 @@ def test_case_stat_cards_echo_the_published_stats(rendered: dict[str, Any]) -> N
 # 3. counts: dates and cells
 # --------------------------------------------------------------------------------------
 def test_acquisition_span_matches_meta_dates(rendered: dict[str, Any]) -> None:
+    """The mission bar prints the acquisition span once; every occurrence must match meta.dates.
+
+    The redesign's one-visible-source-per-datum rule retired the duplicate span in the map
+    footer, so the count is no longer asserted (a layout choice). What is asserted is that each
+    span the reader can see carries the artefact's own first/last date and `n_dates`.
+    """
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
     dates = [str(item) for item in meta["dates"]]
     occurrences = _span_occurrences(at)
-    assert len(occurrences) >= 2, (
-        f"{case_id}: the acquisition span must show in the mission bar and the map footer, "
-        f"found {len(occurrences)}"
+    assert occurrences, (
+        f"{case_id}: the acquisition span is not rendered anywhere; the mission bar lost it"
     )
     for match in occurrences:
         assert match["first"] == dates[0] and match["last"] == dates[-1], (
@@ -815,58 +840,70 @@ def test_cell_total_matches_meta_n_cells(rendered: dict[str, Any]) -> None:
 
 
 def test_cross_case_bar_peak_matches_the_grid(rendered: dict[str, Any]) -> None:
-    """The tab-1 comparison strip prints one peak per case; each must be that case's grid peak."""
-    case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
-    rows = _compare_rows(at)
+    """The tab-1 comparison strip prints one peak per published case, from that case's grid.
+
+    The redesign moved provenance out of the strip (its own note says the ids live in the
+    "Provenance and limits" tab), so this no longer claims the strip credits an id. It checks
+    the datum the strip still carries: every row's peak is the `|velocity|` maximum of that
+    case's own parquet, in that parquet's own unit — not a copied constant, not a shared figure.
+    """
+    case_id, at = rendered["case"], rendered["at"]
+    rows = dict(_compare_rows(at))
     assert rows, f"{case_id}: the comparison strip renders no rows"
     # The strip lists cases by their published display name, not by slug.
     labels = {str(case["id"]): str(case["label"]) for case in loaders.load_study_cases()}
-    mine = [tail for label, tail in rows if label == labels[case_id]]
-    assert len(mine) == 1, (
-        f"{case_id}: the comparison strip does not list {labels[case_id]!r} exactly once; "
-        f"rows were {[label for label, _tail in rows]}"
+    assert set(rows) == set(labels.values()), (
+        f"{case_id}: the strip lists {sorted(rows)} but the published cases are "
+        f"{sorted(labels.values())}"
     )
-    peak = round(float(rendered["grid"]["velocity_mm_yr"].abs().max()), _MM_DECIMALS)
-    _assert_shows(
-        mine[0].split(" · ")[0],
-        peak,
-        decimals=_MM_DECIMALS,
-        what=f"{case_id}: comparison-strip peak",
-    )
-    # The strip credits provenance once for the whole card, not once per row.
-    credits = _compare_credit_ids(at)
-    assert meta["provenance"]["provenance_id"] in credits, (
-        f"{case_id}: the comparison strip credits {credits}, not the published provenance_id "
-        f"{meta['provenance']['provenance_id']!r}"
-    )
+    for slug, label in labels.items():
+        grid = (
+            rendered["grid"]
+            if slug == case_id
+            else pd.read_parquet(PROCESSED / slug / "nisar_grid.parquet")
+        )
+        peak = float(grid["velocity_mm_yr"].abs().max())
+        unit = str(grid["velocity_unit"].iloc[0])
+        _assert_shows(
+            rows[label], peak, decimals=_MM_DECIMALS, what=f"{case_id}: {label} peak"
+        )
+        assert rows[label].endswith(f" {unit}"), (
+            f"{case_id}: the {label} row reads {rows[label]!r}, not the grid's unit {unit!r}"
+        )
 
 
 # --------------------------------------------------------------------------------------
 # 4. detection limit: shown only where the artefact declares one
 # --------------------------------------------------------------------------------------
 def test_detection_limit_caption_follows_the_artefact(rendered: dict[str, Any]) -> None:
+    """The detection limit appears iff the artefact declares one, and equals it.
+
+    The redesign moved the number out of the map caption (which now only says "above the
+    detection limit") into the tab-4 stat card labelled with `formatters.humanize` of the
+    published key. The card is the visible source, so it is checked against
+    `meta.stats.detection_limit_mm_yr`; a case that declares no limit must show no such card.
+    """
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
-    stats = meta["stats"]
-    text = html.unescape(_markdown(at))
-    found = list(_DETECTION_RE.finditer(text))
+    label = formatters.humanize("detection_limit_mm_yr")
+    cards = [card for card in _cards(_tab(at, 3)) if card["label"] == label]
     # The unit follows from the published key; a `_mm_yr` statistic is a rate.
-    limit = stats.get("detection_limit_mm_yr")
+    limit = meta["stats"].get("detection_limit_mm_yr")
     if limit is None:
-        assert not found, (
-            f"{case_id}: the app shows a detection limit "
-            f"{[match.group(0) for match in found]} but meta.stats has no "
-            "detection_limit_mm_yr — that number has no artefact behind it"
+        assert not cards, (
+            f"{case_id}: the app shows a {label!r} card {[card['value'] for card in cards]} "
+            "but meta.stats has no detection_limit_mm_yr — that number has no artefact"
         )
         return
-    assert found, f"{case_id}: meta.stats publishes a detection limit the app never shows"
-    for match in found:
-        _assert_shows_significant(
-            f"{match['num']} {match['unit'] or ''}".strip(),
-            limit,
-            what=f"{case_id}: detection-limit caption",
+    assert cards, f"{case_id}: meta.stats publishes a detection limit the app never shows"
+    expected = formatters.format_number(limit)
+    for card in cards:
+        match = _NUMBER_RE.match(card["value"])
+        assert match and match["num"] == expected, (
+            f"{case_id}: the {label} card shows {card['value']!r} but the artefact publishes "
+            f"{limit!r}, which `format_number` displays as {expected!r}"
         )
         assert match["unit"] == C.VELOCITY_UNIT, (
-            f"{case_id}: the caption prints the detection limit in {match['unit']!r}, but "
+            f"{case_id}: the card prints the detection limit in {match['unit']!r}, but "
             f"meta.stats.detection_limit_mm_yr is a {C.VELOCITY_UNIT} rate"
         )
 
@@ -979,6 +1016,11 @@ def test_context_panel_matches_the_selected_cases_artefact(rendered: dict[str, A
     _assert_shows(
         delivered["value"], len(features), decimals=0, what=f"{case_id}: Delivered features"
     )
+    # Two artefacts, one number: the GeoJSON must also agree with the count meta.json publishes.
+    assert len(features) == meta["stats"]["n_context_features"], (
+        f"{case_id}: context_layers.geojson has {len(features)} features but "
+        f"meta.stats.n_context_features is {meta['stats']['n_context_features']}"
+    )
     (layers_card,) = _cards_labelled(tab, "Delivered layers")
     _assert_shows(
         layers_card["value"], len(counts), decimals=0, what=f"{case_id}: Delivered layers"
@@ -1008,10 +1050,24 @@ def test_context_panel_matches_the_selected_cases_artefact(rendered: dict[str, A
         f"{case_id}: the context table does not echo the artefact; first difference: "
         f"{next((pair for pair in zip(rows, expected_rows) if pair[0] != pair[1]), None)}"
     )
-    # Selector-following: every credit is this case's, not the primary case's fallback.
+    # Selector-following: every credit is this case's, not the primary case's fallback. The
+    # merged table prints one `Provenance ID …` note above it and drops the per-row column when
+    # every feature shares the id; either shape is accepted, but the id set must be exact.
     published = meta["provenance"]["provenance_id"]
     credit_header = formatters.humanize("provenance_id")
-    credited = {row[credit_header] for row in rows if credit_header in row}
+    if credit_header in header:
+        credited = {row[credit_header] for row in rows if row.get(credit_header)}
+    else:
+        table_markup = next(
+            (
+                value
+                for value in (str(node.value) for node in tab.markdown)
+                if '<table class="cockpit-table"' in value
+            ),
+            "",
+        )
+        assert table_markup, f"{case_id}: tab 3 no longer renders the context table"
+        credited = set(_credit_ids("markdown", table_markup))
     assert credited == {published}, (
         f"{case_id}: tab 3 credits {sorted(credited)} but this case publishes {published!r} "
         "(the panel is not following the case selector)"
