@@ -123,7 +123,7 @@ _CSS = f"""
   --card-pad-y: 0.85rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
-  --map-height: clamp(380px, calc(100vh - 470px), 640px);
+  --map-height: clamp(360px, calc(100vh - 540px), 640px);
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
