@@ -193,7 +193,7 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         failures,
     )
     model = (
-        M.build_case(case, study, seed, provenance=str(meta["provenance"]["provenance_id"]))
+        M.build_case(case, study, seed)
         if seed >= 0
         else None
     )
