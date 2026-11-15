@@ -505,7 +505,7 @@ Esa puerta son dos condiciones, ambas en `pipeline/science/transforms.py`:
 | Condición | Constante | Límite | Ventana ANTIGUA (132 d) | Ventana NUEVA (2 años) |
 |---|---|---:|---|---|
 | cobertura por armónico | `MIN_SEASONAL_COVERAGE_PER_HARMONIC` | ≥ 0.75 año por armónico | `annual_coverage` 0.3614 → no pasa | 2.0041 → pasa |
-| condicionamiento | `MAX_DESIGN_CONDITION` | ≤ 30 | condición 66.84 → no pasa | 4.02 → pasa |
+| condicionamiento | `MAX_DESIGN_CONDITION` | ≤ 30 | condición 66.84 → no pasa | 4.12 → pasa |
 | veredicto | `HarmonicFit.seasonal_identifiable` | — | `False` → **no se publica nada**; `regime` forzado a `transitional` | `True` → publicable |
 
 En la ventana antigua el propio pipeline decía «no publiques `seasonal_amp_mm`»: con 0.3614 de
@@ -518,8 +518,9 @@ dos armónicos, porque el segundo exige 1.5 años de cobertura— y el campo se 
 
 Los cuatro números de la tabla son **medidas registradas**, no cálculos de este documento: 0.3614 y
 66.84 son lo que midió `harmonic_fit` en la ventana de 132 días (documentados en el docstring de
-`src/domain/contracts.py` y en [`decisions.md`](decisions.md) O-05); 2.0041 y 4.02 son
-`stats.annual_coverage` / `stats.design_condition` de los `meta.json` de la ventana de dos años. Si
+`src/domain/contracts.py` y en [`decisions.md`](decisions.md) O-05); 2.0041 y 4.12 son
+`stats.annual_coverage` / `stats.design_condition` de los `meta.json` de la ventana de dos años
+(`4.02` es el diseño de un solo armónico; el artefacto publica el de dos, que es el que se ajusta). Si
 la ventana vuelve a cambiar, estos números cambian con ella: son la razón del diff, no parte del
 esquema.
 

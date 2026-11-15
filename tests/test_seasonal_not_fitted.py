@@ -23,13 +23,11 @@ The relaxation must be *narrow*. A null `ratio_R` is legal exactly where `season
 everywhere else the column is still required, finite and non-negative, and nulls in the other
 numeric columns stay forbidden.
 
-State of play when this file was written: `validate_grid` rejects the null (so assertion 1 is the
-acceptance test for the relaxation that has not landed; it must fail with `ratio_R has N null(s)`,
-not with an import, a column name or a fixture error), while `validate_meta` already tolerates a
-`None` median because it only range-checks *numeric* values. What the meta assertions therefore pin
-is that the null stays legal *and* narrow: the key must still be present (JSON null is a value, a
-missing key is a 1.0 generator) and a numeric median must stay non-negative. The remaining
-assertions guard the rest of the rule and already hold.
+`validate_grid` and `validate_meta` accept the null (the relaxation landed with contract 1.1), and
+the assertions below pin that it stays legal *and* narrow: the key must still be present (JSON null
+is a value, a missing key is a 1.0 generator), a numeric median must stay non-negative, a null is
+rejected where an amplitude WAS fitted, and `median_ratio_R` may be null but never NaN/inf. The
+remaining assertions guard the rest of the rule.
 
 Grids are real published artefacts (`data/processed/*/nisar_grid.parquet`, already contract-valid)
 copied and mutated in-process; `meta.json` is built as a small in-process dict. Nothing here writes

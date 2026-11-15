@@ -456,6 +456,18 @@ def validate_grid(
                                 "seasonal_amp_mm > 0; a fitted harmonic has a defined ratio, so "
                                 "publish it (null is only legal where nothing was fitted)"
                             )
+                if amplitude is not None:
+                    # The reverse direction: where nothing was fitted the ratio MUST be null. A
+                    # number there — inf, or a sentinel such as 1e9 read as "extremely
+                    # inelastic" — is exactly the fabrication the contract forbids.
+                    unfitted = amplitude.fillna(0.0) <= 0.0
+                    invented = values.notna() & unfitted
+                    if invented.any():
+                        problems.append(
+                            f"grid: ratio_R has {int(invented.sum())} value(s) where "
+                            "seasonal_amp_mm == 0; an undefined ratio must be null, never inf "
+                            "or a sentinel"
+                        )
                 observed = values.dropna()
             else:
                 if values.isna().any():
@@ -914,6 +926,9 @@ def _selfcheck() -> int:
         ),
         "non-finite median_ratio_R": validate_meta(
             {**meta, "stats": {**meta["stats"], "median_ratio_R": float("nan")}}
+        ),
+        "sentinel ratio where nothing was fitted": validate_grid(
+            pd.DataFrame([{**rows[0], "seasonal_amp_mm": 0.0, "ratio_R": 1e9}])
         ),
         "non-finite trend_mm_yr": validate_timeseries(series.assign(trend_mm_yr=float("nan"))),
         "undeclared product": validate_meta({**meta, "product": "opera-disp-s1", "sensor": "nisar"}),

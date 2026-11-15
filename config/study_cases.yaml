@@ -126,7 +126,8 @@ processing:
   # the pipeline only publishes a seasonal amplitude when the span and conditioning gates of
   # pipeline/science/transforms.py pass (>= 0.75 yr per harmonic, design condition <= 30). Measured
   # at this cadence: 276 d -> coverage 0.7556 / cond 11.50 (knife-edge: one dropped date kills it),
-  # 360 d -> 0.9856 / 5.83, 552 d -> 1.511 / 3.89, 732 d -> 2.004 / 4.02. Do not shorten this
+  # 360 d -> 0.9856 / 5.83, 552 d -> 1.511 / 3.89, 732 d -> 2.004 / 4.12 (two harmonics; 4.02 at
+  # one). Do not shorten this
   # without re-reading that gate, and do not pick 1 yr: transforms.harmonic_order asks for two
   # harmonics from a 1.5 yr span, so a 1-year stack would refuse the second harmonic it requested.
   dates_count: 62

@@ -669,9 +669,9 @@ mm/yr over the window). The series are referenced to the first epoch, so they st
 — and the seasonal bulge is visible mid-window rather than masquerading as secular motion. **The
 seasonal amplitude is a published fit, not a typed constant:** the window now spans two full annual
 cycles and the design sits well inside its conditioning limit, so `seasonal_amp_mm`, `ratio_R` and
-`regime` come from `harmonic_fit`. An earlier, much shorter window could not identify the annual
-harmonic at all, and those artefacts published it as unfitted — amplitude exactly zero, `ratio_R`
-null, the cannot-classify regime — rather than as a measurement.*
+`regime` come from `harmonic_fit`. On the earlier, much shorter window the gate could not identify
+the annual harmonic at all, and the artefacts of that era published an amplitude anyway while
+their own `limitations` said not to — the contradiction the two-year window removes.*
 
 **Limitations.** The per-case subset also ships inside each artefact's `meta.limitations`; the rest
 are project-level statements that no single artefact carries.

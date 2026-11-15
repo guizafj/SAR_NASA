@@ -498,9 +498,10 @@ number of `66.84` against `MAX_DESIGN_CONDITION = 30` → `seasonal_identifiable
 the amplitude would be dishonest. That objection was right about the window, not about the field.
 
 **Why the reversal is honest.** The window moves to **2 years — 62 dates at the 12-day cadence, 732
-days** — where the same gates measure `annual_coverage 2.004` and condition `4.02`: identifiable
-with margin, including the 2-harmonic order (`_harmonic_order` asks for 2 harmonics at span ≥ 1.0 yr,
-and the 1.5-yr coverage gate is why 1 yr was rejected; 0.75 yr was a knife-edge at 2 days of slack).
+days** — where the same gates measure `annual_coverage 2.004` and condition `4.12` (two harmonics;
+`4.02` is the one-harmonic design): identifiable with margin, including the 2-harmonic order
+(`_harmonic_order` asks for two harmonics from a 1.5-yr span, which is why 1 yr was rejected; 0.75 yr
+was a knife-edge at two days of slack).
 So the published seasonal fields are a **fit result** from the same `harmonic_fit` the real path uses,
 not a typed constant. Option B was rejected on 14 Nov for exactly the dishonesty this removes; option
 C (nullable fields) is no longer needed, though it remains available if a future case cannot be

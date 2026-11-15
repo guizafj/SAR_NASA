@@ -415,9 +415,11 @@ def harmonic_order(n_epochs: int, span_years: float) -> int:
 
     ``0`` is a statement about the **model**, not about the ground: the series then has no seasonal
     basis at all and the fitted ``seasonal_amp_mm`` is exactly ``0.0``. Since ``contracts`` 1.1 makes
-    that column required, a *publisher* must not ship order ``0`` as "no seasonality": both
-    ``pipeline/process_case.py`` and ``pipeline/mock/model.py`` treat the case as unpublishable
-    (they refuse or raise) rather than publish an amplitude the gate cannot certify.
+    that column required, a *publisher* must not ship order ``0`` as "no seasonality".
+    ``pipeline/process_case.py`` therefore publishes that state explicitly instead of refusing:
+    ``seasonal_amp_mm`` is ``0.0``, ``ratio_R`` is null, ``regime`` is ``"transitional"`` and
+    ``meta.limitations`` carries the reason. (``pipeline/mock/model.py`` always fits at least one
+    harmonic because its window is two years, so it never takes this path.)
     """
     for k in (2, 1):
         if span_years >= MIN_SEASONAL_COVERAGE_PER_HARMONIC * k and n_epochs >= 2 + 2 * k:
