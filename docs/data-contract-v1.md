@@ -337,7 +337,11 @@ error del pipeline, no un caso válido.
 `sensor_profile(sensor, product)` lanza `ContractError` si la pareja no existe o no coincide. No hay
 manera de escribir "umbral único": el perfil es la única puerta.
 
-**Estado real de las fuentes** (sondas en `data/processed/_availability/*.json`, 2026-11-14):
+**Estado real de las fuentes** (sondas en `data/processed/_availability/*.json`, 2026-11-14). Aviso
+para quien lea esas sondas: el campo `contract_version` que aparece **dentro** de ellas es el
+esquema del *informe de búsqueda* que escribe `pipeline/ingest/02_search_download.py` (hoy `1.0`),
+no el `SCHEMA_VERSION` de este documento (`1.1`). Que digan `1.0` no contradice nada de lo anterior:
+son la evidencia de la sonda, no un artefacto publicado.
 
 | Fuente | CDMX | Jakarta | Málaga |
 |---|---|---|---|
