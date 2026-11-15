@@ -141,6 +141,55 @@ def _load(loaders: Any, case_id: Any, filters: dict[str, Any]) -> tuple[list[dic
     return _features(payload), summary, "plain"
 
 
+def context_caption(shown: pd.DataFrame) -> str:
+    """What a reader is most likely to misread on this tab, derived from the rows in front of them.
+
+    Both halves were once hard-coded, and both were wrong.
+
+    `unknown` has **two** causes — no mapped polygon contains the cell's centroid, *or* the containing polygon's tags
+    map to no class of the frozen vocabulary. Naming only the first is false: every `unknown` cell in Málaga sits
+    *inside* a mapped polygon, which is why `tests/test_limitation_disclosures.py` rejects single-cause wording.
+
+    The source claim depends on the payload. The `land_use` shapes are the dissolved H3 cells of this grid and are
+    published with the same case source string as the OpenStreetMap geometry, so calling every polygon OSM data is
+    false for those; and a synthetic-fallback artefact must not be credited to OpenStreetMap at all.
+    """
+    sources = shown["source"].astype(str) if "source" in shown.columns else pd.Series(dtype=str)
+    osm = bool(sources.str.contains("OpenStreetMap", na=False).any())
+    fallback = (not osm) and bool(sources.str.contains("mock|synthetic", case=False, na=False).any())
+    # `shown` has already been humanised for display (`land_use` -> "Land use"), so accept either spelling: the
+    # raw form arrives from a direct call, the humanised one from the rendered table.
+    has_land_use = "layer" in shown.columns and bool(
+        shown["layer"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin({"land_use", "land use"})
+        .any()
+    )
+    if fallback:
+        origin = (
+            "These polygons are the declared synthetic fallback, not OpenStreetMap data — the Source "
+            "column says so on every row."
+        )
+    else:
+        origin = "Context polygons carry OpenStreetMap provenance (ODbL 1.0)"
+        if has_land_use:
+            origin += (
+                "; the `land_use` shapes are the dissolved H3 cells of this grid and carry the same "
+                "case source string rather than OpenStreetMap geometry"
+            )
+        origin += "."
+    return (
+        "Land use “unknown” is a published category, not missing data: either no mapped polygon "
+        "contains the cell's centroid, or the containing polygon's tags map to no class of the frozen "
+        "vocabulary — and it is never extrapolated from a neighbouring cell. The per-case share is "
+        "disclosed under “Limits of this artefact” in tab 4. "
+        + origin
+        + " The provenance ID below names this case's published product, not the origin of the polygons."
+    )
+
+
 def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     case_id = filters.get("case_id")
     rows, summary, source = _load(loaders, case_id, filters)
@@ -234,20 +283,9 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         f'<p class="kpi-note">{html.escape(note)}</p>',
         unsafe_allow_html=True,
     )
-    # The two facts a reader is most likely to misread on this tab, said where they are met. `unknown` first
-    # arrives as a peer of the real classes in the filter and as a table row, with no gloss; and the provenance
-    # credit above the table names the mock product while the rows underneath name OpenStreetMap. Neither needs a
-    # number here: the per-case share is already disclosed by the artefact's own sentence, and recomputing it in
-    # the view would put science in the UI.
-    st.caption(
-        "Land use “unknown” is a published category, not missing data: OpenStreetMap has no mapped "
-        "polygon there, and it is never extrapolated from a neighbouring cell — the per-case share is "
-        "disclosed under “Limits of this artefact” in tab 4. These context polygons are real "
-        "OpenStreetMap data (ODbL 1.0); the provenance ID above names this case's mock SAR product, "
-        "not the polygons."
-    )
     if exposure_note:
         st.markdown(exposure_note, unsafe_allow_html=True)
+    st.caption(context_caption(shown))
     st.markdown(
         f"<p>{len(shown)} features shown of {len(frame)}</p>",
         unsafe_allow_html=True,

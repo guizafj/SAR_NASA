@@ -12,7 +12,10 @@ from __future__ import annotations
 import json
 import pathlib
 
+import pandas as pd
 from streamlit.testing.v1 import AppTest
+
+from src.ui.context_view import context_caption
 
 CASES = ("mexico-city", "jakarta", "malaga")
 APP = pathlib.Path(__file__).resolve().parents[1] / "app.py"
@@ -55,7 +58,42 @@ def test_tab_three_glosses_unknown_and_separates_the_polygons_from_the_credit() 
     tab = at.tabs[2]
     text = "\n".join(str(element.value) for element in [*tab.caption, *tab.markdown])
     assert "published category" in text, "tab 3 shows `unknown` without saying it is a published category"
-    assert "not the polygons" in text, "tab 3 does not separate the mock provenance id from the OSM polygons"
+    assert "not the origin of the polygons" in text, "tab 3 does not separate the mock provenance id from the OSM polygons"
+    # Both causes, not one: naming only "no mapped polygon" is false — in Málaga every unknown cell sits inside one.
+    assert "either no mapped polygon contains" in text, text[:300]
+    assert "tags map to no class" in text, text[:300]
+    # The land_use shapes are dissolved H3 cells, not OSM geometry, and the caption must say so.
+    assert "dissolved H3 cells" in text, text[:300]
+
+
+def test_the_caption_follows_the_payload_instead_of_asserting_openstreetmap() -> None:
+    """A synthetic fallback must never be credited to OpenStreetMap.
+
+    The first version of this caption was a literal: driven with a fallback artefact — whose every `Source` cell reads
+    `mock (synthetic …)` — it still printed "these context polygons are real OpenStreetMap data". A caption that cannot
+    be wrong is a caption nobody checked, so the text is now a pure function of the rows and this test drives it.
+    """
+    osm = pd.DataFrame(
+        {
+            "layer": ["water", "land_use"],
+            "source": [
+                "OpenStreetMap contributors (ODbL 1.0), Overpass API extract",
+                "OpenStreetMap contributors (ODbL 1.0), Overpass API extract",
+            ],
+        }
+    )
+    fallback = pd.DataFrame(
+        {
+            "layer": ["water", "land_use"],
+            "source": ["mock (synthetic hydrology)", "mock (synthetic land-cover rule)"],
+        }
+    )
+    real_text = context_caption(osm)
+    fallback_text = context_caption(fallback)
+    assert "OpenStreetMap provenance" in real_text, real_text
+    assert "dissolved H3 cells" in real_text, real_text
+    assert "OpenStreetMap" not in fallback_text.replace("not OpenStreetMap data", ""), fallback_text
+    assert "synthetic fallback" in fallback_text, fallback_text
 
 
 def test_every_published_case_carries_the_licence_into_its_artefact() -> None:
