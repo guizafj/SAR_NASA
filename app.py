@@ -214,60 +214,60 @@ def render_filters(
         st.session_state.ui_theme_mode = "system"
     # Streamlit has no viewport query on the server. A collapsed-by-choice
     # expander is the portable way to keep filters from owning the first screen
-    # on a phone while staying open on desktop.
-    with st.expander("Filters", expanded=True):
-        with st.container(border=False, key="filter-strip"):
-            case_col, land_col, coherence_col, risk_col, extrude_col, theme_col = st.columns(6)
-            with case_col:
-                st.selectbox(
-                    "Case",
-                    options=case_ids,
-                    format_func=lambda case_id: labels.get(case_id, case_id),
-                    key="filter_case_id",
+    # on a phone while staying open on desktop. `?compact=1` ships it closed.
+    compact = st.query_params.get("compact") == "1"
+    with st.expander("Filters", expanded=not compact):
+        case_col, land_col, coherence_col, risk_col, extrude_col, theme_col = st.columns(6)
+        with case_col:
+            st.selectbox(
+                "Case",
+                options=case_ids,
+                format_func=lambda case_id: labels.get(case_id, case_id),
+                key="filter_case_id",
+            )
+        with land_col:
+            st.selectbox(
+                "Land use",
+                options=["", *land_uses],
+                format_func=choice_label,
+                key="filter_land_use",
+            )
+        with coherence_col:
+            if coherence_floor is None:
+                st.caption("Coherence threshold not declared.")
+            elif not 0.0 <= coherence_floor <= 1.0:
+                st.caption("Coherence threshold is outside [0, 1]. It is not modified.")
+            else:
+                # Init when the key is missing. Reset only when this case declares
+                # a different floor, so a user value survives an unchanged threshold.
+                applied = st.session_state.get("filter_coherence_floor")
+                if "filter_coherence_min" not in st.session_state or applied != coherence_floor:
+                    st.session_state.filter_coherence_min = coherence_floor
+                st.session_state.filter_coherence_floor = coherence_floor
+                st.slider(
+                    "Minimum coherence",
+                    min_value=0.0,
+                    max_value=1.0,
+                    key="filter_coherence_min",
                 )
-            with land_col:
-                st.selectbox(
-                    "Land use",
-                    options=["", *land_uses],
-                    format_func=choice_label,
-                    key="filter_land_use",
-                )
-            with coherence_col:
-                if coherence_floor is None:
-                    st.caption("Coherence threshold not declared.")
-                elif not 0.0 <= coherence_floor <= 1.0:
-                    st.caption("Coherence threshold is outside [0, 1]. It is not modified.")
-                else:
-                    # Init when the key is missing. Reset only when this case declares
-                    # a different floor, so a user value survives an unchanged threshold.
-                    applied = st.session_state.get("filter_coherence_floor")
-                    if "filter_coherence_min" not in st.session_state or applied != coherence_floor:
-                        st.session_state.filter_coherence_min = coherence_floor
-                    st.session_state.filter_coherence_floor = coherence_floor
-                    st.slider(
-                        "Minimum coherence",
-                        min_value=0.0,
-                        max_value=1.0,
-                        key="filter_coherence_min",
-                    )
-            with risk_col:
-                st.selectbox(
-                    "Risk level",
-                    options=["", *risk_levels],
-                    format_func=choice_label,
-                    key="filter_risk_level",
-                )
-            with extrude_col:
-                if "filter_extrude_3d" not in st.session_state:
-                    st.session_state.filter_extrude_3d = False
-                st.toggle("3D extrusion", key="filter_extrude_3d")
-            with theme_col:
-                st.selectbox(
-                    "Theme",
-                    options=list(theme_labels),
-                    format_func=lambda mode: theme_labels.get(mode, mode),
-                    key="ui_theme_mode",
-                )
+        with risk_col:
+            st.selectbox(
+                "Risk level",
+                options=["", *risk_levels],
+                format_func=choice_label,
+                key="filter_risk_level",
+            )
+        with extrude_col:
+            if "filter_extrude_3d" not in st.session_state:
+                st.session_state.filter_extrude_3d = False
+            st.toggle("3D extrusion", key="filter_extrude_3d")
+        with theme_col:
+            st.selectbox(
+                "Theme",
+                options=list(theme_labels),
+                format_func=lambda mode: theme_labels.get(mode, mode),
+                key="ui_theme_mode",
+            )
 
     return {
         "case_id": st.session_state.get("filter_case_id"),

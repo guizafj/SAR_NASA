@@ -1,13 +1,19 @@
-"""Series and land-use charts. No aggregations and no file reads."""
+"""Series and land-use charts. No aggregations and no file reads.
+
+Figure builders are pure (they return `go.Figure` and never touch Streamlit state) so
+`tests/test_ui_smoke.py` can assert axis titles carry units without a live browser.
+Chart procedure follows the `dataviz` skill: one Y axis, 2 px lines, >= 8 px markers,
+`hovermode="x unified"` with value + unit + provenance_id, direct end labels and a
+detection-limit reference line when the artefact declares one.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.ui.kpi_cards import render_kpi_cards
 from src.ui.formatters import (
     NOT_DECLARED,
     SOURCE_NOT_DECLARED,
@@ -15,7 +21,13 @@ from src.ui.formatters import (
     format_number,
     humanize,
 )
-from src.ui.theme import active_palette, style_figure
+from src.ui.kpi_cards import render_kpi_cards
+from src.ui.theme import active_palette, case_color, style_figure
+
+CHART_HEIGHT = 280
+THREE_CITIES_HEIGHT = 320
+MARKER_SIZE = 8
+LINE_WIDTH = 2
 
 
 def _call(loaders: Any, name: str, *args: Any) -> Any:
@@ -25,13 +37,26 @@ def _call(loaders: Any, name: str, *args: Any) -> Any:
     return function(*args)
 
 
-def _line(series: list[dict[str, Any]] | None) -> None:
-    if not series:
-        st.caption("Series not declared by the backend.")
-        return
-    unit = next((row.get("unit") for row in series if row.get("unit")), None)
-    source = next((row.get("provenance_id") for row in series if row.get("provenance_id")), None)
+def _unit_of(rows: list[dict[str, Any]]) -> str | None:
+    return next((row.get("unit") for row in rows if row.get("unit")), None)
+
+
+def _prov_of(rows: list[dict[str, Any]]) -> str | None:
+    return next((row.get("provenance_id") for row in rows if row.get("provenance_id")), None)
+
+
+def _has_seasonal(rows: list[dict[str, Any]]) -> bool:
+    return any(
+        isinstance(row.get("seasonal_mm"), (int, float)) and not isinstance(row.get("seasonal_mm"), bool)
+        for row in rows
+    )
+
+
+def line_figure(series: list[dict[str, Any]], *, height: int = CHART_HEIGHT) -> go.Figure:
+    """Cumulative displacement of the AOI series, with the fitted seasonal term."""
     palette = active_palette()
+    unit = _unit_of(series) or UNIT_NOT_DECLARED
+    provenance = _prov_of(series) or SOURCE_NOT_DECLARED
     dates = [row.get("date") for row in series]
     figure = go.Figure(
         go.Scatter(
@@ -39,30 +64,147 @@ def _line(series: list[dict[str, Any]] | None) -> None:
             y=[row.get("value") for row in series],
             name="Cumulative displacement",
             mode="lines+markers",
-            line={"color": palette["accent"], "width": 2},
+            line={"color": palette["accent"], "width": LINE_WIDTH},
+            marker={"size": MARKER_SIZE},
+            customdata=[provenance] * len(series),
+            hovertemplate=f"%{{y:.2f}} {unit}<br>Provenance ID %{{customdata}}<extra></extra>",
         )
     )
-    if any(isinstance(row.get("seasonal_mm"), (int, float)) for row in series):
+    if _has_seasonal(series):
         figure.add_trace(
             go.Scatter(
                 x=dates,
                 y=[row.get("seasonal_mm") for row in series],
-                name="Seasonal component",
+                name="Seasonal fit",
                 mode="lines",
-                line={"color": palette["coherence"], "width": 1.5, "dash": "dash"},
+                line={"color": palette["coherence"], "width": LINE_WIDTH, "dash": "dash"},
+                hoverinfo="skip",
             )
         )
     style_figure(
         figure,
-        height=280,
+        height=height,
         x_title="Date",
-        y_title=(
-            f"Cumulative displacement ({unit})"
-            if unit
-            else f"Cumulative displacement ({UNIT_NOT_DECLARED})"
-        ),
+        y_title=f"Cumulative displacement ({unit})",
+        margin={"l": 52, "r": 18, "t": 34, "b": 42},
     )
-    st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
+    figure.update_layout(
+        hovermode="x unified",
+        showlegend=_has_seasonal(series),
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
+    )
+    return figure
+
+
+def three_cities_figure(
+    series_by_case: Mapping[str, list[dict[str, Any]]],
+    labels: Mapping[str, str] | None = None,
+) -> go.Figure:
+    """One line per case on one shared axis, fixed identity colors and end labels."""
+    palette = active_palette()
+    figure = go.Figure()
+    unit = "mm"
+    for case_id, rows in series_by_case.items():
+        if not rows:
+            continue
+        unit = _unit_of(rows) or unit
+        provenance = _prov_of(rows) or SOURCE_NOT_DECLARED
+        label = str((labels or {}).get(case_id, case_id))
+        figure.add_trace(
+            go.Scatter(
+                x=[row.get("date") for row in rows],
+                y=[row.get("value") for row in rows],
+                name=label,
+                mode="lines",
+                line={"color": case_color(case_id), "width": LINE_WIDTH},
+                customdata=[provenance] * len(rows),
+                hovertemplate=f"%{{y:.2f}} {unit}<br>Provenance ID %{{customdata}}<extra></extra>",
+            )
+        )
+        # Direct label at the end of every line: identity never color-alone, and the
+        # light-mode aqua (Malaga) is below 3:1, so its label is mandatory.
+        figure.add_annotation(
+            x=rows[-1].get("date"),
+            y=rows[-1].get("value"),
+            text=label,
+            showarrow=False,
+            xanchor="left",
+            xshift=6,
+            font={"color": palette["text"], "size": 10},
+        )
+    style_figure(
+        figure,
+        height=THREE_CITIES_HEIGHT,
+        x_title="Date",
+        y_title=f"Cumulative displacement ({unit})",
+        margin={"l": 52, "r": 150, "t": 34, "b": 42},
+    )
+    figure.update_layout(
+        hovermode="x unified",
+        showlegend=len(series_by_case) > 1,
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
+    )
+    return figure
+
+
+def bars_figure(
+    rows: list[dict[str, Any]],
+    meta: Mapping[str, Any] | None = None,
+) -> go.Figure:
+    """Median velocity by land use. Reference line when a detection limit is declared."""
+    palette = active_palette()
+    unit = _unit_of(rows) or UNIT_NOT_DECLARED
+    provenance = _prov_of(rows) or SOURCE_NOT_DECLARED
+    figure = go.Figure(
+        go.Bar(
+            x=[humanize(row.get("land_use")) if row.get("land_use") else NOT_DECLARED for row in rows],
+            y=[row.get("value") for row in rows],
+            width=0.45,
+            marker={"color": palette["accent"], "cornerradius": 4},
+            customdata=[row.get("provenance_id") or provenance for row in rows],
+            hovertemplate=f"%{{y:.2f}} {unit}<br>Provenance ID %{{customdata}}<extra></extra>",
+        )
+    )
+    style_figure(
+        figure,
+        height=CHART_HEIGHT,
+        x_title="Land use",
+        y_title=f"Velocity ({unit})" if unit == "mm/year" else f"value ({unit})",
+    )
+    figure.update_layout(bargap=0.55)
+    stats = meta.get("stats") if isinstance(meta, Mapping) else None
+    limit = stats.get("detection_limit_mm_yr") if isinstance(stats, Mapping) else None
+    if isinstance(limit, (int, float)) and not isinstance(limit, bool) and unit == "mm/year":
+        for sign in (-1.0, 1.0):
+            figure.add_shape(
+                type="line",
+                xref="paper",
+                x0=0,
+                x1=1,
+                y0=sign * float(limit),
+                y1=sign * float(limit),
+                line={"color": palette["muted"], "width": 1, "dash": "dash"},
+            )
+        figure.add_annotation(
+            xref="paper",
+            x=1,
+            xanchor="right",
+            y=float(limit),
+            yanchor="bottom",
+            text=f"Detection limit {format_number(limit)} {unit}",
+            showarrow=False,
+            font={"color": palette["muted"], "size": 10},
+        )
+    return figure
+
+
+def _line(series: list[dict[str, Any]] | None) -> None:
+    if not series:
+        st.caption("Series not declared by the backend.")
+        return
+    unit = _unit_of(series) or UNIT_NOT_DECLARED
+    provenance = _prov_of(series) or SOURCE_NOT_DECLARED
+    st.plotly_chart(line_figure(series), width="stretch", theme=None, config={"displayModeBar": False})
     trend = next(
         (
             row.get("trend_mm_yr")
@@ -79,46 +221,63 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         factor_text = f" ×{factor:g}" if isinstance(factor, (int, float)) else ""
         scale_text = f" · scaled{factor_text} to the filtered subset"
     st.caption(
-        f"Cumulative displacement · {unit or UNIT_NOT_DECLARED}{trend_text} · "
-        f"Provenance ID {source or SOURCE_NOT_DECLARED}{scale_text}"
+        f"Cumulative displacement · {unit}{trend_text} · "
+        f"Provenance ID {provenance}{scale_text}"
     )
 
 
-def _bars(rows: list[dict[str, Any]] | None) -> None:
+def _three_cities(loaders: Any) -> None:
+    """Three cities on one shared axis, one fixed identity color per case."""
+    cases = _call(loaders, "load_study_cases") or []
+    labels = {str(item.get("id")): str(item.get("label") or item.get("id")) for item in cases}
+    series_by_case: dict[str, list[dict[str, Any]]] = {}
+    provenance: list[str] = []
+    for case in cases:
+        case_id = str(case.get("id") or "")
+        if not case_id:
+            continue
+        frame = _call(loaders, "load_timeseries", case_id)
+        rows = frame.to_dict(orient="records") if hasattr(frame, "to_dict") else []
+        rows = [row for row in rows if row.get("date")]
+        if rows:
+            series_by_case[case_id] = rows
+            provenance.append(str(_prov_of(rows) or SOURCE_NOT_DECLARED))
+    if not series_by_case:
+        st.caption("No case series declared by the backend.")
+        return
+    st.plotly_chart(
+        three_cities_figure(series_by_case, labels),
+        width="stretch",
+        theme=None,
+        config={"displayModeBar": False},
+    )
+    st.caption(
+        "Three cities, shared axis · Cumulative displacement (mm) · "
+        f"Provenance ID {' · '.join(dict.fromkeys(provenance))}"
+    )
+
+
+def _bars(rows: list[dict[str, Any]] | None, meta: Mapping[str, Any] | None = None) -> None:
     if not rows:
         st.caption("Land-use bars not declared by the backend.")
         return
-    unit = next((row.get("unit") for row in rows if row.get("unit")), None)
-    source = next((row.get("provenance_id") for row in rows if row.get("provenance_id")), None)
-    figure = go.Figure(
-        go.Bar(
-            x=[
-                humanize(row.get("land_use")) if row.get("land_use") else NOT_DECLARED
-                for row in rows
-            ],
-            y=[row.get("value") for row in rows],
-            marker={"color": active_palette()["accent"]},
-        )
+    unit = _unit_of(rows) or UNIT_NOT_DECLARED
+    provenance = _prov_of(rows) or SOURCE_NOT_DECLARED
+    st.plotly_chart(
+        bars_figure(rows, meta),
+        width="stretch",
+        theme=None,
+        config={"displayModeBar": False},
     )
-    style_figure(
-        figure,
-        height=280,
-        x_title="Land use",
-        y_title=f"Velocity ({unit})" if unit == "mm/year" else (
-            f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})"
-        ),
-    )
-    st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     st.caption(
-        f"Median velocity by land use · {unit or UNIT_NOT_DECLARED} · "
-        f"Provenance ID {source or SOURCE_NOT_DECLARED}"
+        f"Median velocity by land use · {unit} · Provenance ID {provenance}"
     )
 
 
 def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
     # The persistent demo banner lives in app.py; do not duplicate it per tab.
-    del meta
     case_id = filters.get("case_id")
     render_kpi_cards(_call(loaders, "get_series_kpis", case_id, filters))
     _line(_call(loaders, "get_case_series", case_id, filters))
-    _bars(_call(loaders, "get_land_use_bars", case_id, filters))
+    _three_cities(loaders)
+    _bars(_call(loaders, "get_land_use_bars", case_id, filters), meta)

@@ -28,6 +28,8 @@ REQUIRED_BY_APP_PY = (
     "get_scale_comparison",
     "load_context_layers",
     "load_documented_limits",
+    # Additive hooks: bridge-only fields (no contract change) that Tab 4 consumes.
+    "load_availability",
 )
 
 
@@ -151,3 +153,19 @@ def test_get_scale_comparison_flags_mixed_sensors_across_cases(tmp_path: pathlib
     assert comp["sensors"] == ["nisar", "sentinel-1"]
     assert comp["products"] == ["hyp3-s1", "nisar-gunw"]
     assert comp["mixed_units"] is False
+
+
+def test_load_availability_cites_the_asf_record_without_downloading() -> None:
+    info = loaders.load_availability("mexico-city")
+    assert info is not None
+    assert info["available"] is True
+    assert info["http_status"] == 200
+    assert isinstance(info["stacks"], list) and info["stacks"]
+    stack = next((s for s in info["stacks"] if s["recommended"]), info["stacks"][0])
+    assert stack["track"]
+    assert stack["n_granules"] and stack["n_granules"] > 0
+    assert isinstance(stack["date_range"], list) and len(stack["date_range"]) == 2
+    assert info["coverage_note"]
+    # Catalogue metadata only: nothing was downloaded, so no stack may claim to be measured.
+    assert all("downloaded" not in s for s in info["stacks"])
+    assert loaders.load_availability("atlantis") is None

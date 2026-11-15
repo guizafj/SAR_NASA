@@ -27,6 +27,17 @@
 .*.local
 .*cache
 *cache*
+AGENTS.md
+agents.md
+**/AGENTS.md
+**/agents.md
+.agents/
+.opencode/
+.impeccable/
+docs/opencode_pack/
+**/skills/
+**/*PROMPT*.md
+**/*prompt*.md
 __pycache__/
 *.py[cod]
 *$py.class

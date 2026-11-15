@@ -46,6 +46,14 @@ MUTED = "#94A3B8"
 FOCUS = DARK["focus"]
 RADIUS = "4px"
 
+#: Categorical identity slots for the three cities, fixed order, validated with
+#: `dataviz/scripts/validate_palette.py` on both cockpit surfaces (light: one WARN
+#: at 2.82:1 for Málaga, hence the mandatory direct label). Never cycled.
+CASE_COLORS = {
+    "light": {"mexico-city": "#2a78d6", "jakarta": "#eb6834", "malaga": "#1baf7a"},
+    "dark": {"mexico-city": "#3987e5", "jakarta": "#d95926", "malaga": "#199e70"},
+}
+
 FONT_DISPLAY = '"Space Grotesk", "Segoe UI", system-ui, sans-serif'
 FONT_BODY = '"Inter", "Segoe UI", system-ui, sans-serif'
 FONT_MONO = '"JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace'
@@ -78,6 +86,13 @@ def active_palette() -> dict[str, str]:
     if reported_scheme() == "light":
         return LIGHT
     return DARK
+
+
+def case_color(case_id: str) -> str:
+    """Identity color for a case (fixed slot, never by rank or filter order)."""
+    scheme = "light" if reported_scheme() == "light" else "dark"
+    palette = CASE_COLORS[scheme]
+    return palette.get(str(case_id), active_palette()["muted"])
 
 
 def style_figure(
@@ -120,10 +135,10 @@ _CSS = f"""
 
 :root {{
   --radius: {RADIUS};
-  --card-pad-y: 0.85rem;
+  --card-pad-y: 0.6rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
-  --map-height: clamp(380px, calc(100vh - 470px), 640px);
+  --map-height: clamp(420px, calc(100vh - 500px), 640px);
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
@@ -188,11 +203,11 @@ body,
 .mission-bar {{
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.85rem 1.1rem;
+  padding: 0.55rem 1.1rem;
   margin: 0;
   box-sizing: border-box;
 }}
@@ -233,7 +248,7 @@ body,
 
 .demo-banner {{
   margin: 0;
-  padding: 0.55rem 1.1rem;
+  padding: 0.4rem 1.1rem;
   border: 1px solid var(--alert);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--alert) 12%, var(--surface));
@@ -541,6 +556,89 @@ body,
   gap: 0.5rem;
 }}
 
+/* Compact strip under the map (plan Fase 1): ramp + ticks + mode + provenance. */
+.legend-strip {{
+  gap: 0.45rem;
+  padding: 0.6rem var(--card-pad-x);
+}}
+
+.legend-head {{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}}
+
+.legend-mode {{
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--muted) !important;
+}}
+
+.legend-strip .legend-bar {{
+  height: 8px;
+}}
+
+.legend-meta {{
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  color: var(--muted) !important;
+  line-height: 1.45;
+}}
+
+/* Reading panel (right column). */
+.reading-head .reading-title {{
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text) !important;
+  word-break: break-all;
+}}
+
+.reading-stats {{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  padding: 0.6rem var(--card-pad-x);
+}}
+
+.reading-stat {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}}
+
+.reading-stat .stat-value {{
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text) !important;
+  white-space: nowrap;
+}}
+
+.reading-stat .stat-unit {{
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted) !important;
+}}
+
+.reading-stat .stat-label {{
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--muted) !important;
+  text-transform: none;
+}}
+
 .legend-bar {{
   height: 12px;
   width: 100%;
@@ -681,8 +779,8 @@ ul[data-baseweb="menu"] li {{
 /* Toggle: the off track needs to read against the dark surface. */
 [data-testid="stToggle"] [role="switch"],
 [data-testid="stToggle"] [data-baseweb="checkbox"] [role="switch"] {{
-  background-color: var(--border) !important;
-  border: 1px solid var(--border) !important;
+  background-color: color-mix(in srgb, var(--muted) 42%, var(--surface)) !important;
+  border: 1px solid var(--muted) !important;
   opacity: 1 !important;
 }}
 
@@ -921,6 +1019,19 @@ button[data-baseweb="tab"]:focus-visible {{
   flex: 1 1 10.5rem !important;
 }}
 
+/* Plan Fase 1: the map row is 2:1, not the flat equal split of the global rule. */
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {{
+  flex: 2 1 0 !important;
+  min-width: 0 !important;
+}}
+
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+}}
+
 .st-key-map-slot {{
   position: relative;
   z-index: 0;
@@ -1091,6 +1202,16 @@ button[data-baseweb="tab"]:focus-visible {{
     min-width: 100% !important;
     width: 100% !important;
   }}
+  /* The 2:1 map row must stack too. The 2:1 rule wins on specificity because of
+     :first-child, so the stacking override needs the same pseudo-classes. */
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    width: 100% !important;
+  }}
   .st-key-inspector-slot .cockpit-card.is-empty {{
     min-height: 7rem;
   }}
@@ -1130,6 +1251,39 @@ button[data-baseweb="tab"]:focus-visible {{
   .compare-row {{
     grid-template-columns: 1fr;
     gap: 0.25rem;
+  }}
+}}
+
+/* Keyboard focus must be visible on every control (plan Fase 3). */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+[role="tab"]:focus-visible,
+[role="switch"]:focus-visible,
+[data-baseweb="select"] [role="combobox"]:focus-visible {{
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}}
+
+/* One animation only: the hero figure fades in when the selection changes. */
+@keyframes cockpit-plot-in {{
+  from {{ opacity: 0.35; }}
+  to {{ opacity: 1; }}
+}}
+
+.js-plotly-plot {{
+  animation: cockpit-plot-in 180ms ease-out both;
+}}
+
+@media (prefers-reduced-motion: reduce) {{
+  *,
+  *::before,
+  *::after {{
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }}
 }}
 """

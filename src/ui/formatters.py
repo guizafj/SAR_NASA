@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import re
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Sequence
 
 NOT_DECLARED = "not declared"
@@ -121,13 +123,23 @@ def humanize(value: Any) -> str:
 
 
 def format_number(value: Any, decimals: int = 2) -> str:
-    """Trim float noise for display: 41.3767 -> 41.38, 11694.0 -> 11694."""
+    """Trim float noise for display, half-up like a person would read it.
+
+    41.3767 -> 41.38, 11694.0 -> 11694, -62.065 -> -62.07 (banker's rounding
+    would print -62.06 and make the same magnitude read differently per tab).
+    """
     if isinstance(value, bool):
         return str(value)
     if isinstance(value, (int, float)):
-        if float(value).is_integer():
-            return f"{int(value)}"
-        return f"{round(float(value), decimals):g}"
+        number = float(value)
+        if not math.isfinite(number):
+            return str(value)
+        quantum = Decimal(1).scaleb(-decimals)
+        rounded = Decimal(repr(number)).quantize(quantum, rounding=ROUND_HALF_UP)
+        text = f"{rounded:f}"
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        return text or "0"
     return str(value)
 
 

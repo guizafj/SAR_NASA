@@ -77,6 +77,7 @@ Corrección de Rol 3 (`docs/requests.md`, 2026-11-15): el GeoJSON **sí** trae `
 
 | Visible | Origen | Lectura | Hueco |
 |---|---|---|---|
+| **Real NISAR GUNW availability** | `load_availability` (lee `data/processed/_availability/{case}.json`) | Cita el registro de búsqueda de ASF: stacks reales catalogados (track, dirección, frame, nº de granulos, ventana), HTTP, fecha de la búsqueda y la advertencia de cobertura urbana. **No es una descarga**: el artefacto publicado sigue siendo `mock` y el bloque lo dice. | El hook es aditivo y lo añadió Rol 2 desde `fradiaz`; falta la firma de Rol 1 (fila en `docs/requests.md`) |
 | "No scientific text approved by Role 3." | literal de la UI | Cierto para un módulo educativo. | Contradice las tarjetas de abajo, que sí citan el artefacto y el README. |
 | Tres tarjetas | `meta.stats` | `dominant_regime`, `median_ratio_R`, `median_velocity_mm_yr`. | Ignora `n_cells`, `n_dates`, `p05`/`p95`, `median_seasonal_amp_mm`, `per_cell_series`, y el límite de Málaga. |
 | `null_policy`, `limitations` | `meta` | Texto del artefacto. Citarlo, no parafrasearlo. | No se distingue "dato" de "limitación del generador mock". |
@@ -115,6 +116,7 @@ Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentaci�
 | eje X de barras con `land_use` y slugs crudos | `Land use` y etiquetas legibles (`Urban dense`, …) | `get_land_use_bars` |
 | tarjetas de pestañas 3 y 4 sin `Provenance ID` | `Provenance ID` bajo las tarjetas de resumen y `Dominant regime` humanizado | `load_context_layers`, `load_meta` |
 | `?cell=` borrado en el primer arranque | `selected_cell_id` se conserva si pertenece al caso activo y se limpia si es inválida o cambia el caso | `st.query_params` + `get_cell_detail` |
+| serie del AOI y KPIs de rejilla en el mismo grupo, y procedencia repetida en tarjeta aparte | serie rotulada "Whole-area aggregate series"; los KPIs llevan "Grid statistics for the current filter"; una sola línea de procedencia (la de la franja) | `get_case_series`, `get_map_kpis`, `load_meta` |
 
 Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.
 
