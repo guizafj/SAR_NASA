@@ -33,7 +33,8 @@ COPY README.md ./README.md
 RUN /app/.venv/bin/python -m src.domain.contracts \
     && /app/.venv/bin/python -m src.data.validation --processed data/processed --require-cases
 
-# Copy Streamlit entry point + optional theme config once Rol 2 lands app.py
+# Copy Streamlit entry point and the remaining context (app.py, .streamlit theme). Build-time
+# validation above already ran against the artefacts, so a broken contract fails the image.
 COPY . ./
 
 EXPOSE 8501
