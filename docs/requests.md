@@ -276,3 +276,35 @@ Pedimos una decisión: si el contrato 1.1 debe permitir procedencia por capa (p.
 **Impacto en contrato de datos:** posiblemente §6 (propiedades de contexto) y el gate; no se añade ningún campo al esquema en ningún caso.  
 **Aprobación:** Rol 1 (dueño de `src/data/validation.py`); Rol 3 documenta el resultado.  
 **Estado:** ABIERTA — pendiente de Rol 1.
+
+## Todos (integración en `main`) — el dueño ordenó integrar sin la firma de O-05
+
+**De:** Rol 3 (yuls, dueño del repositorio)
+**Para:** Rol 1 (pozo), Rol 2 (fradiaz)
+**Contexto:** rama de integración construida a partir de `feat/contract-1.1` (`78c3329`) + `main` (`dce1b9b3`) + `pozo` (`24a69ee`).
+
+`docs/decisions.md` (O-05) pide el acuerdo de Rol 1 y Rol 2 antes de tocar `main`. Ese acuerdo **no se obtuvo**. El
+dueño pidió explícitamente integrar todo en `main`, así que la fusión se hace por decisión del dueño y **queda
+registrada aquí** en lugar de ocurrir en silencio — `main` ya lleva una integración de 1.1 sin firma, y una segunda
+sin registro es cómo la gobernanza deja de significar algo.
+
+Lo que sí está verificado antes de integrar, para que el acuerdo se pueda dar a posteriori con evidencia:
+
+- contrato: `SCHEMA_VERSION` 1.1, huella `ed92be802ff8846fe369058d9a80c9545c2a694a17896de6a5f1844146e302ae`,
+  idéntica en las cuatro ramas (base, `main`, `pozo`, `feat/contract-1.1`);
+- datos: `main` y `pozo` **nunca** regeneraron `data/processed/` (0 de 12 ficheros difieren de la base), así que la
+  fusión conserva los artefactos del contrato 1.1 y sus `provenance_id` con ventana;
+- artefactos: `validate_artifacts --require-cases --strict-size-mb 15` → PASS, 1.687 MB; `src.data.validation` → PASS
+  en los tres casos;
+- despliegue: `deploy/Dockerfile`, `.dockerignore` y `streamlit>=1.67` tomados de `pozo`, porque `main` lee
+  `docs/science-guide.md` en tiempo de ejecución y nuestra imagen no lo copiaba (la tarjeta de física de la pestaña
+  4 desaparecía sin error);
+- guardas: 1.610 pruebas verdes; las 26 restantes están todas en `tests/test_ui_matches_artefacts.py` y son
+  expectativas desfasadas contra el rediseño del cockpit, no defectos de producto.
+
+**Pendiente conocido y no resuelto aquí:** la capa de contexto OSM. Los pines (3.464.620 B) están versionados y su
+consumidor no, de modo que la rama integrada los lleva inertes. Debe resolverse en un sentido o en otro antes de
+publicar: o entra la capa completa en un solo commit, o se retiran los pines.
+
+**Aprobación:** pendiente de Rol 1 y Rol 2 (a posteriori). Dueño: Rol 3, que asume la decisión.
+**Estado:** INTEGRADO POR DECISIÓN DEL DUEÑO — firma de O-05 pendiente.
