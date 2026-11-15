@@ -733,6 +733,20 @@ def validate_meta(meta: Mapping[str, Any]) -> list[str]:
                     "(stats.seasonal_n_harmonics/n_harmonics is 0) but no limitation says so; "
                     "the null ratio_R must travel with its reason"
                 )
+        # The mirror inconsistency: a null median ratio beside a non-zero median amplitude. If a
+        # harmonic was fitted anywhere the aggregate ratio is defined, so null there would hide a
+        # computed number behind an "undefined" marker.
+        if stats.get("median_ratio_R") is None:
+            amp_median = stats.get("median_seasonal_amp_mm")
+            if (
+                isinstance(amp_median, (int, float))
+                and not isinstance(amp_median, bool)
+                and amp_median > 0.0
+            ):
+                problems.append(
+                    f"meta: stats.median_ratio_R is null but median_seasonal_amp_mm is "
+                    f"{amp_median!r}; a case that fitted a harmonic has a defined median ratio"
+                )
         median = stats.get("median_velocity_mm_yr")
         if isinstance(median, (int, float)) and abs(median) < NULL_RESULT_MM_YR:
             if not isinstance(stats.get("detection_limit_mm_yr"), (int, float)):
@@ -947,6 +961,9 @@ def _selfcheck() -> int:
         ),
         "not-fitted case without an explanation": validate_meta(
             {**meta, "stats": {**meta["stats"], "seasonal_n_harmonics": 0}}
+        ),
+        "null median ratio beside a fitted amplitude": validate_meta(
+            {**meta, "stats": {**meta["stats"], "median_ratio_R": None}}
         ),
         "non-finite trend_mm_yr": validate_timeseries(series.assign(trend_mm_yr=float("nan"))),
         "undeclared product": validate_meta({**meta, "product": "opera-disp-s1", "sensor": "nisar"}),
