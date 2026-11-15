@@ -54,11 +54,25 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
         "coherence_min": 0.5,
         "risk_level": None,
         "extrude_3d": True,
-        "scale_mode": "Común a todos los casos",
+        "scale_mode": "shared",
     }
     df_map = loaders.get_map_layer_df("mexico-city", filters)
     assert not df_map.empty
-    assert {"cell_id", "lat", "lon", "delta_change", "color", "height"} <= set(df_map.columns)
+    assert {
+        "cell_id",
+        "lat",
+        "lon",
+        "delta_change",
+        "color",
+        "height",
+        "regime",
+        "ratio_R",
+        "seasonal_amp_mm",
+    } <= set(df_map.columns)
+
+    # Default when extrude_3d is omitted must be flat (height == 0.0) per docs/requests.md
+    df_flat = loaders.get_map_layer_df("mexico-city", {"case_id": "mexico-city"})
+    assert (df_flat["height"] == 0.0).all()
 
     counts = loaders.get_layer_counts("mexico-city", filters)
     assert 0 < counts["shown"] < counts["total"] == 11694
@@ -66,6 +80,7 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     scale = loaders.get_color_scale("mexico-city", filters)
     assert scale["min"] == -425.0 and scale["max"] == 425.0
     assert scale["fallback"] is False
+    assert "stops" in scale and len(scale["stops"]) >= 3
 
     vs = loaders.get_view_state("mexico-city")
     assert vs is not None and 19.0 < vs["latitude"] < 20.0
@@ -79,26 +94,29 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     first_cid = str(df_map.iloc[0]["cell_id"])
     detail = loaders.get_cell_detail("mexico-city", first_cid)
     assert detail is not None and detail["cell_id"] == first_cid
+    assert detail["series_scope"] == "aoi" and len(detail["series"]) == 62
 
     ts = loaders.load_timeseries("mexico-city", "aoi")
     assert len(ts) == 62  # 2-year mock window: 62 dates, 2024-11-10 -> 2026-11-12
 
     s_kpis = loaders.get_series_kpis("mexico-city", filters)
     assert [k["label"] for k in s_kpis] == [
-        "velocidad mediana",
-        "% de celdas por encima del umbral",
-        "celdas críticas",
-        "cobertura coherente",
+        "Median velocity",
+        "Cells above threshold",
+        "Critical cells",
+        "Coherent coverage",
         # v1.1: fitted seasonal amplitude, published because the 2-year window identifies it
-        "amplitud estacional mediana",
+        "Median seasonal amplitude",
     ]
     assert s_kpis[-1]["value"] == 1.5  # meta.stats.median_seasonal_amp_mm for Mexico City
     assert s_kpis[-1]["unit"] == "mm"
 
-    assert len(loaders.get_case_series("mexico-city", filters)) == 62
+    case_series = loaders.get_case_series("mexico-city", filters)
+    assert len(case_series) == 62
+    assert case_series[0]["scaled"] is False and case_series[0]["scale_factor"] == 1.0
     assert len(loaders.get_land_use_bars("mexico-city", filters)) == 1
 
-    comp = loaders.get_scale_comparison("Común a todos los casos")
+    comp = loaders.get_scale_comparison("shared")
     shares = {c["id"]: c["share"] for c in comp["cases"]}
     assert shares["mexico-city"] == 1.0
     assert shares["malaga"] < 0.05

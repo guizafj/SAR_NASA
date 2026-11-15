@@ -31,15 +31,29 @@ from src.data.validation import (
     validate_case_bundle,
 )
 from src.domain import contracts as C
-from examples.reference_loader import (
-    Case,
-    LoaderError,
-    aoi_series,
-    grid_frame,
-    kpis,
-    load_case,
-    map_payload,
-)
+
+# `examples/` is a runtime dependency of this module (see .dockerignore). Guard the
+# import so a deployment that ships without it can still import `src.data.loaders`
+# and let the UI fall back instead of crashing at startup.
+try:  # pragma: no cover - trivial branch, exercised by the deployment guard test
+    from examples.reference_loader import (
+        Case,
+        LoaderError,
+        aoi_series,
+        grid_frame,
+        kpis,
+        load_case,
+        map_payload,
+    )
+except ImportError as _reference_loader_exc:  # pragma: no cover
+    class LoaderError(RuntimeError):  # type: ignore[no-redef]
+        """Raised when the reference loader is unavailable in this deployment."""
+
+    Case = Any  # type: ignore[misc,assignment]
+    aoi_series = grid_frame = kpis = load_case = map_payload = None  # type: ignore[assignment]
+    _REFERENCE_LOADER_IMPORT_ERROR: ImportError | None = _reference_loader_exc
+else:  # pragma: no cover
+    _REFERENCE_LOADER_IMPORT_ERROR = None
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_PROCESSED_DIR: pathlib.Path = ROOT_DIR / "data" / "processed"

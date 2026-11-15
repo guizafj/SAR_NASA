@@ -31,7 +31,9 @@ from src.domain.map_adapter import (
 )
 from src.domain.metrics import compute_kpis
 
-_SHARED_LABELS = frozenset({"común a todos los casos", "compartida", "shared"})
+_SHARED_LABELS = frozenset(
+    {"shared", "común a todos los casos", "comun a todos los casos", "compartida"}
+)
 
 
 def _resolve_scale_mode(raw_mode: Any) -> ScaleMode:
@@ -138,7 +140,7 @@ def get_map_layer_df(
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     crit = _dict_to_criteria(filters)
     mode = _resolve_scale_mode((filters or {}).get("scale_mode"))
-    extrude = bool((filters or {}).get("extrude_3d", True))
+    extrude = bool((filters or {}).get("extrude_3d", False))
 
     payload = build_map_payload(
         bundle,
@@ -168,6 +170,23 @@ def get_map_layer_df(
     df = payload.grid_frame.copy()
     df["color"] = df["fill_color"]
     df["height"] = df["elevation_m"]
+    # v1.1 thesis metrics for tooltip/inspector parity; additive if absent on legacy fixtures.
+    for extra in ("regime", "ratio_R", "seasonal_amp_mm"):
+        if extra in bundle.grid.columns:
+            if extra not in df.columns:
+                lookup = bundle.grid.set_index("cell_id")[extra]
+                df[extra] = df["cell_id"].map(lookup)
+            columns.append(extra)
+    # Round float columns for clean PyDeck tooltips (no 15-digit IEEE-754 noise on hover).
+    for col, decimals in (
+        ("delta_change", 2),
+        ("velocity_mm_yr", 2),
+        ("coherence", 3),
+        ("ratio_R", 2),
+        ("seasonal_amp_mm", 2),
+    ):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").round(decimals)
     return df[columns]
 
 
@@ -198,6 +217,10 @@ def get_color_scale(
         "saturated": saturated,
         "fallback": False,
         "mixed_units": False,
+        # Legend parity hooks for `src/ui/map_view.py`; additive, never remove the keys above.
+        "metric": payload.legend.metric,
+        "caption": payload.legend.caption,
+        "stops": [stop.color_hex for stop in payload.legend.stops],
     }
 
 
@@ -260,19 +283,19 @@ def get_map_kpis(
     coh_min = float(view.grid["coherence"].min()) if not view.grid.empty else None
     return [
         {
-            "label": "velocidad mediana",
+            "label": "Median velocity",
             "value": round(kpis.median_velocity_mm_yr, 2) if kpis.median_velocity_mm_yr is not None else None,
             "unit": C.VELOCITY_UNIT,
             "provenance_id": prov_id,
         },
         {
-            "label": "delta_change mediana",
+            "label": "Median displacement",
             "value": round(kpis.median_delta_mm, 2) if kpis.median_delta_mm is not None else None,
             "unit": C.UNIT,
             "provenance_id": prov_id,
         },
         {
-            "label": "coherence min",
+            "label": "Minimum coherence",
             "value": round(coh_min, 3) if coh_min is not None else None,
             "unit": None,
             "provenance_id": prov_id,
@@ -280,7 +303,7 @@ def get_map_kpis(
         {
             # v1.1: fitted, not typed — `seasonal_amp_mm` comes from the harmonic fit of each
             # cell's own series, so the card and the parquet can never disagree.
-            "label": "amplitud estacional mediana",
+            "label": "Median seasonal amplitude",
             "value": (
                 round(kpis.median_seasonal_amp_mm, 2)
                 if kpis.median_seasonal_amp_mm is not None
@@ -289,6 +312,28 @@ def get_map_kpis(
             "unit": C.UNIT,
             "provenance_id": prov_id,
         },
+    ]
+
+
+def _series_rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Normalise a `timeseries.csv` slice for the inspector without touching the contract."""
+    if frame.empty:
+        return []
+    return [
+        {
+            "case_id": str(r.case_id),
+            "cell_id": str(r.cell_id),
+            "date": str(r.date),
+            "value": float(r.value),
+            "trend_mm_yr": float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None,
+            "seasonal_mm": float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None,
+            "unit": str(r.unit),
+            "sensor": str(r.sensor),
+            "product": str(r.product),
+            "quality": str(r.quality),
+            "provenance_id": str(r.provenance_id),
+        }
+        for r in frame.itertuples(index=False)
     ]
 
 
@@ -340,30 +385,16 @@ def get_cell_detail(
         ),
     }
     cell_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == str(cell_id)]
-    detail["series"] = (
-        [
-            {
-                "case_id": str(r.case_id),
-                "cell_id": str(r.cell_id),
-                "date": str(r.date),
-                "value": float(r.value),
-                "trend_mm_yr": (
-                    float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None
-                ),
-                "seasonal_mm": (
-                    float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None
-                ),
-                "unit": str(r.unit),
-                "sensor": str(r.sensor),
-                "product": str(r.product),
-                "quality": str(r.quality),
-                "provenance_id": str(r.provenance_id),
-            }
-            for r in cell_ts.itertuples(index=False)
-        ]
-        if not cell_ts.empty
-        else []
-    )
+    series = _series_rows(cell_ts)
+    if series:
+        detail["series_scope"] = "cell"
+    else:
+        # Contract §4 emits only the AOI aggregate by default. Show that instead of an
+        # empty chart, and say so in the UI; do not invent a per-cell series.
+        aoi_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == "aoi"]
+        series = _series_rows(aoi_ts)
+        detail["series_scope"] = "aoi" if series else "none"
+    detail["series"] = series
     return detail
 
 
@@ -407,35 +438,35 @@ def get_series_kpis(
 
     return [
         {
-            "label": "velocidad mediana",
+            "label": "Median velocity",
             "value": round(kpis.median_velocity_mm_yr, 2) if kpis.median_velocity_mm_yr is not None else None,
             "unit": C.VELOCITY_UNIT,
             "provenance_id": prov_id,
-            "note": "mediana del subconjunto filtrado",
+            "note": "median of the filtered subset",
         },
         {
-            "label": "% de celdas por encima del umbral",
+            "label": "Cells above threshold",
             "value": pct_above,
             "unit": "%",
             "provenance_id": prov_id,
-            "note": f"umbral {C.NULL_RESULT_MM_YR:g} mm/year",
+            "note": f"threshold {C.NULL_RESULT_MM_YR:g} mm/year",
         },
         {
-            "label": "celdas críticas",
+            "label": "Critical cells",
             "value": kpis.critical_cells_count,
-            "unit": "celdas",
+            "unit": "cells",
             "provenance_id": prov_id,
-            "note": "risk_level critico",
+            "note": "cells in contract band critico (|velocity| >= 25 mm/year)",
         },
         {
-            "label": "cobertura coherente",
+            "label": "Coherent coverage",
             "value": pct_coh,
             "unit": "%",
             "provenance_id": prov_id,
             "note": f"coherence >= {coh_floor:g}",
         },
         {
-            "label": "amplitud estacional mediana",
+            "label": "Median seasonal amplitude",
             "value": (
                 round(kpis.median_seasonal_amp_mm, 2)
                 if kpis.median_seasonal_amp_mm is not None
@@ -444,9 +475,9 @@ def get_series_kpis(
             "unit": C.UNIT,
             "provenance_id": prov_id,
             "note": (
-                f"ajuste armónico, R = |tendencia|/A; régimen dominante {kpis.dominant_regime}"
+                f"harmonic fit, R = |trend|/A; dominant regime {kpis.dominant_regime}"
                 if kpis.dominant_regime
-                else "ajuste armónico, no un valor de configuración"
+                else "harmonic fit, not a typed constant"
             ),
         },
     ]
@@ -462,6 +493,7 @@ def get_case_series(
 
     v1.1 adds the fitted ``trend_mm_yr`` / ``seasonal_mm`` columns of each row (``None`` when a
     v1.0 tree is on disk), so the chart can draw the decomposition without re-fitting anything.
+    Includes ``scaled`` / ``scale_factor`` additive metadata requested in ``docs/requests.md``.
     """
     del filters  # AOI series is a case-level artefact; per-cell series are optional (contract §4)
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
@@ -474,6 +506,8 @@ def get_case_series(
             "seasonal_mm": float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None,
             "unit": str(r.unit),
             "provenance_id": str(r.provenance_id),
+            "scaled": False,
+            "scale_factor": 1.0,
         }
         for r in aoi.itertuples(index=False)
     ]
@@ -505,7 +539,7 @@ def get_land_use_bars(
 
 
 def get_scale_comparison(
-    scale_mode: str = "Común a todos los casos",
+    scale_mode: str = "shared",
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> dict[str, Any]:
