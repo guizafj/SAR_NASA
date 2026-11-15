@@ -8,6 +8,9 @@
 | Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
 | Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta en `main` (`ui_bridge` y `_stubs` unen el párrafo del caveat y todas las líneas de continuación de `section_13`) |
 | Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | abierta |
+| Todos (dueño de `docs/verification.md`) | Registrar `tests/test_doc_provenance_ids.py` en la tabla de familias del registro | abierta |
+| Rol 1 (pozo) | `validate_case_bundle`: el contexto no puede nombrar a su propio proveedor | abierta |
+| Rol 1 (pozo) | `.gitignore` ignora `AGENTS.md` rastreado; elegir `git rm --cached` o quitar la línea | abierta |
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
@@ -121,3 +124,60 @@ No pedimos otro `meta.json`, otra grilla ni otro GeoJSON si los publicados sigue
 
 **Impacto en contrato de datos:** ninguno si el texto viaja por un hook o por `meta` ya previsto. Un campo nuevo de copy educativo se propone en `docs/contract-change-requests.md` y exige a los tres roles.  
 **Aprobación:** Rol 3 entrega el texto. Rol 2 solo lo cita.
+
+## Todos (`docs/verification.md`) — registrar el guard de ids citados en prosa
+
+**De:** Rol 2 (fradiaz)
+**Para:** quien mantenga `docs/verification.md` y `tests/test_verification_register.py` (ninguno de los dos es de Rol 2).
+
+`tests/test_doc_provenance_ids.py` (nuevo) falla cuando un `provenance_id` completo citado en `README.md`, `CONTEXT.md`, `docs/**/*.md` o `pipeline/README.md` ya no es el `meta.provenance.provenance_id` de ningún caso publicado. Hasta que alguien lo registre, `tests/test_verification_register.py` lo cuenta como no registrado y falla (el otro archivo de la lista no es de Rol 2):
+
+```
+64 test files, 62 registered, unregistered: test_doc_provenance_ids.py, test_requirements_coverage.py
+```
+
+Pedimos una fila en la tabla de familias, en la línea de la fila «provenance id | `test_provenance_id.py` | …», que diga qué asegura el archivo: los ids citados en prosa siguen vivos; un id retirado exige `<!-- fingerprint-historical: reason -->` o `<!-- provenance-example: reason -->` junto a la cita; una marca sobre un id vivo también falla; y el guard se prueba sobre una copia mutada de `docs/video-script.md`. El registro completo debe volver a verde con `./scripts/python.sh -m pytest tests/test_verification_register.py -q`.
+
+**Impacto en contrato de datos:** ninguno.
+**Aprobación:** quien mantenga `docs/verification.md`.
+
+## Rol 1 (`src/data/validation.py`) — el contexto no puede nombrar a su propio proveedor
+
+**De:** Rol 2 (fradiaz)
+**Para:** Rol 1 (pozo), dueño de `src/data/validation.py`
+**Contexto:** capas de contexto de esta sesión. Medido corriendo el gate, no leído de la prosa.
+
+`validate_case_bundle` arma `expected_prov_prefix = f"{case_id}+{meta_product}+"` y exige que el `provenance_id` de cada feature de contexto empiece por ese prefijo (bloque `cross_check` que reporta "context has N feature(s) whose provenance_id does not start with ...").
+
+Re-etiquetando las 12 features de contexto publicadas de `malaga` a `malaga+osm+20260115+deadbeef` y corriendo el gate, la salida es: <!-- provenance-example: id inventado para el experimento de re-etiquetado; no nombra ningún artefacto publicado ni existió nunca -->
+
+```
+cross_check: context has 12 feature(s) whose provenance_id does not start with 'malaga+mock+'
+```
+
+Consecuencia hoy: una capa de contexto derivada de una fuente real (OpenStreetMap, ODbL) tiene que llevar el id `mock` del bundle del caso, así que el proveedor solo se ve en el `source` de cada feature, nunca en el id. `pipeline/mock/checks.py` exige además exactamente un `provenance_id` entre grilla, serie y contexto.
+
+Pedimos una decisión: si el contrato 1.1 debe permitir procedencia por capa (p. ej. `{case_id}+{provider}+{date}+{sha8}` para contexto, con grilla y serie en el id del producto), entra como cambio de contrato en `docs/contract-change-requests.md` con aprobación de los tres roles. Si no, decirlo explícitamente para que el rodeo actual (id del bundle + string `source`) quede como regla documentada.
+
+**Impacto en contrato de datos:** posiblemente §6 (propiedades de contexto) y el gate; no se añade ningún campo al esquema en ningún caso.  
+**Aprobación:** Rol 1 (dueño de `src/data/validation.py`); Rol 3 documenta el resultado.  
+**Estado:** ABIERTA — pendiente de Rol 1.
+
+## Rol 1 (`.gitignore`, CI) — un `AGENTS.md` rastreado también cae en una regla de ignore
+
+**De:** Rol 2 (fradiaz)
+**Para:** Rol 1 (pozo), dueño de CI
+**Contexto:** higiene del repo; deja la suite en rojo.
+
+El árbol de trabajo trae un cambio sin commitear en `.gitignore` que añade la línea `AGENTS.md` (última, después de `*~`), mientras `git ls-files AGENTS.md` informa el archivo como rastreado. Por eso falla `tests/test_gitignore_policy.py::test_no_tracked_file_is_ignored` con "tracked files are also matched by an ignore rule ... AGENTS.md". Verificado en esta sesión corriendo ese archivo: un solo FAIL, `AGENTS.md`.
+
+Pedimos elegir una, no las dos:
+
+- `git rm --cached AGENTS.md`: se mantiene la regla, el archivo sale del repo publicado.
+- Quitar la línea de `.gitignore`: el archivo sigue rastreado.
+
+La decisión no es nuestra: el archivo es el contrato de roles del proyecto y el único sitio donde están escritos los límites entre roles.
+
+**Impacto en contrato de datos:** ninguno.  
+**Aprobación:** Rol 1 (CI) y el dueño del repo.  
+**Estado:** ABIERTA — pendiente de Rol 1.
