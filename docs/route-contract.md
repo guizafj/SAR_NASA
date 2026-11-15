@@ -75,7 +75,7 @@ error: the slider is built from `meta.dates`, so it cannot request one.
   "city": "mexico-city",
   "name": "Mexico City, MX",
   "bbox": [-99.35, 19.20, -98.85, 19.65],      // WGS84 lon/lat, [W,S,E,N]
-  "crs": "EPSG:32614",                          // projected CRS of the source rasters
+  "crs": "EPSG:4326",                          // published artefacts are EPSG:4326 (source rasters are projected)
   "reference_point": [-99.13, 19.43],           // lon/lat of the InSAR reference pixel
   "dates": ["2026-01-12", "2026-01-24"],         // ASC, YYYY-MM-DD, no gaps guarantee
   "revisit_days": 12,                            // 12 = NISAR, 6 = Sentinel-1: NEVER pool

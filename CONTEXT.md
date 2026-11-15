@@ -145,8 +145,9 @@ fully implemented; existence of a stage name is not evidence that correction ran
 
 Important unresolved items include:
 
-- the granule-identity parsers disagree about which filename token is the track, blocking a valid
-  multi-date real stack until corrected (O-06);
+- ~~the granule-identity parsers disagree about which filename token is the track~~ **resolved
+  2026-11-14 (O-06)**: both parsers read track = token 5 and frame = token 7, and a regression
+  pins it (`tests/test_parser_agreement.py`);
 - the CLI's away-positive LOS label conflicts with the projection's sign for purely vertical motion;
   O-08 blocks physical interpretation of real output until phase, projection, and labels agree;
 - urban GUNW coverage and the exact real-file layout remain unverified;

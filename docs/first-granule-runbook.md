@@ -35,7 +35,7 @@ Case = `mexico-city`. S's exit codes: 2 usage, 3 credentials, 4 product/geometry
 - [ ] Budget arithmetic to expect: a 12-id stack at ~2.34 GB per granule is ≈ **28 GB**, far above the **2 GB default** and the 6 GB example cap above. Measure with `--probe-sizes`, then raise `--max-gb` to the printed number **deliberately** (it is recorded in `provenance.json.max_gb`). Never raise it blind.
 - [ ] Same command **without** `--dry-run`. PASS: `get <granule>.h5 (2.3 GB)` per file — or `(unknown size)` when the report has no size for it (nothing is guessed) — then `provenance -> data/raw/mexico-city/nisar_gunw/provenance.json` (sizes + sha256). Rerun is safe: complete files print `skip (complete)`.
 - [ ] Know the trap this closes: a plan built from an unguarded granule list once picked an L0 `NISAR_L0_..._RRSD_...` file (**123 GB**) and began downloading it. `build_download_plan` now identity-checks every id before credentials or bytes (`PRODUCT_POLICY`: RRSD/RSLC/RIFG/RUNW reject; GCOV/GSLC/GOFF only via `--allow-product`), so that mistake exits 4 with nothing fetched, and `--max-gb` is a cumulative second stop.
-- [ ] Accept the granularity: the smallest fetchable unit is a whole stack (≤12 ids, S `STACK_GRANULE_LIMIT = 12`); there is **no flag for exactly one file**. Read one file in Steps 2–4; Step 5 needs the chain anyway.
+- [ ] Accept the granularity: the smallest unit used to be a whole stack (≤12 ids, S `STACK_GRANULE_LIMIT = 12`). `--max-granules N` now truncates the plan to the first N granules in reference-date order (O-01), so `--stack recommended --max-granules 1` fetches exactly one file — useful for verifying the reader before spending the stack. Step 5 still needs the chain.
 
 ## 3. Step 2 — read the file before trusting it
 
