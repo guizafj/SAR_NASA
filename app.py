@@ -76,6 +76,11 @@ def telemetry_line(meta: dict[str, Any] | None) -> str:
                 parts.append(span)
             continue
         parts.append(f"{key} {value}")
+    if "coherence_threshold" not in meta:
+        thresholds = meta.get("thresholds")
+        floor = thresholds.get("coherence_min") if isinstance(thresholds, dict) else None
+        if isinstance(floor, (int, float)) and not isinstance(floor, bool):
+            parts.append(f"coherence floor {floor:g}")
     return " · ".join(parts)
 
 
@@ -204,8 +209,13 @@ def render_filters(
     }
 
 
-def _render_map(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
-    render_map_tab(filters, loaders, meta)
+def _render_map(
+    filters: dict[str, Any],
+    loaders: Any,
+    meta: dict[str, Any] | None,
+    case_labels: dict[str, str],
+) -> None:
+    render_map_tab(filters, loaders, meta, case_labels)
 
 
 def render_pending(note: str, filters: dict[str, Any]) -> None:
@@ -255,7 +265,7 @@ def render_app() -> None:
         [TAB_MAP, TAB_SERIES, TAB_HAZARD, TAB_PHYSICS]
     )
     with map_tab:
-        _render_map(filters, loaders, meta if isinstance(meta, dict) else None)
+        _render_map(filters, loaders, meta if isinstance(meta, dict) else None, labels)
     with series_tab:
         render_series_tab(filters, loaders, meta if isinstance(meta, dict) else None)
     with hazard_tab:

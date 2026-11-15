@@ -30,10 +30,20 @@ def _features(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
     return rows
 
 
+def _visible_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if "name" not in frame.columns:
+        return frame
+    filled = frame["name"].astype(str).str.strip()
+    if filled.eq("").all() or filled.eq("None").all():
+        return frame.drop(columns=["name"])
+    return frame
+
+
 def _render_table(frame: pd.DataFrame) -> str:
-    headers = "".join(f"<th>{html.escape(str(col))}</th>" for col in frame.columns)
+    shown = _visible_frame(frame)
+    headers = "".join(f"<th>{html.escape(str(col))}</th>" for col in shown.columns)
     body_rows: list[str] = []
-    for row in frame.itertuples(index=False):
+    for row in shown.itertuples(index=False):
         cells = "".join(
             f"<td>{html.escape(str(val).replace(chr(10), ' '))}</td>" for val in row
         )
@@ -85,6 +95,7 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Context layers</p>'
+        '<p class="kpi-note">A context class is not the grid land_use filter.</p>'
         f"<p>{len(rows)} features · {html.escape(', '.join(layers) or 'no layers')}</p>"
         f"{_render_table(frame)}"
         "</div>",

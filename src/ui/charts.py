@@ -40,7 +40,10 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         y_title=f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})",
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
-    st.caption(f"series · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}")
+    st.caption(
+        f"AOI series · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}. "
+        "Not declared as the filtered subset."
+    )
 
 
 def _bars(rows: list[dict[str, Any]] | None) -> None:
@@ -60,7 +63,9 @@ def _bars(rows: list[dict[str, Any]] | None) -> None:
         figure,
         height=280,
         x_title="land_use",
-        y_title=f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})",
+        y_title=f"velocity ({unit})" if unit == "mm/year" else (
+            f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})"
+        ),
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     st.caption(f"land_use · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}")

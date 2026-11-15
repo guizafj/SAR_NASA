@@ -391,6 +391,15 @@ body,
   color: var(--coral) !important;
 }}
 
+.swatch {{
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+}}
+
 .chip-muted {{
   border-color: var(--border);
   background: var(--bg);
