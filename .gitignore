@@ -70,6 +70,11 @@ cookies.txt
 !.env.example
 
 # ---------------------------------------------------------------- OS / editor cruft
+skills-lock.json
+reports/
+tmp/
+*.log
+*.geojson.tmp
 .DS_Store
 Thumbs.db
 *.swp

@@ -10,10 +10,10 @@ from src.domain.contracts import CASE_IDS
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
 TAB_LABELS = (
-    "1. Mapa",
-    "2. Series y KPIs",
-    "3. Peligro e infraestructura",
-    "4. Física SAR y procedencia",
+    "1. Map",
+    "2. Series and KPIs",
+    "3. Hazard and infrastructure",
+    "4. Provenance and limits",
 )
 FORBIDDEN = ("Guadalquivir", "Doñana", "MALG-01", "B_PERP", "deriva cero", "Sector 4")
 
@@ -26,10 +26,13 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert [tab.label for tab in app.tabs] == list(TAB_LABELS)
 
     text = "\n".join(node.value for node in app.markdown)
-    assert "DATOS DE DEMOSTRACIÓN" in text
+    assert "DEMONSTRATION DATA" in text
     assert "Dancing with the SARs: NISAR Interferometry Cockpit" in text
-    assert "velocidad mediana" in text
-    assert "Sin texto científico aprobado por el Rol 3" in text
+    assert "Median velocity" in text
+    assert "coherence floor" in text
+    assert "Known caveat" in text
+    assert "Known limitations" in text
+    assert "A context class is not the grid land_use filter." in text
     # Tab 3: either empty-state copy or a delivered context summary (st.caption/json).
     hazard = "\n".join(
         [
@@ -38,10 +41,10 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
         ]
     )
     assert (
-        "Sin context_layers.geojson" in hazard
-        or "Capas entregadas" in hazard
+        "No context layers are available" in hazard
+        or "Delivered layers" in hazard
         or "n_features" in hazard
-        or "Contexto" in text
+        or "Context" in text
     )
     for token in (*FORBIDDEN, "Field Dossier", "mitigaciones", "índices estructurales", "verificado"):
         assert token not in text
