@@ -6,7 +6,7 @@
 |---|---|---|
 | Rol 1 (pozo) | `get_map_layer_df`: extrusión por defecto en `False` | resuelta en `main` (`7f0b455`), integrada en `fradiaz` |
 | Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
-| Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | caveat resuelto en `main` (`7f0b455`); el ítem 5 sigue cortado: continúa abierta la parte de líneas de continuación |
+| Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta: caveat en `7f0b455` y continuación de ítems en el parser de `src/data/ui_bridge.py` |
 | Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | abierta |
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto

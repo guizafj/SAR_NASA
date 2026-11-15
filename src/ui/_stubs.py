@@ -563,8 +563,22 @@ def load_documented_limits() -> dict[str, Any]:
     items: list[str] = []
     if start != -1:
         block = text[start:end if end != -1 else None]
+        current: list[str] | None = None
         for line in block.splitlines():
             stripped = line.strip()
-            if stripped[:2].rstrip(".").isdigit() and ". " in stripped:
-                items.append(stripped.split(". ", 1)[1])
+            numbered = re.match(r"^(\d+)\.\s+(.*)$", stripped)
+            if numbered:
+                if current is not None:
+                    items.append(" ".join(current))
+                current = [numbered.group(2).strip()]
+                continue
+            if current is None:
+                continue
+            if not stripped or not line[:1].isspace():
+                items.append(" ".join(current))
+                current = None
+                continue
+            current.append(stripped)
+        if current is not None:
+            items.append(" ".join(current))
     return {"section_8_caveat": caveat, "section_13": items}

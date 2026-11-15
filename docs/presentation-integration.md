@@ -113,6 +113,8 @@ Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentaci�
 
 Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.
 
+El parser de `load_documented_limits` une ahora las líneas de continuación de cada ítem numerado del README, así que el punto 5 y los ítems 9–13 se leen completos. La UI solo recibe el texto; no lo reconstruye.
+
 ## Plan
 
 Objetivo: que cada bloque diga qué es, de qué hook sale y cómo se lee, usando solo campos que el bridge ya entrega. Sin nuevas cifras y sin leer artefactos desde la UI.
