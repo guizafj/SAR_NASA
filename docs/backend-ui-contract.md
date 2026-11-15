@@ -31,10 +31,39 @@ data/processed/
 
 ---
 
-## 2. Python API for `app.py` & `src/ui/*` (Rol 1 → Rol 2)
+## 2. Live 18-Hook Cockpit Seam (`src/data/ui_bridge.py`, re-exported by `src.data.loaders`)
+
+`app.py` and `src/ui/*` consume the backend exclusively through the 18 ready-made hooks in
+`src/data/ui_bridge.py` (re-exported by `src.data.loaders`), falling back to `src/ui/_stubs.py`
+only if artefacts are absent:
+
+| Hook | Purpose & key payload fields |
+|---|---|
+| `load_study_cases()` | `[{'id': slug, 'label': name}, ...]` in frozen `CASE_IDS` order |
+| `load_meta(case_id)` | Validated `meta.json` + additive `provenance_id`, `provenance_fields` (`source`, `method`, `license`, `reference`, `processing_date`, `product_id`, `retrieved_utc`) and top-level aliases |
+| `load_land_use_options(case_id=None)` | Distinct `land_use` classes present in the grid |
+| `load_risk_levels(case_id=None)` | Distinct `risk_level` bands present in the grid |
+| `get_map_layer_df(case_id, filters)` | H3 DataFrame with `color`, `height` (`0.0` when `extrude_3d=False` default; two-sided around `COLUMN_BASELINE_M = 1500 m` when `True`), `signed_delta_mm`, `motion_direction`, `regime`, `ratio_R`, `seasonal_amp_mm` |
+| `get_color_scale(case_id, filters)` | `min`, `max`, `unit`, `saturated`, `metric`, `caption`, `stops` |
+| `get_layer_counts(case_id, filters)` | `{'shown', 'total'}` without UI-side aggregation |
+| `get_view_state(case_id)` | `{'latitude', 'longitude', 'zoom'}` from `meta.bbox` |
+| `get_signal_status(case_id)` | `{'above_limit', 'detection_limit', 'detection_limit_unit'}` |
+| `get_map_kpis(case_id, filters)` | Median velocity, median displacement, minimum coherence, median seasonal amplitude |
+| `get_cell_detail(case_id, cell_id)` | Cell attributes (`seasonal_amp_mm`, `ratio_R`, `regime`, `coherence`, …) + `series` (`series_scope`: `'cell'` \| `'aoi'` \| `'none'`) |
+| `load_timeseries(case_id, cell_id=None)` | `timeseries.csv` DataFrame slice |
+| `get_series_kpis(case_id, filters)` | Tab 2 KPI cards (English labels, `cells` unit, fitted seasonal amplitude) |
+| `get_case_series(case_id, filters)` | AOI series rows with `value`, `trend_mm_yr`, `seasonal_mm`, `scaled`, `scale_factor` |
+| `get_land_use_bars(case_id, filters)` | Median `velocity_mm_yr` per present `land_use` |
+| `get_scale_comparison(scale_mode)` | Cross-case peak `|velocity_mm_yr|`, `share`, dynamic `mixed_units`, `mixed_sensors`, `mixed_products`, `sensors`, `products` |
+| `load_context_layers(case_id=None)` | GeoJSON + feature/layer summary |
+| `load_documented_limits()` | Full README GNSS caveat paragraph, multi-line §13 items, `science_section_1` (`docs/science-guide.md` §1) and `case_roles` (`config/study_cases.yaml`) |
+
+---
+
+## 2b. Underlying Domain API (`src/domain/*`)
 
 `fradiaz` never reads files directly and never computes geophysical quantities, thresholds,
-colours or H3 geometries in `src/ui/*`. Everything flows through four pure calls:
+colours or H3 geometries in `src/ui/*`. Beneath `ui_bridge.py`, everything flows through four pure calls:
 
 ```python
 from src.data import list_available_cases, load_case_bundle, load_study_cases_config
