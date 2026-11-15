@@ -547,6 +547,7 @@ def render_map_tab(
                     **row,
                     "risk_band": risk_label(row.get("risk_level")),
                     "land_use_label": humanize(row.get("land_use")) if row.get("land_use") else NOT_DECLARED,
+                    "regime_label": humanize(row.get("regime")) if row.get("regime") else NOT_DECLARED,
                 }
                 for row in records
             ]
@@ -601,7 +602,7 @@ def render_map_tab(
                         "Displacement {delta_change} {unit}\n"
                         "Velocity {velocity_mm_yr} {velocity_unit}\n"
                         "Coherence {coherence}\n"
-                        "Regime {regime}\n"
+                        "Regime {regime_label}\n"
                         "Ratio R {ratio_R}\n"
                         "Risk band {risk_band}\n"
                         "Land use {land_use_label}"
@@ -621,7 +622,8 @@ def render_map_tab(
                 )
             picked = _selected_cell(event)
             selector_key = f"inspector_cell_{case_id}"
-            if st.session_state.get("_map_case") != case_id:
+            previous_case = st.session_state.get("_map_case")
+            if previous_case is not None and previous_case != case_id:
                 st.session_state.selected_cell_id = None
                 st.session_state[selector_key] = ""
                 picked = None
@@ -646,6 +648,12 @@ def render_map_tab(
         with st.container(key="inspector-slot"):
             selector_key = f"inspector_cell_{case_id}"
             current_cell = st.session_state.get("selected_cell_id")
+            if current_cell:
+                initial_detail = _call(loaders, "get_cell_detail", case_id, current_cell)
+                if not isinstance(initial_detail, dict) or not initial_detail:
+                    current_cell = None
+                    st.session_state.selected_cell_id = None
+                    st.session_state[selector_key] = ""
             candidates = _candidate_cells(frame, str(current_cell) if current_cell else None)
             if current_cell and not st.session_state.get(selector_key):
                 st.session_state[selector_key] = str(current_cell)

@@ -47,7 +47,8 @@ def _case_block(meta: dict[str, Any]) -> None:
     cards: list[tuple[str, Any, str | None]] = []
     if isinstance(stats, dict):
         if "dominant_regime" in stats:
-            cards.append(("dominant_regime", stats.get("dominant_regime"), None))
+            regime = stats.get("dominant_regime")
+            cards.append(("dominant_regime", humanize(regime) if regime else regime, None))
         if "median_ratio_R" in stats:
             cards.append(("median_ratio_R", stats.get("median_ratio_R"), None))
         if "median_velocity_mm_yr" in stats:
@@ -61,10 +62,15 @@ def _case_block(meta: dict[str, Any]) -> None:
         series = stats.get("per_cell_series")
         if isinstance(series, dict) and "enabled" in series:
             cards.append(("per_cell_series.enabled", series.get("enabled"), None))
+    case_note = (
+        "Values come from the delivered mock artefact; they are not an observation."
+        if meta.get("product") == "mock"
+        else "Values come from the delivered artefact."
+    )
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Case</p>'
-        "<p>Values come from the delivered artefact; they are not an observation.</p>"
+        f"<p>{html.escape(case_note)}</p>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -72,6 +78,9 @@ def _case_block(meta: dict[str, Any]) -> None:
         columns = st.columns(len(cards))
         for column, (label, value, unit) in zip(columns, cards):
             _stat_card(column, label, value, unit)
+        provenance = meta.get("provenance") if isinstance(meta.get("provenance"), Mapping) else {}
+        source_id = meta.get("provenance_id") or provenance.get("provenance_id") or NOT_DECLARED
+        st.caption(f"Provenance ID {source_id}")
     null_policy = meta.get("null_policy")
     if null_policy:
         st.markdown(

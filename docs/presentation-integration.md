@@ -111,6 +111,10 @@ Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentaci�
 | `meta.json` crudo siempre visible | dentro de "Full meta.json record" | `load_meta` |
 | asteriscos y backticks visibles | énfasis y `code` convertidos; marcadores truncados eliminados | `load_documented_limits` |
 | tarjetas KPI con `-62.065` y `41.3767` | dos decimales como máximo | todos los hooks numéricos |
+| gráfica de serie AOI sin componente estacional ni pendiente | traza `Seasonal component` (`seasonal_mm`) + `Linear trend` (`trend_mm_yr`) en caption | `get_case_series` (contrato v1.1) |
+| eje X de barras con `land_use` y slugs crudos | `Land use` y etiquetas legibles (`Urban dense`, …) | `get_land_use_bars` |
+| tarjetas de pestañas 3 y 4 sin `Provenance ID` | `Provenance ID` bajo las tarjetas de resumen y `Dominant regime` humanizado | `load_context_layers`, `load_meta` |
+| `?cell=` borrado en el primer arranque | `selected_cell_id` se conserva si pertenece al caso activo y se limpia si es inválida o cambia el caso | `st.query_params` + `get_cell_detail` |
 
 Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.
 

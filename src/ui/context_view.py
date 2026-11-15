@@ -130,6 +130,8 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     )
     shown = frame.drop(columns=["provenance_id"]) if len(provenance_ids) == 1 else frame.copy()
     single_source = provenance_ids[0] if len(provenance_ids) == 1 else None
+    if provenance_ids:
+        st.caption(f"Provenance ID {' · '.join(provenance_ids)}")
     for column in ("layer", "class"):
         if column in shown.columns:
             shown[column] = shown[column].map(lambda value: humanize(value) if str(value) else value)
