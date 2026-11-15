@@ -66,6 +66,10 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 # 4 dry-run a download: identity/budget plan, no credentials, no writes
 ./scripts/python.sh pipeline/ingest/02_search_download.py download \
     --city malaga --source nisar_gunw --max-gb 2 --dry-run
+# 4b one granule first: `--max-granules N` keeps the FIRST N in reference-date order (O-01),
+#    which is cheaper than the whole stack when the reader is what you are verifying
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city malaga --source nisar_gunw --max-granules 1 --dry-run
 # 5 inspect a granule before trusting any path in it
 ./scripts/python.sh pipeline/ingest/inspect_hdf5.py data/raw/malaga/nisar_gunw/<granule>.h5 --json
 ./scripts/python.sh pipeline/ingest/nisar_gunw.py data/raw/malaga/nisar_gunw/<granule>.h5 --json
