@@ -42,7 +42,7 @@ def _visible_frame(frame: pd.DataFrame) -> pd.DataFrame:
 def _render_table(frame: pd.DataFrame, provenance: str | None = None) -> str:
     shown = _visible_frame(frame)
     note = (
-        f'<p class="kpi-note">provenance_id {html.escape(provenance)}</p>'
+        f'<p class="kpi-note">Provenance ID {html.escape(provenance)}</p>'
         if provenance
         else ""
     )
@@ -128,12 +128,16 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     provenance_ids = sorted(
         {str(value) for value in frame["provenance_id"] if str(value) not in ("", "None", "nan")}
     )
-    shown = frame.drop(columns=["provenance_id"]) if len(provenance_ids) == 1 else frame
+    shown = frame.drop(columns=["provenance_id"]) if len(provenance_ids) == 1 else frame.copy()
     single_source = provenance_ids[0] if len(provenance_ids) == 1 else None
+    for column in ("layer", "class"):
+        if column in shown.columns:
+            shown[column] = shown[column].map(lambda value: humanize(value) if str(value) else value)
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Context layers</p>'
-        '<p class="kpi-note">A context class is not the grid land_use filter.</p>'
+        '<p class="kpi-note">Delivered context only, not a hazard assessment. '
+        "A context class is not the Land use filter.</p>"
         f"<p>{len(rows)} features delivered</p>"
         f"{_render_table(shown, single_source)}"
         "</div>",

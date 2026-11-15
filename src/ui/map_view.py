@@ -130,6 +130,9 @@ def _legend(scale: dict[str, Any], mode: str) -> str:
         )
     note = SATURATION_NOTE if scale.get("saturated") else ""
     caption = scale.get("caption")
+    if caption:
+        # Backend caption is user-facing copy; drop the internal field path.
+        caption = str(caption).replace("meta.stats ", "")
     if not caption and scale.get("fallback"):
         caption = f"Provisional domain [{format_number(vmin, 1)}, {format_number(vmax, 1)}] {unit}."
     caption_html = f"<p>{html.escape(str(caption))}</p>" if caption else ""
@@ -298,7 +301,8 @@ def _render_inspector(
             [
                 _figure_line("Coherence", detail.get("coherence"), None, dimensionless=True),
                 _risk_hint(risk),
-                f"Regime: {detail.get('regime') or NOT_DECLARED} (secular versus seasonal)",
+                f"Regime: {humanize(detail.get('regime')) if detail.get('regime') else NOT_DECLARED} "
+                "(secular versus seasonal)",
                 ratio_line,
                 "Ratio R = |trend| / seasonal amplitude",
                 _figure_line(
@@ -314,7 +318,7 @@ def _render_inspector(
                 f"Case: {detail.get('case_id') or case_id or NOT_DECLARED}",
                 _coord_line("Latitude", detail.get("lat")),
                 _coord_line("Longitude", detail.get("lon")),
-                f"Land use: {detail.get('land_use') or NOT_DECLARED}",
+                f"Land use: {humanize(detail.get('land_use')) if detail.get('land_use') else NOT_DECLARED}",
                 f"Sensor: {detail.get('sensor') or NOT_DECLARED}",
                 f"Product: {detail.get('product') or NOT_DECLARED}",
                 f"Source: {detail.get('source') or NOT_DECLARED}",
@@ -375,9 +379,9 @@ def _render_series(
         note = "Aggregated area series; this cell has no series of its own"
         if _artefact_omits_cell_series(meta):
             note += " (the artefact does not emit per-cell series)"
-        st.caption(f"{note}. provenance_id {source}")
+        st.caption(f"{note}. Provenance ID {source}")
         return
-    st.caption(f"Cell series · {unit or UNIT_NOT_DECLARED} · provenance_id {source}")
+    st.caption(f"Cell series · {unit or UNIT_NOT_DECLARED} · Provenance ID {source}")
 
 
 def _render_kpis(kpis: Any) -> None:
@@ -404,7 +408,7 @@ def _render_kpis(kpis: Any) -> None:
         )
     unique = list(dict.fromkeys(sources))
     if unique:
-        st.caption(f"provenance_id {' · '.join(unique)}")
+        st.caption(f"Provenance ID {' · '.join(unique)}")
 
 
 def _render_comparison(
@@ -462,7 +466,7 @@ def _render_comparison(
     )
     unique = list(dict.fromkeys(sources))
     source_note = (
-        f'<p class="kpi-note">provenance_id {" · ".join(unique)}</p>' if unique else ""
+        f'<p class="kpi-note">Provenance ID {" · ".join(unique)}</p>' if unique else ""
     )
     st.markdown(
         '<div class="cockpit-card compare-card">'
@@ -534,6 +538,15 @@ def render_map_tab(
             # produces z-fighting that reads as overlapping hexes.
             if not extrude and records:
                 records = [{**row, "height": 0} for row in records]
+            # Display-only labels for the hover card; the stored enum is untouched.
+            records = [
+                {
+                    **row,
+                    "risk_band": risk_label(row.get("risk_level")),
+                    "land_use_label": humanize(row.get("land_use")) if row.get("land_use") else NOT_DECLARED,
+                }
+                for row in records
+            ]
             layer = pdk.Layer(
                 "H3HexagonLayer",
                 data=records,
@@ -587,7 +600,8 @@ def render_map_tab(
                         "Coherence {coherence}\n"
                         "Regime {regime}\n"
                         "Ratio R {ratio_R}\n"
-                        "Risk band {risk_level}"
+                        "Risk band {risk_band}\n"
+                        "Land use {land_use_label}"
                     )
                 },
             )

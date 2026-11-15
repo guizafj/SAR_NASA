@@ -32,7 +32,8 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert "Coherence floor" in text
     assert "Known caveat" in text
     assert "Known limitations" in text
-    assert "A context class is not the grid land_use filter." in text
+    assert "A context class is not the Land use filter." in text
+    assert "not a hazard assessment" in text
     # Tab 3: either empty-state copy or a delivered context summary (st.caption/json).
     hazard = "\n".join(
         [

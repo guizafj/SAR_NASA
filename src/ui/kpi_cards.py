@@ -46,4 +46,4 @@ def render_kpi_cards(items: list[dict[str, Any]] | None) -> None:
         )
     # One source line for the row instead of repeating the same id under every card.
     unique = list(dict.fromkeys(sources))
-    st.caption(f"provenance_id {' · '.join(unique) if unique else SOURCE_NOT_DECLARED}")
+    st.caption(f"Provenance ID {' · '.join(unique) if unique else SOURCE_NOT_DECLARED}")

@@ -344,6 +344,17 @@ body,
   margin: 0;
 }}
 
+.cockpit-card p code,
+.cockpit-card li code {{
+  background: var(--bg);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}}
+
 .cockpit-card .detail-head {{
   font-family: var(--font-mono);
   font-size: 0.68rem;

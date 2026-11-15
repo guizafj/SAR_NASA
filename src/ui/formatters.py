@@ -121,7 +121,12 @@ def format_note(note: Any) -> str:
         return f"{match.group(1)} {RISK_LABELS.get(match.group(2), match.group(2)).lower()}"
 
     text = _RISK_AFTER_NOUN.sub(_band, text)
-    return _RISK_WORD.sub(lambda match: RISK_LABELS.get(match.group(0), match.group(0)), text)
+    text = _RISK_WORD.sub(lambda match: RISK_LABELS.get(match.group(0), match.group(0)), text)
+    # Readable phrasing for the delivered KPI notes.
+    text = text.replace("cells in contract band critical", "cells in the critical band")
+    text = text.replace("coherence >=", "coherence at or above")
+    text = text.replace("|velocity| >=", "|velocity| at or above")
+    return text
 
 
 def format_dates_span(dates: Sequence[Any] | None) -> str | None:
@@ -149,10 +154,13 @@ def risk_label(value: Any) -> str:
 
 
 def choice_label(value: str) -> str:
-    """Empty filter option, or a contract value with a display label when one exists."""
+    """Empty filter option, or a readable label for a contract value.
+
+    The value sent back to the loader is unchanged; only the label is humanized.
+    """
     if value == "":
         return "Unfiltered"
-    return RISK_LABELS.get(value, value)
+    return RISK_LABELS.get(value, humanize(value))
 
 
 def is_shared_scale(mode: Any) -> bool:
