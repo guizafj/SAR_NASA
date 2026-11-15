@@ -291,6 +291,21 @@ def _render_map(
     render_map_tab(filters, loaders, meta, case_labels)
 
 
+def render_attribution() -> None:
+    """Credit the context polygons where they are shown, as ODbL 1.0 requires.
+
+    The map tab draws `context_layers.geojson` and the hazard tab lists it, so the credit is app-level rather than
+    per-tab. `docs/context-sources.md` §5 carries the canonical wording; `meta.provenance.license` carries it into
+    the artefact, but a licence that only exists inside a JSON file the reader never opens does not discharge the
+    obligation. The second sentence keeps the credit from being read as a claim about the SAR values, which are
+    synthetic.
+    """
+    st.caption(
+        "Context layers © OpenStreetMap contributors, ODbL 1.0. "
+        "The displacement values are synthetic (product: mock); no third-party data is used for them."
+    )
+
+
 def render_app() -> None:
     loaders = _loaders()
     cases = list(loaders.load_study_cases())
@@ -339,6 +354,7 @@ def render_app() -> None:
         render_hazard_tab(filters, loaders)
     with physics_tab:
         render_physics_tab(loaders, meta if isinstance(meta, dict) else None)
+    render_attribution()
     # Written last so a cell picked by the map in this run lands in the URL too.
     _sync_query_params(filters)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
 import re
 
 from streamlit.testing.v1 import AppTest
@@ -11,6 +12,14 @@ from streamlit.testing.v1 import AppTest
 from src.domain.contracts import CASE_IDS
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def published_feature_names(case: str) -> list[str]:
+    """Names the artefact actually publishes, so this test cannot pin a placeholder."""
+    payload = json.loads((ROOT / "data" / "processed" / case / "context_layers.geojson").read_text())
+    names = {feature.get("properties", {}).get("name") for feature in payload.get("features", [])}
+    return sorted(name for name in names if isinstance(name, str) and name.strip())
 TAB_LABELS = (
     "1. Map",
     "2. Series and KPIs",
@@ -39,7 +48,12 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert "Inelastic" in text
     assert "SAR physics and regime classification" in text
     assert "Declared role:" in text
-    assert "Zócalo Metro Station (synthetic)" in text
+    # This used to assert "Zócalo Metro Station (synthetic)" — a literal that existed only while the context layer
+    # was 12 invented features. The OSM layer publishes real names, so the property worth pinning is that a name
+    # the artefact carries reaches the screen.
+    names = published_feature_names("mexico-city")
+    assert names, "the artefact publishes no feature names at all"
+    assert any(name in text for name in names), f"none of {names[:3]} rendered"
     captions = "\n".join(getattr(node, "value", "") for node in getattr(app, "caption", []))
     assert "Linear trend" in captions
     assert "Provenance ID" in captions
