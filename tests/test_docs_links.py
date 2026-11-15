@@ -12,21 +12,34 @@ Three things are checked per document:
    never against the repository root (that is the classic false-positive/false-negative bug). An
    anchor is checked only when it points into a local Markdown file: the heading must exist under
    GitHub's slug rules.
-2. **Backticked repository paths** (inline code only, e.g. ``docs/x.md``) -- the path must exist.
-   Tokens that are not real repository paths are skipped, and every such rule/entry carries its
-   reason in this file, next to the code.
+2. **Backticked repository paths** (inline code only, e.g. ``docs/x.md``) -- the path must exist
+   *and* be tracked. Tokens that are not real repository paths are skipped, and every such
+   rule/entry carries its reason in this file, next to the code.
 3. **Same-file anchors** ``](#section)`` -- the heading must exist in that file.
+
+Existence on this disk is not existence in the repository. An untracked file (work in progress by
+another writer) exists in the working tree, so the filesystem check passes locally -- but a clone
+and CI get only the ``git ls-files`` set, so a document that cites it is broken everywhere else.
+That happened twice (``docs/context-sources.md`` and ``pipeline/context.py``: present here, cited
+by a committed page, absent from every clone). So a citation in a document that ships must name a
+path the index knows. The citation is read from the *index blob* of the document, not the working
+tree, because the index is what ``git commit`` records: an unstaged edit cannot reach a clone, and
+staging the document makes the guard fire one step before the bad commit lands.
 
 A failure names the linking file, the line, the target and the exact path the link was resolved to.
 This module *reports*; it never edits a document. A missing *scope* document is skipped (a doc can
 legitimately be absent), but a link pointing at it from an existing document still fails.
 
-Everything here is filesystem-only: no network, no subprocess, no writes.
+Everything here is read-only and offline: no network, no writes. The tracked-ness rule is the one
+exception to "no subprocess": it shells out to the read-only ``git ls-files``/``git show``, and when
+git cannot answer it *skips* with a message instead of passing, so a bare tree never looks green.
 """
 
 from __future__ import annotations
 
+import functools
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
@@ -127,6 +140,16 @@ class PathRef:
     normalized: str
     skip_reason: str | None
     resolution: str
+
+
+@dataclass(frozen=True)
+class UntrackedFinding:
+    """A cited repository path the index does not contain (so a clone cannot resolve it)."""
+
+    doc: Path
+    line: int
+    token: str
+    on_disk: bool
 
 
 def _rel(path: Path) -> str:
@@ -319,9 +342,13 @@ def _skip_reason(token: str) -> str | None:
     return ALLOWLIST.get(token)
 
 
-def iter_backticked_paths(doc: Path):
-    """Yield a :class:`PathRef` for every inline-code token that looks like a repo path."""
-    for lineno, line in _lines_outside_fences(doc.read_text(encoding="utf-8")):
+def _iter_backticked_paths_in(text: str, doc: Path):
+    """Yield a :class:`PathRef` for every inline-code token in ``text`` that looks like a repo path.
+
+    Separated from :func:`iter_backticked_paths` so the same extraction can run over a document's
+    index blob, which is not a file on disk.
+    """
+    for lineno, line in _lines_outside_fences(text):
         for raw in INLINE_CODE_RE.findall(line):
             normalized = _normalize_path_token(raw)
             if normalized is None:
@@ -337,6 +364,11 @@ def iter_backticked_paths(doc: Path):
             )
 
 
+def iter_backticked_paths(doc: Path):
+    """Yield a :class:`PathRef` for every inline-code token that looks like a repo path."""
+    yield from _iter_backticked_paths_in(doc.read_text(encoding="utf-8"), doc)
+
+
 def check_backticked_paths(doc: Path) -> list[PathRef]:
     """Backticked repo paths in ``doc`` that neither exist nor carry an allowlist reason."""
     return [
@@ -344,6 +376,134 @@ def check_backticked_paths(doc: Path) -> list[PathRef]:
         for ref in iter_backticked_paths(doc)
         if ref.skip_reason is None and not (ROOT / ref.normalized).exists()
     ]
+
+
+# --------------------------------------------------------------------------------------------------
+# Tracked-ness: "it is on this disk" is not "it is in the repository".
+#
+# The existence check above answers the wrong question for a citation that ships. Untracked work in
+# progress (``docs/context-sources.md``, ``pipeline/context.py`` on the day this was written) is
+# present under the working tree, so ``Path.exists()`` is satisfied and the guard passes locally,
+# while a clone -- which has only ``git ls-files`` content -- resolves nothing and CI fails. The
+# rule below asks git instead of the filesystem, so the answer is the one a clone gets.
+#
+# The document side is read from the *index blob* (``git show :<doc>``), never from the working
+# tree, because the invariant is about what ``git commit`` records: an unstaged prose edit cannot
+# reach a clone, so it is not a shipped citation yet -- and the moment ``git add`` stages it, the
+# guard fires, one step before the commit that would have broken CI lands. This is also why an
+# untracked document is skipped: a clone never reads it, so no citation of it ships.
+#
+# No allowlist is added for this rule. A path deliberately cited before it lands is precisely the
+# failure this prevents; the fix is to add the file in the same commit (or stop citing it), never
+# to exempt the citation here. The pre-existing allowlists above are untouched and still apply.
+# --------------------------------------------------------------------------------------------------
+
+#: What to print when git cannot answer. A skip is visible in the pytest summary; a silent pass
+#: would make a tree without git (or without a checkout) look like a verified tree.
+GIT_UNAVAILABLE: str = (
+    f"git cannot report the index at {ROOT} (no `git` binary, not a git repository, or that path "
+    "is not the work-tree root), so 'is this cited path tracked?' cannot be proved; skipping this "
+    "check rather than passing it silently"
+)
+
+
+def _git(*args: str) -> bytes | None:
+    """Run a read-only ``git <args>`` at :data:`ROOT`; ``None`` when git is missing or says no."""
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
+
+
+@functools.lru_cache(maxsize=1)
+def _tracked_paths() -> frozenset[str] | None:
+    """Index entries, root-relative -- exactly the paths a commit would record -- or ``None``.
+
+    ``git ls-files`` (not ``HEAD`` alone) is the definition of "a clone gets this": it covers a
+    fully staged tree and an unmodified one alike. Caching matters because every document asks.
+    """
+    prefix = _git("rev-parse", "--show-prefix")
+    if prefix is None:
+        return None
+    if prefix.strip():
+        # ``ROOT`` sits inside a larger work tree: ls-files output would carry a prefix that never
+        # matches a doc citation. Refuse to guess instead of failing every path in the repository.
+        return None
+    raw = _git("ls-files", "-z", "--full-name")
+    if raw is None:
+        return None
+    entries = raw.decode("utf-8", "replace").split("\0")
+    return frozenset(Path(entry).as_posix() for entry in entries if entry)
+
+
+@functools.lru_cache(maxsize=None)
+def _index_text(rel: str) -> str | None:
+    """The blob the index holds for ``rel`` (``git show :rel``), or ``None`` if it is untracked."""
+    raw = _git("show", f":{rel}")
+    return None if raw is None else raw.decode("utf-8", "replace")
+
+
+def _is_tracked(normalized: str, tracked: frozenset[str]) -> bool:
+    """True when ``normalized`` is an index entry, or a directory that holds one.
+
+    A directory is never an index entry, but ``src/ui/`` and ``docs/`` are perfectly good
+    citations, so they count as tracked when anything beneath them is.
+    """
+    candidate = normalized.rstrip("/")
+    if candidate in tracked:
+        return True
+    prefix = f"{candidate}/"
+    return any(path.startswith(prefix) for path in tracked)
+
+
+def check_untracked_backticked_paths(doc: Path) -> list[UntrackedFinding] | None:
+    """Repository paths ``doc`` cites in its index blob that the index does not contain.
+
+    ``None`` means git could not answer; the caller must skip rather than treat that as "clean".
+    Documents that are themselves untracked yield ``[]``: they are not in a clone, so nothing they
+    cite ships, and the rule starts applying the moment the document is added to the index.
+    """
+    tracked = _tracked_paths()
+    if tracked is None:
+        return None
+    text = _index_text(_rel(doc))
+    if text is None:
+        return []
+    findings: list[UntrackedFinding] = []
+    for ref in _iter_backticked_paths_in(text, doc):
+        if ref.skip_reason is not None:
+            continue  # placeholder, glob or allowlisted path: same reasons as the existence check
+        if _is_tracked(ref.normalized, tracked):
+            continue
+        findings.append(
+            UntrackedFinding(
+                doc=doc,
+                line=ref.line,
+                token=ref.token,
+                on_disk=(ROOT / ref.normalized).exists(),
+            )
+        )
+    return findings
+
+
+def _format_untracked_finding(finding: UntrackedFinding) -> str:
+    condition = (
+        "exists in the working tree but is not tracked"
+        if finding.on_disk
+        else "is not in the working tree and is not tracked"
+    )
+    return (
+        f"{_rel(finding.doc)}:{finding.line} references {finding.token!r}, which {condition} "
+        "— a clone and CI cannot resolve it; add the file in the same commit or stop citing it"
+    )
 
 
 @pytest.mark.parametrize("token", ["data/raw", "data/raw/granule.h5", "data/staging"])
@@ -399,6 +559,61 @@ def test_backticked_repo_paths_exist(doc: Path) -> None:
         f"{len(problems)} broken backticked path(s) in {_rel(doc)} "
         f"({len(checked)} checked, allowlist reasons live in tests/test_docs_links.py):\n"
         + "\n".join(_format_path_finding(problem) for problem in problems)
+    )
+
+
+@pytest.mark.parametrize("doc", DOCUMENTS, ids=[_rel(doc) for doc in DOCUMENTS])
+def test_backticked_repo_paths_are_tracked(doc: Path) -> None:
+    """A path cited by a document that ships must be in the index, not merely on this disk.
+
+    The existence test above cannot see the difference between a committed file and another
+    writer's untracked work in progress, and that difference is exactly what a clone and CI see.
+    """
+    if not doc.exists():
+        pytest.skip(f"{_rel(doc)} is not present; no paths to check")
+    if _tracked_paths() is None:
+        pytest.skip(GIT_UNAVAILABLE)
+    text = _index_text(_rel(doc))
+    if text is None:
+        pytest.skip(
+            f"{_rel(doc)} is untracked work in progress (not in the index): a clone never reads "
+            "it, so nothing it cites ships; the rule applies once it is added to the index"
+        )
+    problems = check_untracked_backticked_paths(doc) or []
+    checked = [ref for ref in _iter_backticked_paths_in(text, doc) if ref.skip_reason is None]
+    assert not problems, (
+        f"{len(problems)} cited path(s) in {_rel(doc)} exist in the working tree but not in the "
+        f"repository ({len(checked)} checked; a clone resolves only what `git ls-files` lists):\n"
+        + "\n".join(_format_untracked_finding(problem) for problem in problems)
+    )
+
+
+#: Tokens that appear backticked all over the docs but are not repository paths. Each one is a
+#: rule in ``_normalize_path_token``/``_skip_reason``; pinning them here proves the tracked-ness
+#: rule above stays non-vacuous without firing on prose, commands, flags or templates.
+NON_PATHS: tuple[str, ...] = (
+    "meta.stats",  # dotted identifier: no slash
+    "./scripts/python.sh -m pytest tests -q",  # command line: whitespace
+    "--fast",  # flag
+    "data/processed/<case>/meta.json",  # template: placeholder marker
+    "data/processed/{case_id}/nisar_grid.parquet",  # template: placeholder marker
+    "data/processed/_availability/*.json",  # glob
+    "origin/HEAD",  # git ref, not a top-level repository directory
+    "/science/LSAR/GUNW/grids/frequencyA",  # absolute HDF5 path inside a product
+    "data/raw/granule.h5",  # gitignored download tree
+    "serve/build.py",  # post-MVP target, allowlisted with its reason
+)
+
+
+@pytest.mark.parametrize("token", NON_PATHS)
+def test_non_paths_are_not_checked_for_trackedness(token: str) -> None:
+    """Only genuine repository paths reach the tracked-ness rule; everything else is skipped."""
+    refs = [
+        ref
+        for ref in _iter_backticked_paths_in(f"see `{token}` in prose", ROOT / "docs/example.md")
+    ]
+    assert all(ref.skip_reason is not None for ref in refs) or not refs, (
+        f"{token!r} would be demanded from git; extend the skip rules above instead of the allowlist"
     )
 
 
