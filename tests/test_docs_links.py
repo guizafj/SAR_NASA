@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 #: "if present"); a missing file is skipped, never failed.
 DOC_PATTERNS: tuple[str, ...] = (
     "README.md",
+    "CONTEXT.md",
     "docs/*.md",
     "pipeline/README.md",
     "pipeline/ingest/README.md",
@@ -81,7 +82,7 @@ GLOB_MARKERS: tuple[str, ...] = ("*", "?")
 #: absence says nothing about the docs.
 ALLOWLIST_PREFIXES: dict[str, str] = {
     "data/raw/": "gitignored download tree (flujo §3.2); contents are never committed",
-    "data/staging/": "gitignored rehearsal staging tree (README §15); never committed",
+    "data/staging/": "gitignored enrichment staging (land_use sidecar); never committed",
 }
 
 #: Singular paths that look checkable but are legitimately absent. Each reason is one line.
@@ -102,8 +103,10 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(\s*(<[^>]*>|[^)\s]+)(?:\s+[\"'][^)]*[\"'])?\s*\)")
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
-#: ``path.py:SYMBOL`` is a path plus a symbol under it; only ``path.py`` is checkable.
-PATH_SYMBOL_RE = re.compile(r"^(.+?):[A-Za-z_][A-Za-z0-9_.]*$")
+#: ``path.py:SYMBOL`` (and ``path.py::SYMBOL``) is a path plus a symbol under it; only the path
+#: is checkable. The separator is greedy on purpose: with ``::SYMBOL`` the lazy form would take the
+#: first colon into the path and leave a trailing ``:``, which then "does not exist".
+PATH_SYMBOL_RE = re.compile(r"^(.+?):{1,2}[A-Za-z_][A-Za-z0-9_.]*$")
 FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
 
@@ -307,7 +310,11 @@ def _skip_reason(token: str) -> str | None:
     if any(marker in token for marker in GLOB_MARKERS):
         return "glob, describes a set of files rather than one path"
     for prefix, reason in ALLOWLIST_PREFIXES.items():
-        if token.startswith(prefix):
+        # A doc may name the directory itself (`data/raw`) or something inside it (`data/raw/x`).
+        # Both are the same gitignored tree, and the directory legitimately does NOT exist in a
+        # fresh clone — so compare with the trailing slash normalised, or the bare form escapes
+        # the allowlist and a clean clone fails this guard.
+        if token.startswith(prefix) or token.rstrip("/") == prefix.rstrip("/"):
             return reason
     return ALLOWLIST.get(token)
 
@@ -337,6 +344,18 @@ def check_backticked_paths(doc: Path) -> list[PathRef]:
         for ref in iter_backticked_paths(doc)
         if ref.skip_reason is None and not (ROOT / ref.normalized).exists()
     ]
+
+
+@pytest.mark.parametrize("token", ["data/raw", "data/raw/granule.h5", "data/staging"])
+def test_gitignored_trees_are_allowlisted_with_or_without_a_trailing_slash(token: str) -> None:
+    """A clone legitimately has no ``data/raw/`` or ``data/staging/``, so the guard must not ask.
+
+    Regression: ``docs/submission-checklist.md`` backticks ``data/raw`` (no trailing slash) while
+    the allowlist key was ``data/raw/``, so a naive ``startswith`` let the bare form through and
+    ``test_backticked_repo_paths_exist`` failed for anyone who cloned without a download tree.
+    Proved by a clean-copy rehearsal on 2026-11-14. This test pins the slash-insensitive match.
+    """
+    assert _skip_reason(token), f"{token} would fail a guard in a fresh checkout"
 
 
 def _format_link_finding(finding: LinkFinding) -> str:

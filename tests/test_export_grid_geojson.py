@@ -2,8 +2,8 @@
 
 `scripts/export_grid_geojson.py` exists so a reviewer can open the grid in QGIS/kepler.gl without
 depending on Parquet support. It is a convenience, which makes silent distortion tempting — so this
-pins the properties that matter: one point per published cell, no invented cells, coordinates inside
-the case bbox, and the colourable fields present and of the right type.
+pins the properties that matter: one **polygon** per published cell, no invented cells, closed
+rings inside the case bbox, and the colourable fields present and of the right type.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def test_one_point_per_published_cell(case: str, exported: pathlib.Path) -> None
 
     assert collection["type"] == "FeatureCollection"
     assert len(collection["features"]) == len(grid), (
-        f"{case}: exported {len(collection['features'])} points for {len(grid)} cells — the "
+        f"{case}: exported {len(collection['features'])} polygons for {len(grid)} cells — the "
         f"exporter must not drop, invent or round-trip cells"
     )
     ids = {f["properties"]["cell_id"] for f in collection["features"]}
@@ -61,15 +61,30 @@ def test_one_point_per_published_cell(case: str, exported: pathlib.Path) -> None
 
 
 @pytest.mark.parametrize("case", CASES)
-def test_coordinates_are_wgs84_inside_the_case_bbox(case: str, exported: pathlib.Path) -> None:
+def test_rings_are_closed_wgs84_polygons_inside_the_case_bbox(case: str, exported: pathlib.Path) -> None:
+    """The export carries the cell *boundary*, not its centroid.
+
+    It carried centroids once, styled as hexagon markers sized in map units. QGIS map units follow
+    the project CRS, so in EPSG:4326 the unit is degrees and every marker was 349 degrees wide: the
+    world map came out as three giant hexagons. Real rings need no size and cannot be misread.
+    """
     west, south, east, north = CONFIG["cases"][case]["bbox"]
+    pad = 0.01  # ~1 km: a cell on the AOI edge legitimately has vertices outside its envelope
     collection = json.loads((exported / f"{case}.geojson").read_text())
     for feature in collection["features"]:
-        assert feature["geometry"]["type"] == "Point"
-        lon, lat = feature["geometry"]["coordinates"]
-        assert -180 <= lon <= 180 and -90 <= lat <= 90
-        assert west <= lon <= east, f"{case}: longitude {lon} outside bbox"
-        assert south <= lat <= north, f"{case}: latitude {lat} outside bbox"
+        geometry = feature["geometry"]
+        assert geometry["type"] == "Polygon", f"{case}: {geometry['type']} is not a cell polygon"
+        ring = geometry["coordinates"][0]
+        assert len(ring) >= 5, f"{case}: a polygon ring needs at least 4 vertices"
+        assert ring[0] == ring[-1], f"{case}: GeoJSON rings must be closed"
+        for lon, lat in ring:
+            assert -180 <= lon <= 180 and -90 <= lat <= 90
+            assert west - pad <= lon <= east + pad, f"{case}: vertex longitude {lon} outside bbox"
+            assert south - pad <= lat <= north + pad, f"{case}: vertex latitude {lat} outside bbox"
+        # the cell itself must sit inside the envelope, whatever its vertices do
+        cx = sum(point[0] for point in ring[:-1]) / (len(ring) - 1)
+        cy = sum(point[1] for point in ring[:-1]) / (len(ring) - 1)
+        assert west <= cx <= east and south <= cy <= north, f"{case}: cell centroid outside bbox"
 
 
 @pytest.mark.parametrize("case", CASES)

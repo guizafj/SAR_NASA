@@ -7,7 +7,7 @@ Fallback chain (README §7):
 Search is unauthenticated (ASF SearchAPI public). Download needs Earthdata credentials and
 fails closed with an actionable message when they are missing.
 
-Search also derives *stacks* — one per acquisition geometry `(track, flight direction)` — and
+Search also derives *stacks* — one per acquisition geometry `(track, frame, flight direction)` — and
 persists them so `download --stack recommended` fetches a coherent single-geometry series
 instead of the first three search hits (which can span several tracks).
 
@@ -106,6 +106,7 @@ _TIMESTAMP = re.compile(r"^(\d{8})T(\d{4,6})$")
 _LEVEL = re.compile(r"^L\d$")
 _PRODUCT = re.compile(r"^[A-Z0-9]{2,6}$")
 _TRACK = re.compile(r"^\d{3}[A-Z]?$")
+_FRAME = re.compile(r"^\d{3}$")
 _DIRECTION = {"A": "ASCENDING", "D": "DESCENDING"}
 
 
@@ -127,6 +128,7 @@ class ParsedGranule:
     level: str | None = None
     product: str | None = None
     track: str | None = None
+    frame: str | None = None
     direction_code: str | None = None
     reference_start: str | None = None
     reference_stop: str | None = None
@@ -171,13 +173,16 @@ def parse_granule(granule_id: str | None) -> ParsedGranule:
     code = tokens[6] if len(tokens) > 6 and tokens[6] in _DIRECTION else None
     if code is None:
         code = next((token for token in tokens[:10] if token in _DIRECTION), None)
-    track = tokens[7] if len(tokens) > 7 and _TRACK.match(tokens[7]) else None
+    # Verified census: NISAR_<L>_<PR>_<GUNW>_<cycle>_<track>_<A|D>_<frame>_...
+    track = tokens[5] if len(tokens) > 5 and _TRACK.match(tokens[5]) else None
+    frame = tokens[7] if len(tokens) > 7 and _FRAME.match(tokens[7]) else None
 
     return ParsedGranule(
         raw=raw,
         level=level,
         product=product,
         track=track,
+        frame=frame,
         direction_code=code,
         reference_start=stamps[0] if stamps else None,
         reference_stop=stamps[1] if len(stamps) > 1 else None,
@@ -305,7 +310,10 @@ def _stack_epochs(members: list[tuple[str, ParsedGranule]]) -> tuple[int, int]:
 
 
 def derive_stacks(granules: list[dict]) -> list[dict]:
-    """Group granules by `(track, flight direction)` and describe each stack.
+    """Group granules by `(track, frame, flight direction)` and describe each stack.
+
+    A frame identifies one footprint, so it belongs in the key: grouping only by track would
+    merge adjacent frames into a "stack" that is not one acquisition geometry.
 
     Every stack *previews* its window: `date_range` is the full `[first, last]` reference date,
     `full_date_range` repeats it, and `granule_ids` is an even sample of at most
@@ -317,15 +325,17 @@ def derive_stacks(granules: list[dict]) -> list[dict]:
     and `connected_epochs` (the longest chain inside the stack) — so a narrowed download window
     never has to be confused with the stack's real span. Sorted largest first, then most recent.
     """
-    groups: dict[tuple[str | None, str | None], list[tuple[str, ParsedGranule]]] = {}
+    groups: dict[
+        tuple[str | None, str | None, str | None], list[tuple[str, ParsedGranule]]
+    ] = {}
     for granule in granules:
         granule_id = granule.get("granuleName") or granule.get("id") or ""
         parsed = parse_granule(granule_id)
-        key = (parsed.track, parsed.direction)
+        key = (parsed.track, parsed.frame, parsed.direction)
         groups.setdefault(key, []).append((granule_id, parsed))
 
     stacks: list[dict] = []
-    for (track, direction), members in groups.items():
+    for (track, frame, direction), members in groups.items():
         members.sort(
             key=lambda item: item[1].reference_start
             or item[0]  # unparseable names keep a stable, name-based order
@@ -343,6 +353,7 @@ def derive_stacks(granules: list[dict]) -> list[dict]:
         stacks.append(
             {
                 "track": track,
+                "frame": frame,
                 "direction": direction,
                 "n_granules": len(members),
                 "date_range": date_range,
@@ -392,8 +403,8 @@ def _download_sample(stack: dict, stacks: list[dict]) -> dict:
     run, epochs = _best_download_run(members)
     run_ids = [granule_id for granule_id, _ in run]
     # `date_range` is the EPOCH window: the sequence of reference acquisitions. A granule is a
-    # pair, so its secondary is the partner of an earlier epoch and does not extend the window —
-    # `n_epochs` counts distinct reference days for the same reason.
+    # pair, so its secondary is the partner of an earlier epoch and does not extend the window.
+    # `_stack_epochs` separately inventories reference AND secondary days in whole-stack n_epochs.
     starts = [parsed.reference_start for _, parsed in run if parsed.reference_start]
     sample = _public(stack)
     sample.update(
@@ -435,8 +446,10 @@ def _epoch_warning(stack: dict, epochs: int, stacks: list[dict]) -> str | None:
         usable,
         key=lambda item: (item[0], (item[1].get("date_range") or ["", ""])[1]),
     )
+    other_frame = f" frame {other['frame']}" if other.get("frame") is not None else ""
     return (
-        f"{head}. Use `--stack {other['track']}` (track {other['track']}/"
+        f"{head}. Use `--stack {other['track']}` (track {other['track']}"
+        f"{other_frame}/"
         f"{other['direction']}, {other_epochs} epoch(s)) instead."
     )
 
@@ -462,9 +475,10 @@ def recommend_stack(stacks: list[dict]) -> dict | None:
             f"{len(sample['granule_ids'])} of {sample['n_granules']} granules, "
             f"{sample['download_epochs']} connected epoch(s), {span}"
         )
+        frame = f" frame {chosen['frame']}" if chosen.get("frame") is not None else ""
         why = (
-            f"largest single-geometry stack (track {chosen['track']}/{chosen['direction']}); "
-            f"{detail}"
+            f"largest single-geometry stack (track {chosen['track']}{frame}/"
+            f"{chosen['direction']}); {detail}"
         )
         return {**sample, "why": why}
 
@@ -738,8 +752,9 @@ def _stack_line(src: dict) -> str:
     if not recommended:
         return "no stack"
     track = recommended.get("track")
+    frame = f" frame {recommended['frame']}" if recommended.get("frame") is not None else ""
     return (
-        f"stack {track or '?'}/{recommended.get('direction') or '?'} "
+        f"stack {track or '?'}{frame}/{recommended.get('direction') or '?'} "
         f"({len(recommended.get('granule_ids') or [])} of "
         f"{recommended.get('n_granules')} granules)"
     )
@@ -863,9 +878,14 @@ def recommendations(city: str, sources: dict[str, dict], chosen: str) -> list[st
         )
         recommended = nisar.get("recommended_stack") or {}
         if recommended:
+            frame = (
+                f" frame {recommended['frame']}"
+                if recommended.get("frame") is not None
+                else ""
+            )
             recs.append(
                 f"Fetch one geometry: `download --source nisar_gunw --stack recommended` plans "
-                f"track {recommended.get('track')}/{recommended.get('direction')} "
+                f"track {recommended.get('track')}{frame}/{recommended.get('direction')} "
                 f"({len(recommended.get('granule_ids') or [])} of "
                 f"{recommended.get('n_granules')} granules). Do not plan `--stack all`: it mixes "
                 "tracks and the geometry guard refuses it."
@@ -953,7 +973,7 @@ def evaluate_granule(granule_id: str, source: str, allow_products: list[str]) ->
     allowed = {product.upper() for product in allow_products}
     where = (
         f"parsed: level={parsed.level} product={parsed.product} track={parsed.track} "
-        f"direction={parsed.direction}"
+        f"frame={parsed.frame} direction={parsed.direction}"
     )
 
     if parsed.level is None or parsed.product is None:
@@ -1060,8 +1080,52 @@ def build_download_plan(
     return plan
 
 
+def _chronological_key(item: dict) -> tuple[int, str, str]:
+    """Sort key for a plan item: reference acquisition date, then granule name.
+
+    The reference date is what `process_case._chain` orders by, so it is what "the first N
+    granules" means. A granule whose name does not parse carries no date: it sorts last instead
+    of claiming to be the oldest (it is refused by the identity guard anyway, and a refusal must
+    never be the only thing the operator gets to inspect).
+    """
+    reference = item["decision"].parsed.reference_start or ""
+    return (0 if reference else 1, reference, item["granule_id"])
+
+
+def truncate_plan(plan: list[dict], max_granules: int | None) -> list[dict]:
+    """Keep the FIRST `max_granules` items in reference-date order. `None` = no limit.
+
+    Which granules survive is decided chronologically, so the retained set is the *start* of the
+    chain (a contiguous run that still begins where the selected chain begins) — never an even
+    sample and never a hole in the middle. The survivors keep the order `select_stack_granules`
+    produced, so the plan itself is never reordered. Caller validates `max_granules >= 1`; a
+    limit at or above the plan size changes nothing.
+    """
+    if max_granules is None or len(plan) <= max_granules:
+        return plan
+    ordered = sorted(range(len(plan)), key=lambda index: _chronological_key(plan[index]))
+    keep = set(ordered[:max_granules])
+    return [item for index, item in enumerate(plan) if index in keep]
+
+
+def plan_epochs(plan: list[dict]) -> int:
+    """Distinct acquisition days the plan carries — what a trend fit would actually see.
+
+    Same accounting as `_run_epochs` (a granule is a *pair*, so its reference and secondary days
+    both count), so `MIN_FIT_POINTS` is compared against the number `process_case` would derive.
+    """
+    return _run_epochs(
+        [(item["granule_id"], item["decision"].parsed) for item in plan]
+    )
+
+
 def plan_geometries(plan: list[dict]) -> set[tuple[str | None, str | None]]:
-    """Distinct `(track, direction)` among the accepted items: the mixed-geometry guard."""
+    """Distinct `(track, direction)` among the accepted items: the mixed-geometry guard.
+
+    Frames are deliberately not part of this guard: a chain may cross adjacent frames on one
+    track/direction (``process_case`` warns, it does not refuse). Each *derived stack* is still
+    one footprint because `derive_stacks` keys on frame as well.
+    """
     return {
         (item["decision"].parsed.track, item["decision"].parsed.direction)
         for item in plan
@@ -1123,6 +1187,10 @@ def select_stack_granules(
     def legacy_label(count: int) -> str:
         return f"legacy preview ({count} granule(s))"
 
+    def frame_text(stack: dict) -> str:
+        frame = stack.get("frame")
+        return f" frame {frame}" if frame is not None else ""
+
     def epoch_notes(stack: dict) -> list[str]:
         """Carry the report's epoch verdict into the plan: never fetch an unfittable stack quietly."""
         warning = stack.get("warning")
@@ -1148,17 +1216,27 @@ def select_stack_granules(
             label = f"recommended: unidentified geometry ({len(selected)} granule(s))"
         else:
             label = (
-                f"recommended: track {stack['track']} {stack['direction']} "
+                f"recommended: track {stack['track']}{frame_text(stack)} {stack['direction']} "
                 f"({len(selected)} of {stack['n_granules']} granule(s))"
             )
         return selected, label, [*notes, *epoch_notes(stack)]
 
     wanted = _normalise_track(choice)
-    match = next(
-        (stack for stack in stacks if _normalise_track(str(stack["track"])) == wanted), None
-    )
+    matches = [
+        stack for stack in stacks if _normalise_track(str(stack["track"])) == wanted
+    ]
+    match = matches[0] if matches else None
     if match is None:
-        available = ", ".join(tracks) if tracks else "none"
+        available = (
+            ", ".join(
+                f"{stack['track']}"
+                f"{'/' + str(stack['frame']) if stack.get('frame') is not None else ''}"
+                for stack in stacks
+                if stack["track"] is not None
+            )
+            if tracks
+            else "none"
+        )
         raise StackSelectionError(
             f"--stack {choice} matches no derived stack; tracks in this report: {available}. "
             "Run `search` again to re-derive stacks, or pass `--stack recommended`."
@@ -1167,7 +1245,7 @@ def select_stack_granules(
     if preview_only:
         return selected, legacy_label(len(selected)), notes
     label = (
-        f"track {match['track']} {match['direction']} "
+        f"track {match['track']}{frame_text(match)} {match['direction']} "
         f"({len(selected)} of {match['n_granules']} granule(s))"
     )
     return selected, label, [*notes, *epoch_notes(match)]
@@ -1460,11 +1538,30 @@ def _fmt_gb(mb: float) -> str:
 
 
 def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list[dict],
-                max_gb: float) -> None:
+                max_gb: float, n_selected: int | None = None,
+                max_granules: int | None = None) -> None:
     print(f"Download plan for {city} / {source}")
     print(f"  Stack selection: {label}")
     for note in notes:
         print(f"  note: {note}")
+
+    truncated = (
+        max_granules is not None and n_selected is not None and len(plan) < n_selected
+    )
+    if truncated:
+        print(
+            f"  --max-granules {max_granules} applied: {len(plan)} of {n_selected} planned "
+            f"(the FIRST {len(plan)} granule(s) by reference date, so the retained chain still "
+            "starts where the selected chain starts)"
+        )
+        epochs = plan_epochs(plan)
+        if epochs < MIN_FIT_POINTS:
+            print(
+                f"  WARNING: this truncated plan yields {epochs} epoch(s), below "
+                f"MIN_FIT_POINTS={MIN_FIT_POINTS} — it CANNOT produce a fitted case. Fetching it "
+                "is for INSPECTION ONLY (e.g. verify the HDF5 reader); `process_case` refuses "
+                "it. Drop --max-granules to plan the full chain."
+            )
 
     unknown = [item for item in plan if item["size_mb"] is None]
     known_mb = sum((item["size_mb"] or 0) for item in plan)
@@ -1474,7 +1571,8 @@ def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list
         print(f"  [{index}/{len(plan)}] {item['granule_id']}")
         print(
             f"        level={decision.parsed.level} product={decision.parsed.product} "
-            f"track={decision.parsed.track} direction={decision.parsed.direction}"
+            f"track={decision.parsed.track} frame={decision.parsed.frame} "
+            f"direction={decision.parsed.direction}"
         )
         print(
             f"        reference={decision.parsed.reference_start} "
@@ -1528,6 +1626,16 @@ def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list
 
 
 def cmd_download(args: argparse.Namespace) -> int:
+    if args.max_granules is not None and args.max_granules < 1:
+        # Validated here rather than in argparse so the message says what the flag *means*: a
+        # limit of 0 is not "no limit", it is a request to fetch nothing, which is a usage error.
+        print(
+            f"--max-granules must be >= 1 (got {args.max_granules}): it keeps the first N granules "
+            "of the selected plan in reference-date order, so 0 would plan (and fetch) nothing. "
+            "Omit the flag to plan the whole selection.",
+            file=sys.stderr,
+        )
+        return RC_USAGE
     cfg = json.loads(AOIS.read_text())
     if args.city not in cfg["cities"]:
         print(f"unknown city {args.city}; known: {', '.join(cfg['cities'])}", file=sys.stderr)
@@ -1550,22 +1658,41 @@ def cmd_download(args: argparse.Namespace) -> int:
 
     raw_dir = pathlib.Path(args.raw) / args.city / args.source
     max_bytes = int(args.max_gb * 1e9)
-    plan = build_download_plan(records, args.source, args.allow_product or [], raw_dir)
-    if not plan:
+    selected_plan = build_download_plan(records, args.source, args.allow_product or [], raw_dir)
+    if not selected_plan:
         print(
             f"source {args.source} has no plannable granule records; re-run `search`",
             file=sys.stderr,
         )
         return RC_USAGE
 
-    geometries = plan_geometries(plan)
+    # `--max-granules` narrows the plan the stack selection already made; it never changes stack
+    # selection. Everything below (sizes probe, geometry, budget, fetch, provenance) then works on
+    # the truncated plan, so a 30 GB budget cannot refuse a one-granule plan.
+    n_selected = len(selected_plan)
+    plan = truncate_plan(selected_plan, args.max_granules)
+    truncated = len(plan) < n_selected
+
+    # The geometry verdict is taken on the SELECTED plan: a truncated plan is a subset, so any
+    # mixed truncated plan is mixed here too, while `--max-granules 1` can never be used to slip
+    # a mixed selection past the guard. The budget and the size probe use the truncated plan.
+    geometries = plan_geometries(selected_plan)
     plan_is_mixed = len(geometries) > 1 and not args.allow_mixed_geometry
     if args.probe_sizes and not plan_is_mixed:
         # After the product/geometry verdicts (never HEAD a granule that will be refused) and
         # before the budget verdict (so the guard can refuse on a real size, not on 0).
         probe_plan_sizes(plan)
 
-    _print_plan(args.city, args.source, label, notes, plan, args.max_gb)
+    _print_plan(
+        args.city,
+        args.source,
+        label,
+        notes,
+        plan,
+        args.max_gb,
+        n_selected=n_selected,
+        max_granules=args.max_granules,
+    )
 
     rejected = [item for item in plan if not item["decision"].accepted]
     if rejected:
@@ -1586,12 +1713,31 @@ def cmd_download(args: argparse.Namespace) -> int:
         for track, direction in sorted(
             geometries, key=lambda geometry: (str(geometry[0]), str(geometry[1]))
         ):
-            print(f"  track {track} {direction}")
+            frames = sorted(
+                {
+                    str(item["decision"].parsed.frame)
+                    for item in selected_plan
+                    if item["decision"].accepted
+                    and (
+                        item["decision"].parsed.track,
+                        item["decision"].parsed.direction,
+                    )
+                    == (track, direction)
+                    and item["decision"].parsed.frame is not None
+                }
+            )
+            frame_text = f" frame {', '.join(frames)}" if frames else ""
+            print(f"  track {track}{frame_text} {direction}")
         print(
             "  a stack must share one orbit track and flight direction; re-plan with "
             "`--stack recommended` or `--stack <track>` (planned from a legacy report? "
             "re-run `search`)"
         )
+        if truncated:
+            print(
+                f"  --max-granules {args.max_granules} is applied after this verdict: truncating "
+                "a mixed selection does not make it fetchable"
+            )
         return RC_PRODUCT_GUARD
 
     # Refuse on a KNOWN size only: an unknown size is never a refusal (NISAR GUNW always starts
@@ -1688,6 +1834,14 @@ def cmd_download(args: argparse.Namespace) -> int:
                 "max_gb": args.max_gb,
                 "size_probe": args.probe_sizes,
                 "stack": label,
+                # What was actually planned, so a reader never assumes the whole stack was
+                # fetched: `n_selected` is the stack selection, `n_planned` what survived
+                # --max-granules, and `planned_granule_ids` names them.
+                "max_granules": args.max_granules,
+                "n_selected": n_selected,
+                "n_planned": len(plan),
+                "granules_truncated": truncated,
+                "planned_granule_ids": [item["granule_id"] for item in plan],
                 "retrieved_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "earthdata_user": user,
                 "files": records_out,
@@ -1753,6 +1907,17 @@ def main(argv: list[str] | None = None) -> int:
         default=2.0,
         help="budget in GB: refuses a plan whose KNOWN size exceeds it, before any transfer; an "
         "unknown size never refuses (add --probe-sizes to make the preflight real)",
+    )
+    p_dl.add_argument(
+        "--max-granules",
+        type=int,
+        default=None,
+        metavar="N",
+        help="fetch at most N granules of the plan `--stack` selected, keeping the FIRST N by "
+        "reference date (the chain still starts at its start, never an even sample); use it to "
+        "fetch one granule and verify the HDF5 reader before spending the full budget. The "
+        "mixed-geometry guard and provenance still apply, and --max-gb/--probe-sizes are "
+        "measured against the truncated plan. N < 1 is a usage error",
     )
     p_dl.add_argument(
         "--probe-sizes",

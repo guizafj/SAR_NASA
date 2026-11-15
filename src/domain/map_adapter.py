@@ -44,6 +44,14 @@ GLOBAL_VELOCITY_RANGE_MM_YR: tuple[float, float] = (-425.0, 425.0)
 GLOBAL_DELTA_RANGE_MM: tuple[float, float] = (-155.0, 155.0)
 MAX_EXTRUDE_METERS: float = 3000.0
 
+#: Zero-displacement baseline for 3-D columns (O-07). deck.gl extrudes polygons *from the ground
+#: plane*, so a negative `get_elevation` drives subsidence columns below the basemap where they
+#: render unreliably; the signed displacement is therefore mapped two-sided around this midpoint:
+#: subsidence runs down toward 0 m, `delta_change == 0` sits at the baseline, uplift runs up toward
+#: `MAX_EXTRUDE_METERS`. Amplitudes stay symmetric, so a (+x, -x) pair keeps equal magnitude.
+COLUMN_BASELINE_M: float = MAX_EXTRUDE_METERS / 2.0
+COLUMN_AMPLITUDE_M: float = MAX_EXTRUDE_METERS / 2.0
+
 # Diverging RdBu-aligned ramp (red = subsidence < 0, neutral slate = [-5, +5] floor, blue = uplift > 0).
 _VELOCITY_SHARED_ANCHORS: tuple[tuple[float, tuple[int, int, int]], ...] = (
     (-425.0, (103, 0, 31)),      # #67001f deep crimson (peak compaction)
@@ -187,6 +195,25 @@ def _interpolate_rgb(
     g = np.rint(np.interp(clamped, xp, g_fp)).astype(np.int64)
     b = np.rint(np.interp(clamped, xp, b_fp)).astype(np.int64)
     return np.stack([r, g, b], axis=-1)
+
+
+def column_elevation_from_delta(
+    signed_delta: np.ndarray | float,
+    denom: float,
+) -> np.ndarray:
+    """Map SIGNED `delta_change` [mm] to a non-negative 3-D column height in metres (O-07).
+
+    `denom` is the one-sided normalisation ceiling (mm), so the signed fraction
+    `delta / denom` lands in `[-1, +1]`. That fraction is mapped two-sided around
+    `COLUMN_BASELINE_M` with symmetric amplitudes, which keeps the *physical ordering*
+    (`elev(-x) < elev(0) < elev(+x)`), keeps equal-magnitude displacements at equal-magnitude
+    offsets from the baseline, and never produces a negative height for pydeck/deck.gl to
+    extrude below the ground plane.
+    """
+    delta = np.asarray(signed_delta, dtype=np.float64)
+    safe_denom = float(denom) if math.isfinite(float(denom)) and float(denom) > 0.0 else 1.0
+    fraction = np.clip(delta / safe_denom, -1.0, 1.0)
+    return COLUMN_BASELINE_M + fraction * COLUMN_AMPLITUDE_M
 
 
 def _independent_velocity_anchors(
@@ -552,9 +579,14 @@ def build_map_payload(
         rgb_arr = _interpolate_rgb(vel_arr, anchors)
 
     if extrude_3d:
-        # Per docs/handoff-mock.md §2: bind 3D column height to |delta_change| [mm], normalised
-        # on "shared" by 425 mm/yr * window_years so every city shares one physical rate ceiling.
+        # O-07: bind 3D column height to SIGNED delta_change [mm] — never to |delta_change| — while
+        # keeping the shared physical rate ceiling. The normalised signed fraction is mapped
+        # two-sided around COLUMN_BASELINE_M (see the constants' docstring for why the baseline is
+        # the midpoint rather than 0 m):
+        #   elevation = MAX/2 + clip(delta_change / denom, -1, +1) * MAX/2
+        # so elev(-x) < elev(0) = MAX/2 < elev(+x) and |elev - baseline| grows with |delta|.
         if scale_mode == "shared":
+            # "shared" normalisation: one physical rate ceiling for every city.
             dates_raw = meta.get("dates") or ()
             span_years = 0.3614
             if len(dates_raw) >= 2:
@@ -566,9 +598,11 @@ def build_map_payload(
                     span_years = 0.3614
             denom = abs(GLOBAL_VELOCITY_RANGE_MM_YR[0]) * span_years
         else:
+            # "independent": the city's own maximum, symmetrically — both signs share one scale.
             denom = max(3.5, float(np.max(np.abs(delta_arr))))
-        elev_arr = np.clip(np.abs(delta_arr) / denom, 0.0, 1.0) * MAX_EXTRUDE_METERS
+        elev_arr = column_elevation_from_delta(delta_arr, denom)
     else:
+        # Flat mode keeps zeroing elevation: non-zero heights cause z-fighting on hexes.
         elev_arr = np.zeros(n_rows, dtype=np.float64)
 
     cell_ids = grid["cell_id"].astype(str).tolist()
@@ -779,6 +813,8 @@ def build_pydeck_layer_specs(
 
 
 __all__ = [
+    "COLUMN_AMPLITUDE_M",
+    "COLUMN_BASELINE_M",
     "GLOBAL_DELTA_RANGE_MM",
     "GLOBAL_VELOCITY_RANGE_MM_YR",
     "LegendSpec",
@@ -794,6 +830,7 @@ __all__ = [
     "build_legend_spec",
     "build_map_payload",
     "build_pydeck_layer_specs",
+    "column_elevation_from_delta",
     "compute_view_state",
     "prepare_context_for_map",
 ]

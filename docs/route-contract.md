@@ -2,7 +2,7 @@
 > the artefact contract. The authoritative schema is `docs/data-contract-v1.md` +
 > `src/domain/contracts.py`.**
 
-# Route contract v1.1 — Option B (static site + PMTiles)
+# Route contract v1 — Option B (static site + PMTiles)
 
 **Status: FROZEN as of Sat 14 Nov 2026, hackathon H0.**
 Owner: pozo (serving) · Producer: yuls (`pipeline/`) · Consumer: fradiaz (`app/src/`).
@@ -13,6 +13,9 @@ Changes require a `contract_version` bump **and** a message in the team channel;
 ```
 contract_version = "1.1"
 ```
+
+The version tracks the data contract: it was `"1.0"` when this page was frozen on 14 Nov 2026 and
+moved to `"1.1"` with the schema bump of 2026-11-15 (O-05 in [the decisions](decisions.md)).
 
 Everything is static. There is no backend, no database, no CORS preflight, no auth.
 A build step turns `data/processed/` into the contract layout below; a dumb file server (or
@@ -66,13 +69,20 @@ error: the slider is built from `meta.dates`, so it cannot request one.
 
 ## 2. `meta.json` (route 1)
 
+> **Target layout, not the artefact schema.** The normative `meta.json` is
+> [`data-contract-v1.md`](data-contract-v1.md) §5, whose keys are `bbox`, `case_id`, `crs`, `dates`,
+> `limitations`, `name`, `null_policy`, `product`, `provenance`, `reference_point`, `revisit_days`,
+> `schema_version`, `sensor`, `stats`, `thresholds`. The snippet below is a **route design** for a
+> served API: `layers`, `series`, `cell`, `compaction_m3_yr` and `n_events` exist in **no** shipped
+> artefact. Do not build a file from this page and expect `validate_meta` to accept it.
+
 ```jsonc
 {
   "contract_version": "1.1",
   "city": "mexico-city",
   "name": "Mexico City, MX",
   "bbox": [-99.35, 19.20, -98.85, 19.65],      // WGS84 lon/lat, [W,S,E,N]
-  "crs": "EPSG:32614",                          // projected CRS of the source rasters
+  "crs": "EPSG:4326",                          // published artefacts are EPSG:4326 (source rasters are projected)
   "reference_point": [-99.13, 19.43],           // lon/lat of the InSAR reference pixel
   "dates": ["2026-01-12", "2026-01-24"],         // ASC, YYYY-MM-DD, no gaps guarantee
   "revisit_days": 12,                            // 12 = NISAR, 6 = Sentinel-1: NEVER pool
@@ -96,18 +106,10 @@ error: the slider is built from `meta.dates`, so it cannot request one.
     "events":      { "src": "events.pmtiles", "geom": "polygon",
                      "thresholds": { "k_gamma": 2.5, "min_ddB": 3.0, "mmu_m2": 500 } }
   },
-  "thesis_metrics": {
-    "velocity_unit": "mm/year",
-    "seasonal_amplitude_unit": "mm",
-    "ratio": "abs(velocity_mm_yr) / seasonal_amp_mm",
-    "regimes": ["elastic", "transitional", "inelastic"]
-  },
   "series": "series/{z}/{x}/{y}.json",
   "cell": { "scheme": "h3", "resolution": 9, "approx_edge_m": 200 },
   "stats": {
     "median_vel": -128.0, "p05_vel": -410.0, "p95_vel": 12.0,
-    "median_seasonal_amp_mm": 9.4, "median_ratio_R": 13.617,
-    "dominant_regime": "inelastic",
     "compaction_m3_yr": 6.0e7, "n_events": 412, "n_cells": 18240,
     "detection_limit_mm_yr": 1.5          // required when the city is a null result
   }
@@ -215,6 +217,16 @@ This is the click → time-series path: the browser converts a click to `z/x/y`,
 `len(dates)` long. Empty tiles (ocean, no data) return `404` — the client shows the
 "no coverage here" state, which is honest and demo-safe.
 
+`fit.seasonal_amp_mm` and `regime` above were **not available at contract v1.0**: `transforms.harmonic_fit`
+computed both, but no artefact column transported them (`HarmonicFit` is a diagnostic, `regime` was
+derived not stored) and the 132-day window was below the 0.75 yr identifiability gate anyway. That was
+a property of the window, not of the quantity. Contract **v1.1** (2026-11-15) makes `seasonal_amp_mm`,
+`ratio_R` and `regime` required grid fields, so a v1.1 build from `data/processed/` populates them from
+the same `harmonic_fit` the real path uses — on the 2-year window the term is identifiable
+(`annual_coverage` and the design condition both clear their gates), so they are a fit result, never a
+typed constant. A build from an older 132-day artefact set must still omit the keys or label them
+unavailable rather than derive them.
+
 Only tiles containing data are emitted. The build writes a `series/index.json` (non-contract,
 debug only) listing emitted `z/x/y`, so pozo can assert "every `series_cell` in events.pmtiles
 resolves".
@@ -236,6 +248,9 @@ One shared legend across all cities, so Málaga's flatness is visibly flat next 
   "coherence": { "unit": "-", "range": [0, 1],
                  "breaks": [0.2, 0.4, 0.6, 0.8],
                  "colors": ["#0b0b0b", "#3b0f70", "#28738a", "#7ad151"] },
+  // ILLUSTRATIVE PLACEHOLDERS, not measurements: the shipped medians are
+  // −62.07 / −25.41 / −1.36 mm/yr (meta.stats.median_velocity_mm_yr). Build this file from
+  // the artefacts, never from this snippet.
   "cities": {
     "mexico-city": { "median_vel": -128.0, "range": [-450, 50] },
     "jakarta":     { "median_vel": -75.0,  "range": [-320, 40] },

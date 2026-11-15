@@ -245,6 +245,7 @@ def test_zero_coherence_and_zero_velocity_warns(fixture_root):
     frame = pd.read_parquet(path)
     frame.loc[0, "coherence"] = 0.0
     frame.loc[0, "velocity_mm_yr"] = 0.0
+    frame.loc[0, "ratio_R"] = 0.0
     frame.to_parquet(path, index=False)
 
     report = va.validate_tree(case.parent, config=NO_CONFIG)

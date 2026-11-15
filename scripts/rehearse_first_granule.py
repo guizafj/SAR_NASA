@@ -530,7 +530,7 @@ def build_stack(directory: Path) -> SyntheticStack:
         pair_coherence[NAN_PATCH[0] : NAN_PATCH[1], NAN_PATCH[2] : NAN_PATCH[3]] = np.nan
 
         name = (
-            f"NISAR_L2_PR_GUNW_001_005_A_{index + 1:03d}_002_4000_SH_"
+            f"NISAR_L2_PR_GUNW_{index + 1:03d}_001_A_005_{index + 2:03d}_4000_SH_"
             f"{reference_date.replace('-', '')}T031245_"
             f"{secondary_date.replace('-', '')}T031245.h5"
         )
@@ -1648,7 +1648,7 @@ def rehearse(workdir: Path, root: Path) -> dict[str, Any]:
                     if convention_flags[flag]
                 )
                 + ". The runbook text is stale; the rehearsal deliberately kept the default "
-                "(away-from-sensor/platform) so the sign check still exercises the documented "
+                "(toward-sensor/platform) so the sign check still exercises the documented "
                 "Step 5 command."
             )
         if stale_override_claim and (

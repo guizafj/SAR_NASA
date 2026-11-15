@@ -12,7 +12,10 @@ Two things are asserted, and the first matters more:
 
    * `--los-sign` flips `d_LOS = sign*lambda/(4*pi)*phi`, hence every vertical value. The fixture is
      a pure-vertical field (`v_east = v_north = 0`), where the flip is exact and nothing else can
-     explain it.
+     explain it. The **default** label is `toward-sensor` with factor **-1.0** (O-08: the label was
+     renamed to match `project_to_los`, whose `u_up = cos(theta) > 0` makes uplift positive LOS; the
+     arithmetic and therefore every default number are unchanged). `away-from-sensor` is the +1.0
+     flip.
    * `--heading-convention look` feeds `alpha = 180 - alpha_platform` to `los_to_vertical`. That
      changes `u_east = -sin(theta)*cos(alpha)` and leaves `u_north`, and `u_up = cos(theta)`, alone.
      So it moves the east term by `-2*tan(theta)*cos(alpha)*v_east` and does **nothing at all** when
@@ -215,19 +218,21 @@ class Stack:
 def build_stack(
     directory: pathlib.Path,
     *,
+    up_peak: float = PEAK_MM_YR,
     east_peak: float = 0.0,
     north_peak: float = 0.0,
     day_offsets: list[int] | None = None,
 ) -> Stack:
-    """Chain 3 pairs / 4 epochs. `east_peak`/`north_peak` add a horizontal velocity field that is
-    also exactly 0 at the reference pixel, so the spatial reference stays interpretable."""
+    """Chain 3 pairs / 4 epochs. `up_peak`/`east_peak`/`north_peak` add a velocity field that is
+    also exactly 0 at the reference pixel, so the spatial reference stays interpretable. `up_peak`
+    is positive for uplift, negative (the module default) for subsidence."""
     directory.mkdir(parents=True, exist_ok=True)
     if day_offsets is None:
         day_offsets = [STEP_DAYS * index for index in range(4)]
     start = dt.date.fromisoformat(START)
     dates = [(start + dt.timedelta(days=offset)).isoformat() for offset in day_offsets]
 
-    up, east, north = field(PEAK_MM_YR), field(east_peak), field(north_peak)
+    up, east, north = field(up_peak), field(east_peak), field(north_peak)
     t_years = {
         date: (dt.date.fromisoformat(date) - start).days / V.DAYS_PER_YEAR for date in dates
     }
@@ -260,7 +265,7 @@ def build_stack(
         # d_LOS = -lambda/(4*pi)*phi  ->  phi = -4*pi*d/lambda (d in metres), the default sign.
         phase = -4.0 * np.pi * (los_mm / 1000.0) / WAVELENGTH_M
         name = (
-            f"NISAR_L2_PR_GUNW_001_005_A_{index + 1:03d}_002_4000_SH_"
+            f"NISAR_L2_PR_GUNW_{index + 1:03d}_001_A_005_{index + 2:03d}_4000_SH_"
             f"{reference_date.replace('-', '')}T031245_"
             f"{secondary_date.replace('-', '')}T031245.h5"
         )
@@ -314,9 +319,10 @@ def test_no_flags_keep_the_hedge_and_record_the_defaults(tmp_path):
 
     # ... and the choice is still machine-readable, defaults included.
     convention = provenance["geometry_convention"]
-    assert convention["los_sign"] == "away-from-sensor"
+    assert convention["los_sign"] == "toward-sensor"  # O-08: the label now matches u_up = cos(theta)
     assert convention["los_sign_factor"] == -1.0
     assert convention["los_sign_formula"] == "d_LOS = -lambda/(4*pi)*phi"
+    assert "uplift" in convention["los_sign_meaning"]
     assert convention["heading_convention"] == "platform"
     assert convention["validated_against"] is None
     assert convention["heading_platform_deg"] == [HEADING_DEG]
@@ -352,13 +358,14 @@ def test_los_sign_reaches_phase_conversion_and_flips_the_vertical(tmp_path, monk
 
     monkeypatch.setattr(P.G, "phase_to_los_displacement_mm", spy)
 
-    away = run(stack, tmp_path / "away")
-    toward = run(stack, tmp_path / "toward", los_sign="toward-sensor")
+    away = run(stack, tmp_path / "away")  # the historical arithmetic: default, factor -1.0
+    toward = run(stack, tmp_path / "toward", los_sign="away-from-sensor")
 
     # Wiring: 3 granules each, with the conventional factor actually passed through.
     assert seen == [-1.0] * len(stack.granules) + [+1.0] * len(stack.granules)
 
-    # Arithmetic: the whole map negates, not just its label.
+    # Arithmetic: the whole map negates, not just its label. The default run (`away` here only
+    # because it reproduces pre-O-08 numbers) is toward-sensor-positive: subsidence is negative.
     cells = sorted(velocities(away))
     np.testing.assert_allclose(
         [velocities(toward)[cell] for cell in cells],
@@ -394,14 +401,21 @@ def test_los_sign_reaches_phase_conversion_and_flips_the_vertical(tmp_path, monk
     )
     np.testing.assert_allclose(toward_grid["val_t1"].to_numpy(), np.zeros(len(cells)), atol=1e-12)
 
-    # Prose: the hedge is replaced by the convention, in words.
+    # Prose: the hedge is replaced by the convention, in words -- and the words match the sign.
     method = toward.meta["provenance"]["method"]
     assert HEDGE not in method
-    assert "los_sign = toward-sensor" in method
+    assert "los_sign = away-from-sensor" in method
     assert "+lambda/(4*pi)*phi" in method
-    assert "toward the sensor" in method
+    assert "away from the sensor" in method
     assert "subsidence is positive" in method
     assert toward.meta["provenance"]["geometry_convention"]["los_sign_factor"] == 1.0
+    # The default run states the same convention it applies, in machine-readable form: the label
+    # says toward-sensor and the factor is still -1.0, so no number moved with the rename.
+    default_convention = away.meta["provenance"]["geometry_convention"]
+    assert default_convention["los_sign"] == "toward-sensor"
+    assert default_convention["los_sign_factor"] == -1.0
+    assert "toward the sensor" in default_convention["los_sign_meaning"]
+    assert "uplift" in default_convention["los_sign_meaning"]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -583,7 +597,7 @@ def test_full_combination_states_both_conventions_and_the_validation(tmp_path):
     assert "Convention note (--method-note): 2*pi slip at 2026-07-14 checked against MintPy." in method
     convention = processed.meta["provenance"]["geometry_convention"]
     assert convention["los_sign"] == "toward-sensor"
-    assert convention["los_sign_factor"] == 1.0
+    assert convention["los_sign_factor"] == -1.0
     assert convention["heading_convention"] == "look"
     assert convention["validated_against"] == (
         "GNSS station MEX1, 2019-2024, vertical residual 1.8 mm/yr RMSE"
@@ -613,7 +627,7 @@ def test_validated_against_alone_is_allowed_but_warned(tmp_path):
     ), processed.warnings
     # Allowed: the default convention is what got validated, and the record says so.
     convention = processed.meta["provenance"]["geometry_convention"]
-    assert convention["los_sign"] == "away-from-sensor"
+    assert convention["los_sign"] == "toward-sensor"
     assert convention["heading_convention"] == "platform"
     assert convention["validated_against"] == "published -450 mm/yr (Cigna & Tapete 2022)"
     assert HEDGE not in processed.meta["provenance"]["method"]
@@ -625,7 +639,7 @@ def test_validated_against_alone_is_allowed_but_warned(tmp_path):
 
 def test_convention_change_without_a_validation_is_warned_but_allowed(tmp_path):
     stack = build_stack(tmp_path / "granules")
-    processed = run(stack, tmp_path, los_sign="toward-sensor")
+    processed = run(stack, tmp_path, los_sign="away-from-sensor")
     assert any("without --validated-against" in warning for warning in processed.warnings)
     assert "no --validated-against was supplied" in processed.meta["provenance"]["method"]
 
@@ -719,13 +733,13 @@ def test_provenance_id_follows_the_convention_but_not_the_prose(tmp_path):
         stack,
         tmp_path / "restated",
         provenance_overrides=frozen,
-        los_sign="away-from-sensor",
+        los_sign="toward-sensor",
         heading_convention="platform",
     )
     assert restated_default.provenance_id == default.provenance_id
 
     flipped = run(
-        stack, tmp_path / "flipped", provenance_overrides=frozen, los_sign="toward-sensor"
+        stack, tmp_path / "flipped", provenance_overrides=frozen, los_sign="away-from-sensor"
     )
     assert flipped.provenance_id != default.provenance_id
     assert C.PROVENANCE_ID_RE.match(flipped.provenance_id)
@@ -839,7 +853,7 @@ def test_grid_frames_stay_contract_shaped_with_a_convention(tmp_path):
     """The convention lives in meta only: no new column, no reordered column, no extra row."""
     stack = build_stack(tmp_path / "granules")
     default = run(stack, tmp_path / "default")
-    flipped = run(stack, tmp_path / "flipped", los_sign="toward-sensor")
+    flipped = run(stack, tmp_path / "flipped", los_sign="away-from-sensor")
 
     assert list(default.grid.columns) == [field.name for field in C.GRID_FIELDS]
     assert list(flipped.grid.columns) == [field.name for field in C.GRID_FIELDS]
@@ -854,3 +868,123 @@ def test_grid_frames_stay_contract_shaped_with_a_convention(tmp_path):
         rtol=0.0,
         atol=1e-12,
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# 9. Physical meaning: the label must describe the direction the numbers actually have (O-08)
+# ---------------------------------------------------------------------------------------------
+#
+# O-08 is closed by `toward-sensor` (factor -1.0) being the default NAME for the factor the chain
+# always applied. These tests state the expected signs from the physics instead of trusting a
+# forward/inverse round trip, because a round trip is satisfied by any self-consistent pair of
+# wrong signs -- that is exactly how the label and the arithmetic drifted apart in the first place.
+
+UPLIFT_MM_YR = -PEAK_MM_YR  # +180: the same bowl, upward
+
+
+def test_purely_vertical_uplift_is_positive_los_and_subsidence_negative(tmp_path):
+    """Uplift ⇒ positive `d_LOS`, subsidence ⇒ negative, end to end and through the reader.
+
+    `project_to_los` puts `u_up = cos(theta) = 0.777 > 0` in front of `v_up`, so a positive (upward)
+    vertical velocity projects to a positive `d_LOS`: the axis points from the target toward the
+    satellite. Reading that phase back with the reader's own default factor must return the same
+    positive number, and the chain must record the convention as `toward-sensor`. Building the same
+    bowl downward must be negative. A rename that flipped the arithmetic would fail both.
+    """
+    uplift = build_stack(tmp_path / "granules-uplift", up_peak=UPLIFT_MM_YR)
+    u = V.los_unit_vector(INCIDENCE_DEG, HEADING_DEG)
+    assert u[0] > 0.0  # u_up = cos(theta) > 0 is *why* uplift is positive LOS
+
+    # The LOS step in isolation: the projection, then the reader's default phase conversion.
+    los_rate = uplift.los_rate_mm_yr()
+    pixel = (REF_IY, REF_IX + 4)  # away from the reference pixel, where the field is not 0
+    assert los_rate[pixel] > 0.0
+    np.testing.assert_allclose(los_rate[pixel], u[0] * uplift.up[pixel], rtol=0.0, atol=1e-12)
+    phase = -4.0 * np.pi * (los_rate / 1000.0) / WAVELENGTH_M  # what the fixture writes
+    recovered = G.phase_to_los_displacement_mm(phase, WAVELENGTH_M)  # default sign=-1.0
+    np.testing.assert_allclose(recovered, los_rate, rtol=0.0, atol=1e-9)
+
+    # End to end: uplift is a positive velocity under the default, and the record says so.
+    rising = run(uplift, tmp_path / "rising")
+    assert rising.meta["stats"]["median_velocity_mm_yr"] > 0.0
+    convention = rising.meta["provenance"]["geometry_convention"]
+    assert convention["los_sign"] == "toward-sensor"
+    assert convention["los_sign_factor"] == -1.0
+    assert "uplift" in convention["los_sign_meaning"]
+
+    # ... and the same bowl built downward (the module fixture) is negative.
+    sinking = build_stack(tmp_path / "granules-sink")
+    subsiding = run(sinking, tmp_path / "subsiding")
+    assert sinking.los_rate_mm_yr()[pixel] < 0.0
+    assert subsiding.meta["stats"]["median_velocity_mm_yr"] < 0.0
+    assert "subsidence" in convention["los_sign_meaning"]
+
+
+def test_known_horizontal_motion_keeps_the_sign_the_unit_vector_declares(tmp_path):
+    """A +east motion at heading 192 projects toward the satellite (`u_east > 0`), so LOS > 0.
+
+    At theta = 39 deg, alpha = 192 deg the frozen unit vector is `u = [0.777, +0.616, +0.131]`, so
+    eastward motion is toward-sensor-positive. Supplying that field as the trusted horizontals must
+    recover **zero** vertical motion under the default label -- the LOS sign and `u` then agree
+    exactly. Under `away-from-sensor` the same trusted horizontals recover
+    `-2*u_east*v_east/u_up`, so the flip is a change of physical direction, not of formatting.
+    """
+    east_mm_yr = 40.0
+    stack = build_stack(tmp_path / "granules", up_peak=0.0, east_peak=east_mm_yr)
+    u = V.los_unit_vector(INCIDENCE_DEG, HEADING_DEG)
+    assert u[1] > 0.0  # -sin(theta)*cos(192 deg) > 0: +east has a component toward the sensor
+
+    los_rate = stack.los_rate_mm_yr()
+    np.testing.assert_allclose(los_rate, u[1] * stack.east, rtol=0.0, atol=1e-12)
+    pixel = (REF_IY, REF_IX + 4)
+    assert los_rate[pixel] > 0.0  # the declared toward-sensor sign of a +east motion
+
+    toward = run(stack, tmp_path / "toward", assumed_v_east_mm_yr=stack.east)
+    np.testing.assert_allclose(
+        toward.grid["velocity_mm_yr"].to_numpy(), np.zeros(len(toward.grid)), rtol=0.0, atol=0.05
+    )
+
+    away = run(
+        stack, tmp_path / "away", los_sign="away-from-sensor", assumed_v_east_mm_yr=stack.east
+    )
+    leak = -2.0 * u[1] / u[0]  # what the flipped LOS sign leaves behind, per mm/yr of east motion
+    expected = {cell: leak * value for cell, value in stack.cell_means(stack.east).items()}
+    assert set(velocities(away)) == set(expected)
+    for cell, velocity in velocities(away).items():
+        assert velocity == pytest.approx(expected[cell], abs=0.05)
+    assert max(abs(value) for value in velocities(away).values()) > 10.0  # not a rounding choice
+
+
+def test_the_two_sign_conventions_are_exact_negatives_and_restating_default_is_identical(tmp_path):
+    """`d_LOS = sign*lambda/(4*pi)*phi`: the labels differ only by the sign of every vertical value.
+
+    Also the O-08 no-drift guarantee: restating the default (``toward-sensor``, -1.0) is
+    **byte-identical** to omitting the flag, so the rename moved no number, only the label.
+    """
+    stack = build_stack(tmp_path / "granules")
+    default = run(stack, tmp_path / "default")
+    stated = run(stack, tmp_path / "stated", los_sign="toward-sensor")
+    away = run(stack, tmp_path / "away", los_sign="away-from-sensor")
+
+    # Restating the default names the same physical claim: identical frames, statistics and id.
+    pd.testing.assert_frame_equal(default.grid, stated.grid)
+    pd.testing.assert_frame_equal(default.timeseries, stated.timeseries)
+    assert default.meta["stats"] == stated.meta["stats"]
+    assert default.provenance_id == stated.provenance_id
+    assert stated.meta["provenance"]["geometry_convention"]["los_sign_factor"] == -1.0
+
+    # The flip negates every published vertical column, so no number is merely relabelled.
+    for column in ("velocity_mm_yr", "val_t1", "val_t2", "delta_change"):
+        np.testing.assert_allclose(
+            away.grid[column].to_numpy(),
+            -default.grid[column].to_numpy(),
+            rtol=0.0,
+            atol=1e-6,
+        )
+    assert away.meta["stats"]["median_velocity_mm_yr"] == pytest.approx(
+        -default.meta["stats"]["median_velocity_mm_yr"], abs=1e-6
+    )
+    assert away.provenance_id != default.provenance_id
+    assert P.LOS_SIGN_FACTORS == {"toward-sensor": -1.0, "away-from-sensor": 1.0}
+    assert P.DEFAULT_LOS_SIGN == "toward-sensor"
+    assert P.LOS_SIGN_FACTORS[P.DEFAULT_LOS_SIGN] == -1.0  # the historical factor, unchanged

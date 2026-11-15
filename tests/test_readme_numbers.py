@@ -775,7 +775,7 @@ def test_quoted_contract_fingerprint_prefix_matches() -> None:
             continue
 
         tokens: list[str] = []
-        # A quoted hash prefix, e.g. `049376b0…`, whether or not the row says "fingerprint".
+        # A quoted hash prefix, e.g. `ed92be80…`, whether or not the row says "fingerprint".
         for span in re.findall(r"`([^`]+)`", line):
             candidate = span.strip().rstrip("…").rstrip(".").strip()
             if re.fullmatch(r"[0-9a-fA-F]{8,64}", candidate) and re.search(r"[a-fA-F]", candidate):
@@ -1134,8 +1134,8 @@ ALLOWLIST: tuple[Allowance, ...] = (
         "wall-clock: the gate's observed ~15 s is hardware-dependent, not a measurement",
     ),
     Allowance(
-        re.compile(r"~?\s*2\.5\s*min\b", re.IGNORECASE),
-        "wall-clock: the full suite's runtime is hardware-dependent",
+        re.compile(r"~?\s*4\.5\s*min\b", re.IGNORECASE),
+        "wall-clock: the full suite's runtime is hardware-dependent (measured 2026-11-14 at ~838 tests)",
     ),
     Allowance(
         re.compile(r"~?\s*4\.5[- ]month\b", re.IGNORECASE),

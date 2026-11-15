@@ -26,7 +26,8 @@ El toggle de la UI arranca en `False`. Pedimos cambiar el default a `False` para
 La UI ya aplana `height` en modo flat como red de seguridad; alinear el default evita trabajo duplicado y sorpresas si otro consumidor llama el hook sin `extrude_3d`.
 
 **Impacto en contrato de datos:** ninguno (solo default de presentación del bridge).  
-**Aprobación:** Rol 1; Rol 2 verifica el mapa tras el cambio.
+**Aprobación:** Rol 1; Rol 2 verifica el mapa tras el cambio.  
+**Estado:** RESUELTO por Rol 1 (`pozo`) — default cambiado a `False` en `src/data/ui_bridge.py`.
 
 ## Rol 1 (`src/data/ui_bridge.py`) — serie filtrada y notas de KPI
 
@@ -46,7 +47,8 @@ En `get_series_kpis`, la nota de celdas críticas sigue citando `risk_level crit
 No pedimos un hook nuevo de procedencia: la UI ya lee `load_meta`.
 
 **Impacto en contrato de datos:** ninguno. Son campos aditivos del bridge.  
-**Aprobación:** Rol 1. Rol 2 cambia el caption cuando `scaled` llegue.
+**Aprobación:** Rol 1. Rol 2 cambia el caption cuando `scaled` llegue.  
+**Estado:** RESUELTO por Rol 1 (`pozo`) — `get_case_series` incluye `scaled` y `scale_factor`, y `get_series_kpis` entrega unidad `cells` y nota en inglés.
 
 ## Rol 1 (`src/data/ui_bridge.py`) — caveat del README cortado
 
@@ -63,7 +65,8 @@ El mismo parser corta los ítems numerados de `section_13`: hoy devuelve solo la
 La UI no puede reconstruirlo: solo recibe el string ya extraído y no lee el README.
 
 **Impacto en contrato de datos:** ninguno (solo el valor de un hook de presentación).  
-**Aprobación:** Rol 1. Rol 2 comprueba que el bloque "Known caveat" se lee completo.
+**Aprobación:** Rol 1. Rol 2 comprueba que el bloque "Known caveat" se lee completo.  
+**Estado:** RESUELTO por Rol 1 (`pozo`) — `load_documented_limits` devuelve el párrafo completo del README unido con espacios hasta la línea en blanco posterior.
 
 ## Rol 3 — texto y contexto que el cockpit no puede inventar
 

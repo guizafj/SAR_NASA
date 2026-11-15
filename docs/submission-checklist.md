@@ -8,8 +8,11 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 
 - [ ] **Repo public and importable** — `origin` `git@github.com:neoyuls/SAR_NASA.git`; visibility `[owner to fill]`. **Rol 1 pozo**.
 - [ ] **README** — `README.md` §1 what it is, §2 scope + cut lines, §11 done, §13 limitations. **Rol 3 yuls**.
-- [ ] **Demo (URL or local run)** — `[owner to fill]`: no `app.py`, `app/src/{ui,charts,state,events}`
-      empty, `streamlit` commented out in `requirements.txt`, `deploy/` + `serve/` empty. **Rol 2 fradiaz**.
+- [ ] **Demo (URL or local run)** — `[owner to fill]` for the URL. The local run is **verified**:
+      `./scripts/python.sh -m streamlit run app.py` serves the committed mock (`/_stcore/health` → 200,
+      `/` → 200) with no NASA credentials. What is still missing is the deployed URL — `deploy/Dockerfile`
+      is in the tree but this machine has no `docker` binary, so the image build is unverified.
+      **Rol 2 fradiaz** for the URL, **Rol 1 pozo** for the deploy.
       If the app is not runnable when recording, the backup plan is [docs/demo-fallback.md](demo-fallback.md).
 - [ ] **Video** 20 s problem / 90 s demo / 30 s architecture+impact — script `docs/video-script.md`;
       recording `[owner to fill]`. **Rol 3 yuls**.
@@ -19,20 +22,28 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 
 ## 2. Hard gates (on the commit you submit, not a dirty tree)
 
-- [ ] `./scripts/check_phase_a.sh` → `PHASE A/B: PASS`, exit 0 (self-check + 9 suites + file gate + handoff).
+- [ ] `./scripts/check_phase_a.sh` → `PHASE A/B: PASS`, exit 0 (self-check + the artefact suites + file gate + handoff).
 - [ ] `./scripts/preflight.sh` → `VERDICT: READY`, exit 0 (the seven hard gates in one run: contract
       self-check, pytest suite, artefact gate, phase A/B handoff, clone reproduction, figures
-      regenerate, demo numbers; ~5 min, `--fast` skips the two slow ones). It keeps going after a
-      failed gate and prints a per-gate table, so a red verdict names what to fix — fix it, do not
-      explain it. Our full run on this working tree printed
-      `VERDICT: READY — 7/7 executed gates passed in 282.09 s`, but also
-      `note: tree is dirty (49 changed paths)` and `note: committed artefacts differ from your tree
-      (clone 1.607 MB vs tree 1.641 MB)`: READY on a dirty tree is **not** the clean-tree
-      reproduction this section asks for.
-- [ ] `./scripts/python.sh -m pytest tests -q` → exit 0, no `F`/`E`. `pytest.ini` adds another `-q`, so
-      the count is suppressed; `./scripts/python.sh -m pytest tests` prints `629 passed, 1 skipped` at `01de89e`.
-- [ ] `./scripts/python.sh -m src.domain.contracts` → `contract fingerprint: 049376b0…678ce1e` = the hash in
-      the `docs/data-contract-v1.md` header.
+      regenerate, demo numbers; ~5 min). It keeps going after a failed gate and prints a per-gate
+      table, so a red verdict names what to fix — fix it, do not explain it.
+      **Gate 5 also runs the filesystem-only doc guards inside the cloned HEAD**
+      (`test_docs_commands`, `test_docs_links`, `test_readme_numbers`, `test_pipeline_readme_numbers`),
+      so a committed document that breaks a guard fails the gate and is named by file:line: a green
+      working tree is not enough, the *commit* must be green. `--fast` skips only the full pytest
+      suite; the clone gate runs in both modes.
+      A `note: tree is dirty` or `note: committed artefacts differ from your tree` line means READY
+      is **not** the clean-tree reproduction this section asks for.
+- [ ] `./scripts/python.sh -m pytest tests -q` → exit 0, no `F`/`E`. `pytest.ini` already adds `-q`,
+      so that command is effectively `-qq` and prints **no counts line at all** — judge by the exit
+      code, not by a summary. Drop the `-q` (`./scripts/python.sh -m pytest tests`) to see counts.
+      Do not quote a pass count here: it moves with every guard added.
+- [ ] `./scripts/python.sh -m src.domain.contracts` → `contract fingerprint: <the 64 hex it prints>` = the
+      hash in the `docs/data-contract-v1.md` header. The 1.1 bump moves it, so read the printed line
+      instead of a remembered one. The retired v1.0 digest was `049376b0…678ce1e` <!-- fingerprint-historical: retired v1.0 digest, kept so the bump is visible; it does not describe this tree -->.
+- [ ] **Contract 1.1 carries Rol 1 + Rol 2 sign-off.** The contract's own rule (all three roles agree
+      to a `SCHEMA_VERSION` bump) makes the 1.1 adoption on `feat/contract-1.1` a proposal until they
+      agree: a green artefact gate is not approval (O-05, 2026-11-15).
 - [ ] `git status --porcelain` empty, then clean-tree reproduction (no `.git`, `.venv`, `data/raw`):
       ```bash
       rm -rf /tmp/freeze && mkdir -p /tmp/freeze/repo
@@ -45,9 +56,9 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       docs/figures -name '*.png' ! -newer "$newest"` → no output for `velocity_shared_scale.png`,
       `timeseries_three_cities.png`, `coherence.png` (`./scripts/python.sh scripts/make_figures.py`).
 - [ ] `data/processed` < 15 MB: `./scripts/python.sh pipeline/validate_artifacts.py --processed
-      data/processed --strict-size-mb 15` → `total size: 1.641 MB / 15 MB`, `RESULT: PASS (exit 0)`.
+      data/processed --strict-size-mb 15` → `total size: 1.687 MB / 15 MB`, `RESULT: PASS (exit 0)`.
       (The size changes whenever the mock or the AOIs change — re-read it, never quote a remembered
-      figure. After the AOI refresh from `config/aoi/*.geojson` it is 1.641 MB, not the earlier 1.607.)
+      figure. With the two-year v1.1 window it is 1.687 MB, not the earlier 1.458.)
 - [ ] `provenance.source` matches `product` on every layer (symmetric rule, `check_phase_a.sh` step 4/4):
       `jq -r '.product + " | " + .provenance.source' data/processed/*/meta.json` → `mock` with a source
       saying mock, a real product with nothing mock. Editing the gate, not the artefact, is forbidden.
@@ -63,7 +74,7 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 
 ## 4. Cut order if short on time (README §2, in order)
 
-1. [ ] Change-event pins — no events artefact in contract v1.0; post-MVP item 2.
+1. [ ] Change-event pins — no events artefact in contract v1.1; post-MVP item 2.
 2. [ ] Third city — keep `mexico-city` primary + `malaga` control (`config/study_cases.yaml`, one line).
 3. [ ] Everything except Málaga via EGMS — EGMS is Málaga-only, **manual portal download**
        (`egms.land.copernicus.eu`), because Mexico City and Jakarta are non-EU and ineligible
@@ -98,5 +109,7 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - [ ] **LOS sign convention is unvalidated.** `docs/nisar-gunw-layout.md` is verified against
       documentation, "not yet against a real 2026 granule"; `meta.provenance.method` keeps the
       "NOT yet validated against GNSS" sentence until runbook §7 flips a real median negative.
-- [ ] **Season is not separable** over the 4.5-month window — do not publish `seasonal_amp_mm`
-      (`meta.limitations`, README §13).
+- [ ] **Season was not separable** over the old 4.5-month window, which is why `seasonal_amp_mm` was
+      withheld (`meta.limitations` pre-1.1). Contract **v1.1** publishes the fitted amplitude, ratio and
+      regime because the window now spans 2 years, where the same identifiability gates pass
+      (O-05, 2026-11-15) — say that, and do not present the fitted seasonal term as a measured cycle.

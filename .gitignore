@@ -1,54 +1,80 @@
-# Virtual environments
-.venv/
-venv/
-ENV/
+# ---------------------------------------------------------------- dotfile policy (this file)
+# Everything dot-prefixed is local state: .venv, .streamlit secrets, editor state, caches.
+.*
+# ...except the dotfiles a public repo is supposed to carry. Git cannot re-include a file whose
+# PARENT directory is excluded, so `.github/` and `.streamlit/` are re-included before their
+# contents. Without this, `git add -A` silently skips a CI workflow (the checklist claims CI runs
+# the contract tests) and the Streamlit theme config the app boots with.
+!.github/
+!.github/**
+!.gitattributes
+!.dockerignore
+!.python-version
+# `.streamlit/` IS re-included: the theme config the app boots with is public and carries no
+# secrets (tests/test_gitignore_policy.py checks its content for secret-shaped keys). Streamlit's
+# documented secrets location is `.streamlit/secrets.toml`, which stays ignored below — the order
+# is load-bearing, because the last matching rule wins.
+!.streamlit/
+!.streamlit/config.toml
+.streamlit/secrets.toml
 
-# Python bytecode & caches
+# `.gitignore` matches its own `.*` rule, which means it is untracked-but-ignored and `git add -A`
+# silently skips it: the published repo would ship with NO ignore rules and no protection for
+# `.env`, `data/raw/` or a stray `.h5`. Re-included explicitly, like the entries above.
+!.gitignore
+
+# ---------------------------------------------------------------- local/personal + tool caches
+.*.local
+.*cache
+*cache*
 __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
-.pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.tox/
-.nox/
-.hypothesis/
 .coverage
-coverage.xml
 htmlcov/
-*.prof
+venv/
+ENV/
 
-# Raw SAR / GIS downloads & staging — NEVER commit heavy granules (README §8, flujo §3.2)
+# ---------------------------------------------------------------- never version heavy downloads
+# (flujo §3.2); only the small data/processed summaries are committed, under the 15 MB budget.
 data/raw/
-data/staging/
 *.h5
 *.hdf5
 *.he5
+*.nc
+*.zip
+*.tif
+*.tiff
+*.part
 *.SAFE/
 
-# Keep contract artefacts in data/processed/ versioned (< 15 MB budget enforced in CI)
-!data/processed/
-!data/processed/**
+# staging sidecars (e.g. land_use.csv from enrich_context.py) live here, deliberately outside the
+# case directories so pipeline/validate_artifacts.py does not reject a case for holding a 5th file
+data/staging/
 
-# Secrets & local overrides
+# download backstops. Granules normally land only in data/raw/ (above), but a file moved or resumed
+# outside it must never be committed: one NISAR GUNW is ~GBs and cannot be undone from history.
+
+# ---------------------------------------------------------------- credentials / local overrides
+# Earthdata session cookies / credentials (dotfiles are already covered by `.*`, this is the
+# non-dot name people actually use)
+cookies.txt
 .env
 .env.*
-.streamlit/secrets.toml
+# ...and the documented template that must ship. This negation is AFTER `.env.*` on purpose: git
+# applies the last matching rule, so a blanket `.env.*` would otherwise hide the one dotfile the
+# README tells a new contributor to copy.
+!.env.example
 
-# Local tooling, reports and temporary exports
+# ---------------------------------------------------------------- OS / editor cruft
 skills-lock.json
-.agents/
-.copilot/
-.impeccable/
-.opencode/
-.coverage.*
 reports/
 tmp/
 *.log
 *.geojson.tmp
-
-# OS / editor cruft
 .DS_Store
 Thumbs.db
 *.swp

@@ -3,7 +3,7 @@
 
 This is the missing link between the reader (`pipeline/ingest/nisar_gunw.py`), the numeric core
 (`pipeline/science/transforms.py`) and the four frozen artefacts of
-`docs/data-contract-v1.md` v1.0. It runs the chain the mock has always pretended to run:
+`docs/data-contract-v1.md` v1.1. It runs the chain the mock has always pretended to run:
 
     granule.h5 -> phase (rad) -> d_LOS (mm) -> v_up (mm) -> cumulative stack -> H3 res 9
         -> harmonic trend per cell -> nisar_grid.parquet / timeseries.csv /
@@ -40,12 +40,15 @@ docs/nisar-gunw-layout.md §4, NOT yet validated against GNSS" must be **gone** 
 `meta.provenance.method` before any number is shown. The two convention flags change arithmetic as
 well as prose; the two prose flags only record what the operator checked.
 
-* `--los-sign away-from-sensor` (**the physical default**, and today's behaviour) keeps
-  `d_LOS = -lambda/(4*pi)*phi`: positive LOS means the target moved away from the sensor, so
-  subsidence — downward motion, up positive in this pipeline — is **negative**.
-  `--los-sign toward-sensor` uses `+lambda/(4*pi)*phi`, which flips every vertical sign: subsidence
-  then comes out **positive**. A 2π phase slip and a flipped sign both invert subsidence, so the
-  operator must be able to state which of the two they chose.
+* `--los-sign toward-sensor` (the default, and the arithmetic this module has always applied) keeps
+  `d_LOS = -lambda/(4*pi)*phi`: the LOS axis points from the target toward the satellite, so a
+  positive value means the ground moved toward the sensor — uplift (up is positive here) is positive
+  and subsidence negative, which is exactly what `project_to_los` computes for a pure vertical field
+  because `u_up = cos(theta) > 0`. `--los-sign away-from-sensor` uses `+lambda/(4*pi)*phi` and flips
+  every vertical sign. **O-08 was resolved by renaming, not by re-deriving:** the factor -1.0 this
+  module has always applied *is* toward-sensor-positive, so the label and the arithmetic now agree
+  and no published number moved. The synthetic round-trip tests still do not validate the physical
+  convention — only GNSS/levelling or a published rate does that (`--validated-against`).
 * `--heading-convention platform` (today's behaviour) passes the granule heading through verbatim as
   the azimuth `alpha` of the frozen unit vector
   `u = [cos(theta), -sin(theta)*cos(alpha), -sin(theta)*sin(alpha)]`.
@@ -166,22 +169,25 @@ ASSUMED_V_NORTH_MM = 0.0
 
 #: LOS sign conventions accepted by `--los-sign`, mapped to the `sign` factor of
 #: `nisar_gunw.phase_to_los_displacement_mm` (`d_LOS = sign*lambda/(4*pi)*phi`). The first entry is
-#: the physical default **and** the arithmetic this module has always applied: the LOS axis points
-#: from the target toward the satellite, so positive means "the ground moved away from the sensor"
-#: and subsidence (downward, up positive here) is negative.
-LOS_SIGN_FACTORS: dict[str, float] = {"away-from-sensor": -1.0, "toward-sensor": 1.0}
-DEFAULT_LOS_SIGN = "away-from-sensor"
+#: the default **and** the arithmetic this module has always applied (factor -1.0, unchanged by the
+#: O-08 rename): the frozen unit vector points from the target toward the satellite (`u_up =
+#: cos(theta) > 0`), so positive LOS is motion toward the sensor — uplift is positive, subsidence
+#: negative. The label was renamed to say that; the numbers did not move.
+LOS_SIGN_FACTORS: dict[str, float] = {"toward-sensor": -1.0, "away-from-sensor": 1.0}
+DEFAULT_LOS_SIGN = "toward-sensor"
 
 #: What each sign means in words, reused by the flag help and by `meta.provenance.method` so the
-#: operator and the artefact cannot drift apart.
+#: operator and the artefact cannot drift apart. Both sentences describe the same `u` that
+#: `transforms.project_to_los` builds; only the reported direction of the LOS axis differs.
 LOS_SIGN_MEANINGS: dict[str, str] = {
-    "away-from-sensor": (
-        "positive d_LOS means the ground moved away from the sensor along the line of sight, so "
-        "subsidence (downward motion; up is positive in this pipeline) is negative"
-    ),
     "toward-sensor": (
         "positive d_LOS means the ground moved toward the sensor along the line of sight, so "
-        "subsidence is positive and uplift negative — the opposite reading to away-from-sensor"
+        "uplift (upward motion; up is positive in this pipeline) is positive and subsidence "
+        "negative"
+    ),
+    "away-from-sensor": (
+        "positive d_LOS means the ground moved away from the sensor along the line of sight, so "
+        "subsidence is positive and uplift negative — the opposite reading to toward-sensor"
     ),
 }
 
@@ -236,11 +242,12 @@ LOOKS_CANDIDATES: tuple[Candidate, ...] = (
     (_RADAR, "numberOfLooks"),
 )
 
-#: NISAR granule names: NISAR_<L>_<PR>_<GUNW>_<track>_<frame>_<A|D>_… . Only the fields used for the
-#: safety checks are parsed; anything unparseable is reported, never guessed.
+#: NISAR granule names, verified against the 120-name ASF census:
+#: NISAR_<L>_<PR>_<GUNW>_<cycle>_<track>_<A|D>_<frame>_<secondary-cycle>_… . Only the fields used
+#: for the safety checks are parsed; anything unparseable is reported, never guessed.
 _GRANULE_RE = re.compile(
     r"^(?P<mission>[A-Z]+)_(?P<level>L\d[A-Z]?)_(?P<ptype>[A-Z0-9]+)_(?P<product>GUNW[A-Z0-9]*)_"
-    r"(?P<track>\d{3})_(?P<frame>\d{3})_(?P<direction>[AD])_"
+    r"(?P<repeat_cycle>\d{3})_(?P<track>\d{3})_(?P<direction>[AD])_(?P<frame>\d{3})_"
 )
 _DIRECTIONS = {"A": "ascending", "D": "descending"}
 _ISO_DATE_RE = re.compile(r"^(\d{4})-?(\d{2})-?(\d{2})")
@@ -361,7 +368,7 @@ class ConventionRecord:
 
     @property
     def phase_factor(self) -> str:
-        """`-lambda/(4*pi)*phi` for the default, `+lambda/(4*pi)*phi` for ``toward-sensor``."""
+        """`-lambda/(4*pi)*phi` for the default, `+lambda/(4*pi)*phi` for ``away-from-sensor``."""
         prefix = "-" if self.sign < 0.0 else "+"
         return f"{prefix}lambda/(4*pi)*phi"
 
@@ -481,8 +488,9 @@ def _resolve_convention(
                 tuple(LOS_SIGN_FACTORS),
                 "--los-sign",
                 what=(
-                    "away-from-sensor keeps d_LOS = -lambda/(4*pi)*phi (positive = motion away "
-                    "from the satellite, subsidence negative); toward-sensor flips it"
+                    "toward-sensor keeps d_LOS = -lambda/(4*pi)*phi (positive = motion toward "
+                    "the satellite, uplift positive and subsidence negative); away-from-sensor "
+                    "flips it"
                 ),
             )
         ),
@@ -710,7 +718,7 @@ def aoi_cells(case_id: str) -> frozenset[str]:
 
 
 def parse_granule_identity(granule: str | pathlib.Path) -> GranuleIdentity:
-    """Parse `NISAR_L2_PR_GUNW_<track>_<frame>_<A|D>_…` from a granule name.
+    """Parse `NISAR_L2_PR_GUNW_<cycle>_<track>_<A|D>_<frame>_…` from a granule name.
 
     Only the three fields the safety checks need are taken. A name that does not match the
     documented pattern yields ``None`` fields and a human-readable ``detail`` — the caller warns
@@ -727,8 +735,8 @@ def parse_granule_identity(granule: str | pathlib.Path) -> GranuleIdentity:
             frame=None,
             direction=None,
             detail=(
-                "filename does not match NISAR_<L>_<TYPE>_<track>_<frame>_<A|D>_…; track and "
-                "flight direction cannot be verified for this granule"
+                "filename does not match NISAR_<L>_<TYPE>_<cycle>_<track>_<A|D>_<frame>_…; "
+                "track, frame and flight direction cannot be verified for this granule"
             ),
         )
     code = match.group("direction")
@@ -990,7 +998,7 @@ def _dedupe(messages: Iterable[str]) -> list[str]:
 
 
 def _check_stack_identity(identities: Sequence[GranuleIdentity], warnings: list[str]) -> None:
-    """Refuse a stack that mixes tracks or flight directions; warn when identity is unparseable."""
+    """Refuse mixed tracks/directions; only warn on multiple frames or unparseable identity."""
     parsed = [identity for identity in identities if identity.track is not None]
     unparsed = [identity for identity in identities if identity.track is None]
     if unparsed:
@@ -1020,7 +1028,7 @@ def _check_stack_identity(identities: Sequence[GranuleIdentity], warnings: list[
     if len(frames) > 1:
         warnings.append(
             f"granules span frames {sorted(frames)} on one track; the pixel grid must still match "
-            "(it is checked explicitly) but the AOI may be clipped"
+            "(it is checked explicitly) but the AOI may be clipped by the footprint change"
         )
 
 
@@ -1073,17 +1081,25 @@ def _read_land_use(path: pathlib.Path | str | None, cell_ids: Sequence[str], war
 def _harmonic_order(n_epochs: int, span_years: float) -> int:
     """Number of annual harmonics the fit can honestly identify on this span (README §6).
 
-    Fewer epochs than columns would make `numpy.linalg.lstsq` return a minimum-norm solution and a
-    meaningless ``r2``; `transforms.harmonic_fit` refuses that itself. Here the *choice* is made
-    explicit: two harmonics only from a one-year span with ≥6 epochs, one harmonic from a six-month
-    span, and a pure linear model below that. A short stack must not pretend to resolve an annual
-    cycle (the docstring of `harmonic_fit` makes the same argument).
+    The rule itself lives in `transforms.harmonic_order`, next to the coverage/conditioning
+    constants it is derived from: two harmonics need a 1.5 yr span and ≥6 epochs, one needs 0.75 yr
+    and ≥4, and below that the model is linear. This wrapper only documents why the chain delegates:
+
+    * asking for a harmonic the span cannot identify would set ``seasonal_identifiable=False`` on
+      every fit, and ``contracts`` 1.1 makes ``seasonal_amp_mm`` a **required** column — there is no
+      honest value to put in it when the pipeline's own gate rejects the term. The order is
+      therefore capped at what the span supports instead of at a round number of harmonics.
+    * fewer epochs than columns would make `numpy.linalg.lstsq` return a minimum-norm solution and a
+      meaningless ``r2``; `harmonic_fit` refuses that itself, so the epoch floor is part of the rule.
+
+    ``0`` means no seasonal term is fitted. Since ``contracts`` 1.1 makes ``seasonal_amp_mm`` a
+    required column, the chain above publishes that state explicitly instead of skipping it: the
+    amplitude is ``0.0``, ``ratio_R`` is **null** (``|trend|/0`` is undefined, so a number there
+    would be fabricated), ``regime`` is ``"transitional"`` (no regime information), and
+    ``meta.limitations`` carries the reason. ``velocity_mm_yr`` is unaffected: the trend is
+    identified by the span, the seasonal split is not.
     """
-    if span_years >= 1.0 and n_epochs >= 6:
-        return 2
-    if span_years >= 0.5 and n_epochs >= 4:
-        return 1
-    return 0
+    return V.harmonic_order(n_epochs, span_years)
 
 
 def _residual_sigma(series: np.ndarray, fit: V.HarmonicFit) -> float:
@@ -1158,8 +1174,9 @@ def process_case(
     and ``--validated-against``; :func:`_resolve_convention` validates them and the module
     docstring explains the arithmetic. Both text inputs are repeatable (runbook §7 records every
     check); with all four left as ``None``/empty the run behaves exactly
-    as before: ``d_LOS = -lambda/(4*pi)*phi``, the platform heading passed through verbatim, and the
-    "NOT yet validated against GNSS" hedge kept in ``meta.provenance.method``.
+    as before: ``d_LOS = -lambda/(4*pi)*phi`` (the toward-sensor-positive convention, labelled
+    ``toward-sensor``), the platform heading passed through verbatim, and the "NOT yet validated
+    against GNSS" hedge kept in ``meta.provenance.method``.
 
     **These flags are inputs, so they reach the provenance id.** A run with a different
     ``los_sign``/``heading_convention`` is a different physical claim about the same bytes and gets
@@ -1575,13 +1592,31 @@ def _process_case_rows(
     coherence = coherence[inside_indices]
 
     harmonics = _harmonic_order(len(epochs), float(t_years[-1]))
-    dropped = {"incomplete_endpoints": 0, "too_few_epochs": 0, "rank_deficient": 0, "no_coherence": 0}
+    if harmonics == 0:
+        # Contract 1.1 makes the seasonal columns required, but a span below the annual coverage
+        # gate fits NO harmonic (`transforms.harmonic_order`). Then the honest publication is
+        # seasonal_amp_mm = 0.0 (the model has no seasonal term), ratio_R = null (|trend|/0 is
+        # undefined, so any number would be fabricated) and regime = "transitional" (no regime
+        # information) — plus a limitation naming the reason. The velocity itself stays publishable:
+        # it is identified by the span, not by the harmonic.
+        warnings.append(
+            f"no annual harmonic fitted: the stack spans {float(t_years[-1]):.3f} yr over "
+            f"{len(epochs)} epochs, below the {V.MIN_SEASONAL_COVERAGE_PER_HARMONIC:.2f} yr the "
+            "annual term needs. seasonal_amp_mm is published as 0.0 (not fitted), ratio_R as null "
+            "(undefined) and regime as 'transitional' (no regime information); velocity_mm_yr is "
+            "unaffected. This is stated in meta.limitations."
+        )
+    dropped = {
+        "incomplete_endpoints": 0,
+        "too_few_epochs": 0,
+        "rank_deficient": 0,
+        "no_coherence": 0,
+        "unidentifiable_seasonal": 0,
+    }
     kept: list[int] = []
     velocities: list[float] = []
-    seasonal_amplitudes: list[float] = []
-    ratios: list[float] = []
+    amplitudes: list[float] = []
     regimes: list[str] = []
-    seasonal_components: list[np.ndarray] = []
     sigmas: list[float] = []
     for index, cell in enumerate(cell_ids):
         series = values[index]
@@ -1599,23 +1634,27 @@ def _process_case_rows(
         except ValueError:
             dropped["rank_deficient"] += 1
             continue
+        if not fit.seasonal_identifiable:
+            # A fit whose design is degenerate (condition > MAX_DESIGN_CONDITION on this cell's own
+            # date subset) has no publishable amplitude: the cell is ABSENT (the same nodata
+            # discipline as water and mask==127) instead of carrying a fitted-but-unmeasurable
+            # number. `_harmonic_order` already caps the order at what the stack supports, so this
+            # only fires on genuinely irregular sampling.
+            dropped["unidentifiable_seasonal"] += 1
+            continue
         kept.append(index)
         velocities.append(float(fit.trend_mm_yr))
-        seasonal_amplitudes.append(float(fit.seasonal_amp_mm))
-        ratios.append(
-            float(fit.regime_ratio)
-            if np.isfinite(fit.regime_ratio)
-            else 1.0e12
-        )
-        regimes.append(fit.regime)
-        seasonal_components.append(
-            sum(
-                fit.coefficients[2 + 2 * harmonic] * np.cos(2.0 * np.pi * (harmonic + 1) * t_years)
-                + fit.coefficients[3 + 2 * harmonic] * np.sin(2.0 * np.pi * (harmonic + 1) * t_years)
-                for harmonic in range(harmonics)
-            )
-        )
+        amplitudes.append(float(fit.seasonal_amp_mm))
+        regimes.append(str(fit.regime))
         sigmas.append(_residual_sigma(series, fit))
+
+    if dropped["unidentifiable_seasonal"]:
+        warnings.append(
+            f"{dropped['unidentifiable_seasonal']} H3 cell(s) dropped: the seasonal term is not "
+            "identifiable over their own date subset, and contract 1.1 requires a publishable "
+            "seasonal_amp_mm. They are absent from the grid (nodata, never a fitted-but-unmeasurable "
+            "number); add epochs or check the mask if that count is large."
+        )
 
     if not kept:
         raise ProcessCaseError(
@@ -1628,9 +1667,16 @@ def _process_case_rows(
     kept_cells = [cell_ids[index] for index in kept]
     kept_coherence = np.clip(coherence[kept], 0.0, 1.0)
     velocity = np.asarray(velocities, dtype=float)
-    seasonal_amp = np.asarray(seasonal_amplitudes, dtype=float)
-    ratio_r = np.asarray(ratios, dtype=float)
-    seasonal = np.asarray(seasonal_components, dtype=float)
+    seasonal_amp = np.asarray(amplitudes, dtype=float)
+    # ratio_R is undefined where nothing was fitted (amplitude exactly 0): publish null there, never
+    # an infinite or sentinel number. Everywhere else it is |trend|/amplitude.
+    ratio_R = np.divide(
+        np.abs(velocity),
+        seasonal_amp,
+        out=np.full(velocity.shape, np.nan, dtype=float),
+        where=seasonal_amp > 0.0,
+    )
+    regime = np.asarray(regimes, dtype=object)
     land_use = _read_land_use(land_use_csv, kept_cells, warnings)
 
     centroids = [h3.cell_to_latlng(cell) for cell in kept_cells]
@@ -1653,8 +1699,8 @@ def _process_case_rows(
         delta,
         velocity,
         seasonal_amp,
-        ratio_r,
-        regimes,
+        ratio_R,
+        regime,
         kept_coherence,
         land_use,
         risk,
@@ -1665,21 +1711,30 @@ def _process_case_rows(
 
     # ---- 7. timeseries (AOI aggregate) ------------------------------------------------------
     aoi_series = kept_values.mean(axis=0)
-    aoi_seasonal = seasonal.mean(axis=0)
     if abs(float(aoi_series[0])) > 1e-12:  # guaranteed by the referencing invariant
         raise ProcessCaseError(
             f"internal invariant violated: the AOI series starts at {float(aoi_series[0])!r} mm, "
             "not 0 (the series must be referenced to the first epoch)"
         )
     quality = _quality_from_coherence(float(kept_coherence.mean()))
+    # The AOI trend/seasonal split is its own fit of the published aggregate series (not the mean of
+    # the per-cell fits): cells can carry different date subsets, so the mean of the fits is not the
+    # fit of the mean. Same order, same gate, so the row is reproducible from `value` alone.
+    aoi_fit = V.harmonic_fit(t_years, aoi_series, n_harmonics=harmonics)
+    if not aoi_fit.seasonal_identifiable:
+        raise ProcessCaseError(
+            "the AOI aggregate series cannot publish a seasonal amplitude over this stack: "
+            f"{aoi_fit.warnings}. Contract 1.1 requires trend_mm_yr/seasonal_mm on the series, so "
+            "a stack that cannot carry them is not publishable."
+        )
     timeseries = pd.DataFrame(
         {
             "case_id": np.full(len(epochs), cfg.case_id, dtype=object),
             "cell_id": np.full(len(epochs), "aoi", dtype=object),
             "date": np.array(epochs, dtype=object),
             "value": aoi_series,
-            "trend_mm_yr": np.full(len(epochs), float(np.median(velocity))),
-            "seasonal_mm": aoi_seasonal,
+            "trend_mm_yr": np.full(len(epochs), aoi_fit.trend_mm_yr, dtype="float64"),
+            "seasonal_mm": V.seasonal_component_mm(t_years, aoi_fit).astype("float64"),
             "unit": np.full(len(epochs), C.UNIT, dtype=object),
             "sensor": np.full(len(epochs), SENSOR, dtype=object),
             "product": np.full(len(epochs), PRODUCT, dtype=object),
@@ -1712,14 +1767,15 @@ def _process_case_rows(
     stats = _stats(
         velocity=velocity,
         seasonal_amp=seasonal_amp,
-        ratio_r=ratio_r,
-        regimes=regimes,
+        ratio_R=ratio_R,
+        regime=regime,
         cells=kept_cells,
         n_dates=len(epochs),
         dropped=dropped,
         coverage=coverage,
         span_years=span_years,
         n_epochs=len(epochs),
+        harmonics=harmonics,
         sigma_median=sigma_median,
         case=cfg,
     )
@@ -1772,8 +1828,8 @@ def _ordered_grid(
     delta: np.ndarray,
     velocity: np.ndarray,
     seasonal_amp: np.ndarray,
-    ratio_r: np.ndarray,
-    regimes: Sequence[str],
+    ratio_R: np.ndarray,
+    regime: Sequence[str],
     coherence: np.ndarray,
     land_use: Sequence[str],
     risk: Sequence[str],
@@ -1781,7 +1837,13 @@ def _ordered_grid(
     acquisition_date: str,
     provenance: str,
 ) -> pd.DataFrame:
-    """The contract's column order, exactly (`contracts.GRID_FIELDS`)."""
+    """The contract's column order, exactly (`contracts.GRID_FIELDS`).
+
+    ``seasonal_amp``/``ratio_R``/``regime`` are the per-cell *outputs of the harmonic fit* (v1.1):
+    the amplitude of the first harmonic, ``|trend|/amplitude`` and ``transforms.classify_regime`` on
+    that pair. They are never filled from a config value, which is why a 1.0 artefact cannot be
+    relabelled into a 1.1 one.
+    """
     columns = {
         "cell_id": np.array(cells, dtype=object),
         "lat": lats.astype("float64"),
@@ -1791,8 +1853,8 @@ def _ordered_grid(
         "delta_change": delta.astype("float64"),
         "velocity_mm_yr": velocity.astype("float64"),
         "seasonal_amp_mm": seasonal_amp.astype("float64"),
-        "ratio_R": ratio_r.astype("float64"),
-        "regime": np.array(regimes, dtype=object),
+        "ratio_R": ratio_R.astype("float64"),
+        "regime": np.array(regime, dtype=object),
         "coherence": coherence.astype("float64"),
         "land_use": np.array(land_use, dtype=object),
         "risk_level": np.array(risk, dtype=object),
@@ -1822,40 +1884,58 @@ def _stats(
     *,
     velocity: np.ndarray,
     seasonal_amp: np.ndarray,
-    ratio_r: np.ndarray,
-    regimes: Sequence[str],
+    ratio_R: np.ndarray,
+    regime: Sequence[str],
     cells: Sequence[str],
     n_dates: int,
     dropped: Mapping[str, int],
     coverage: Coverage,
     span_years: float,
     n_epochs: int,
+    harmonics: int,
     sigma_median: float,
     case: CaseConfig,
 ) -> dict[str, Any]:
-    """`meta.stats`: contract keys from `velocity_metrics` + the diagnostics a judge will ask for."""
+    """`meta.stats`: contract keys from `velocity_metrics` + the diagnostics a judge will ask for.
+
+    The three seasonal aggregates are the *medians/mode of the per-cell fitted columns*, computed
+    exactly the way the app recomputes them (`src/data/validation.py` re-derives them from the
+    parquet), so meta.json and the grid cannot disagree. `dominant_regime` breaks ties by label so
+    two equally frequent regimes cannot swap between runs.
+    """
     areas = np.array([h3.cell_area(cell, unit="m^2") for cell in cells], dtype=float)
     try:
         metrics = V.velocity_metrics(velocity, areas)
     except ValueError as exc:
         raise ProcessCaseError(f"cannot compute velocity statistics: {exc}") from exc
+    regime_counts: dict[str, int] = {}
+    for label in regime:
+        regime_counts[str(label)] = regime_counts.get(str(label), 0) + 1
+    dominant_regime = sorted(regime_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+    # The median of an undefined ratio is null, not 0.0 and not NaN (which is not valid JSON):
+    # `ratio_R` is null exactly where no harmonic was fitted, so this aggregate follows the same
+    # rule and `null_policy`/`limitations` carry the explanation.
+    finite_ratio = ratio_R[np.isfinite(np.asarray(ratio_R, dtype=float))]
+    median_ratio_R = float(np.median(finite_ratio)) if finite_ratio.size else None
     stats: dict[str, Any] = {
         "n_cells": int(len(cells)),
         "n_dates": int(n_dates),
         **{key: _round(value) for key, value in metrics.items()},
-        "median_seasonal_amp_mm": _round(float(np.median(seasonal_amp))),
-        "median_ratio_R": _round(float(np.median(ratio_r))),
-        "dominant_regime": str(pd.Series(regimes).value_counts().index[0]),
+        "median_seasonal_amp_mm": _round(float(np.median(np.asarray(seasonal_amp, dtype=float)))),
+        "median_ratio_R": None if median_ratio_R is None else _round(median_ratio_R),
+        "dominant_regime": str(dominant_regime),
+        "n_harmonics": int(harmonics),
         "n_epochs_dropped": dict(dropped),
         "coverage_fraction": round(float(coverage.fraction), 6),
         "aoi_cells": int(coverage.aoi_cells),
         "covered_aoi_cells": int(coverage.covered_in_aoi),
         "span_years": round(float(span_years), 6),
+        "annual_coverage": round(float(span_years) / V.SEASONAL_PERIOD_YEARS, 6),
         "per_cell_series": {
             "enabled": False,
             "criterion": (
                 "aoi aggregate only: per-cell rows are optional (contract §4) and the 15 MB budget "
-                "is spent on the grid instead of 12 dates x n_cells of CSV"
+                "is spent on the grid instead of n_dates x n_cells of CSV"
             ),
         },
     }
@@ -1902,7 +1982,7 @@ def _provenance_id(
     numbers, so the same granules processed under two conventions are two different physical claims
     and must not share an id: :meth:`ConventionRecord.id_token` is appended to the digested string
     when (and only when) the effective convention differs from the default one. A differently
-    stated *default* (``--los-sign away-from-sensor``) is the same claim and keeps the same id, and
+    stated *default* (``--los-sign toward-sensor``) is the same claim and keeps the same id, and
     so do the prose flags (``--method-note``, ``--validated-against``), because they name no number.
     ``horizontals_token`` behaves the same way for the trusted horizontal assumptions: empty when
     they are exactly zero (the historical run), a digest of the grids otherwise.
@@ -2019,7 +2099,11 @@ def _method_text(
         f"(6) H3 resolution {h3_resolution} mean per epoch (science.h3_aggregate, mean; all-NaN "
         "cells are absent); "
         f"(7) per cell science.harmonic_fit over {n_epochs} epochs with {harmonics} annual "
-        "harmonic(s) gives velocity_mm_yr; val_t1/val_t2 are the referenced cumulative values at "
+        "harmonic(s) gives velocity_mm_yr (the secular trend), seasonal_amp_mm (the first-harmonic "
+        "amplitude), ratio_R = |velocity_mm_yr| / seasonal_amp_mm and regime "
+        "(science.classify_regime on that pair); the timeseries carries the AOI series' own fit as "
+        "trend_mm_yr / seasonal_mm, so value - trend*t - seasonal is constant (the intercept); "
+        "val_t1/val_t2 are the referenced cumulative values at "
         "the first/last epoch and delta_change = val_t2 - val_t1; "
         "(8) meta.stats from science.velocity_metrics. "
         "The ionospheric phase screen delivered by GUNW is included but NOT applied, and external "
@@ -2113,6 +2197,29 @@ def _meta(
     wavelength_summary = "; ".join(sorted(set(wavelength_notes)))
     geometry_summary = "; ".join(sorted(set(geometry_notes)))
     limitations = list(cfg.limitations)
+    span_days = 0
+    if len(epochs) >= 2:
+        span_days = (
+            dt.date.fromisoformat(str(epochs[-1])) - dt.date.fromisoformat(str(epochs[0]))
+        ).days
+    cycles = float(span_days) / V.DAYS_PER_YEAR
+    if harmonics == 0:
+        limitations.append(
+            f"Seasonal term NOT fitted: this stack spans {span_days} d over {len(epochs)} epochs "
+            f"({cycles:.2f} annual cycles), below the "
+            f"{V.MIN_SEASONAL_COVERAGE_PER_HARMONIC:.2f} yr the annual harmonic needs, so "
+            "harmonic_order returned 0. seasonal_amp_mm is therefore 0.0 (a statement about the "
+            "model, not a measurement of no seasonality), ratio_R is null (|trend|/0 is undefined) "
+            "and regime is 'transitional' (no regime information). velocity_mm_yr is unaffected."
+        )
+    else:
+        limitations.append(
+            f"Seasonal amplitude is FITTED, not typed: {harmonics} annual harmonic(s) over "
+            f"{len(epochs)} epochs spanning {span_days} d = {cycles:.2f} annual cycles (gate "
+            f"{V.MIN_SEASONAL_COVERAGE_PER_HARMONIC * harmonics:.2f} cycles for harmonic {harmonics}, "
+            f"design condition <= {V.MAX_DESIGN_CONDITION:g}). It is publishable over this span but "
+            "still needs a GNSS or published-cycle check before it is quoted as a physical amplitude."
+        )
     limitations.extend(
         [
             "LOS->vertical assumes v_north = 0 mm; the omitted horizontal motion biases the "
@@ -2168,7 +2275,7 @@ def _meta(
         "reference": (
             "NISAR L2 GUNW product definition: NISAR Data User Guide, Geocoded Unwrapped "
             "Interferogram (nisar-docs.asf.alaska.edu/gunw); dataset map and the phase->mm scale in "
-            f"{DOC_REFERENCE} §2/§4; contract docs/data-contract-v1.md v1.0"
+            f"{DOC_REFERENCE} §2/§4; contract docs/data-contract-v1.md v1.1"
         ),
         "license": LICENSE,
         "provenance_id": provenance_id,
@@ -2211,7 +2318,11 @@ def _meta(
             "Cells without data (mask==127, non-finite phase/coherence, coherence below "
             f"{PROFILE.coherence_min}, or fewer than {V.MIN_FIT_POINTS} fitted epochs) are absent "
             "from nisar_grid.parquet, and a missing date is a missing timeseries row: nodata is "
-            "never written as 0. In a null-result city, 0 mm is a legitimate measurement."
+            "never written as 0. So is a cell whose seasonal design is degenerate (condition above "
+            f"{V.MAX_DESIGN_CONDITION:g}). One column is nullable where it is *undefined* rather "
+            "than missing: ratio_R is null exactly when seasonal_amp_mm == 0 (no harmonic fitted), "
+            "because |trend|/0 has no value; meta.stats.median_ratio_R is JSON null for the same "
+            "reason. In a null-result city, 0 mm is a legitimate measurement."
         ),
     }
 
@@ -2401,17 +2512,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--los-sign",
         choices=list(LOS_SIGN_FACTORS),
         default=None,
-        metavar="{away-from-sensor,toward-sensor}",
+        metavar="{toward-sensor,away-from-sensor}",
         help=(
             "LOS sign convention passed to phase_to_los_displacement_mm(sign=...). "
-            "away-from-sensor (the physical default, and what every earlier run used) is "
-            "d_LOS = -lambda/(4*pi)*phi: positive means the ground moved AWAY from the sensor along "
-            "the line of sight, so subsidence is negative (up is positive here). toward-sensor uses "
-            "+lambda/(4*pi)*phi: positive means motion TOWARD the sensor, so subsidence becomes "
+            "toward-sensor (the default, and the arithmetic every earlier run applied) is "
+            "d_LOS = -lambda/(4*pi)*phi: positive means the ground moved TOWARD the sensor along "
+            "the line of sight, which is uplift here (up is positive), so subsidence is negative. "
+            "That agrees with project_to_los, whose u_up = cos(theta) > 0. away-from-sensor uses "
+            "+lambda/(4*pi)*phi: positive means motion AWAY from the sensor, so subsidence becomes "
             "positive and uplift negative. A 2*pi phase slip and a flipped sign both invert "
             "subsidence, so state which you chose; the choice is written to provenance.method and "
-            "provenance.geometry_convention.los_sign. Omitting the flag keeps today's text, including "
-            "the 'NOT yet validated against GNSS' hedge"
+            "provenance.geometry_convention.los_sign. Omitting the flag keeps today's numbers and "
+            "text, including the 'NOT yet validated against GNSS' hedge"
         ),
     )
     parser.add_argument(

@@ -7,6 +7,7 @@ Re-exported from `src.data.loaders` so `app.py._loaders()` automatically switche
 from __future__ import annotations
 
 import pathlib
+import re
 from typing import Any, Mapping
 
 import numpy as np
@@ -139,7 +140,7 @@ def get_map_layer_df(
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     crit = _dict_to_criteria(filters)
     mode = _resolve_scale_mode((filters or {}).get("scale_mode"))
-    extrude = bool((filters or {}).get("extrude_3d", True))
+    extrude = bool((filters or {}).get("extrude_3d", False))
 
     payload = build_map_payload(
         bundle,
@@ -169,11 +170,12 @@ def get_map_layer_df(
     df = payload.grid_frame.copy()
     df["color"] = df["fill_color"]
     df["height"] = df["elevation_m"]
-    # Thesis metrics for tooltip/inspector parity; additive, never required by the contract.
+    # v1.1 thesis metrics for tooltip/inspector parity; additive if absent on legacy fixtures.
     for extra in ("regime", "ratio_R", "seasonal_amp_mm"):
         if extra in bundle.grid.columns:
-            lookup = bundle.grid.set_index("cell_id")[extra]
-            df[extra] = df["cell_id"].map(lookup)
+            if extra not in df.columns:
+                lookup = bundle.grid.set_index("cell_id")[extra]
+                df[extra] = df["cell_id"].map(lookup)
             columns.append(extra)
     # Round float columns for clean PyDeck tooltips (no 15-digit IEEE-754 noise on hover).
     for col, decimals in (
@@ -298,6 +300,18 @@ def get_map_kpis(
             "unit": None,
             "provenance_id": prov_id,
         },
+        {
+            # v1.1: fitted, not typed — `seasonal_amp_mm` comes from the harmonic fit of each
+            # cell's own series, so the card and the parquet can never disagree.
+            "label": "Median seasonal amplitude",
+            "value": (
+                round(kpis.median_seasonal_amp_mm, 2)
+                if kpis.median_seasonal_amp_mm is not None
+                else None
+            ),
+            "unit": C.UNIT,
+            "provenance_id": prov_id,
+        },
     ]
 
 
@@ -311,6 +325,8 @@ def _series_rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
             "cell_id": str(r.cell_id),
             "date": str(r.date),
             "value": float(r.value),
+            "trend_mm_yr": float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None,
+            "seasonal_mm": float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None,
             "unit": str(r.unit),
             "sensor": str(r.sensor),
             "product": str(r.product),
@@ -342,7 +358,17 @@ def get_cell_detail(
         "val_t2": float(row["val_t2"]),
         "delta_change": float(row["delta_change"]),
         "velocity_mm_yr": float(row["velocity_mm_yr"]),
-        "velocity_unit": str(row["velocity_unit"]),
+        # v1.1: the fitted seasonal pair. Present only when the artefact carries it, so a v1.0
+        # tree still renders instead of raising a KeyError in the detail panel. A not-fitted cell
+        # publishes amplitude 0.0 with a *null* ratio (|trend|/0 is undefined), which is reported
+        # as None rather than as NaN — NaN is not valid JSON and would poison a JSON consumer.
+        "seasonal_amp_mm": float(row["seasonal_amp_mm"]) if "seasonal_amp_mm" in row else None,
+        "ratio_R": (
+            float(row["ratio_R"])
+            if "ratio_R" in row and pd.notna(row["ratio_R"])
+            else None
+        ),
+        "regime": str(row["regime"]) if "regime" in row else None,
         "coherence": float(row["coherence"]),
         "land_use": str(row["land_use"]),
         "risk_level": str(row["risk_level"]),
@@ -358,11 +384,6 @@ def get_cell_detail(
             else None
         ),
     }
-    # v1.1 thesis metrics: optional on older artefacts, so never fail the detail on absence.
-    for optional in ("seasonal_amp_mm", "ratio_R", "regime"):
-        if optional in bundle.grid.columns and pd.notna(row[optional]):
-            value = row[optional]
-            detail[optional] = float(value) if optional != "regime" else str(value)
     cell_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == str(cell_id)]
     series = _series_rows(cell_ts)
     if series:
@@ -435,7 +456,7 @@ def get_series_kpis(
             "value": kpis.critical_cells_count,
             "unit": "cells",
             "provenance_id": prov_id,
-            "note": "risk_level critico",
+            "note": "cells in contract band critico (|velocity| >= 25 mm/year)",
         },
         {
             "label": "Coherent coverage",
@@ -443,6 +464,21 @@ def get_series_kpis(
             "unit": "%",
             "provenance_id": prov_id,
             "note": f"coherence >= {coh_floor:g}",
+        },
+        {
+            "label": "Median seasonal amplitude",
+            "value": (
+                round(kpis.median_seasonal_amp_mm, 2)
+                if kpis.median_seasonal_amp_mm is not None
+                else None
+            ),
+            "unit": C.UNIT,
+            "provenance_id": prov_id,
+            "note": (
+                f"harmonic fit, R = |trend|/A; dominant regime {kpis.dominant_regime}"
+                if kpis.dominant_regime
+                else "harmonic fit, not a typed constant"
+            ),
         },
     ]
 
@@ -453,27 +489,25 @@ def get_case_series(
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> list[dict[str, Any]]:
-    """Return the published `cell_id == 'aoi'` series (`mm`) scaled to the active filter subset."""
+    """Return the published `cell_id == 'aoi'` series (`mm`) for Tab 2's line chart.
+
+    v1.1 adds the fitted ``trend_mm_yr`` / ``seasonal_mm`` columns of each row (``None`` when a
+    v1.0 tree is on disk), so the chart can draw the decomposition without re-fitting anything.
+    Includes ``scaled`` / ``scale_factor`` additive metadata requested in ``docs/requests.md``.
+    """
+    del filters  # AOI series is a case-level artefact; per-cell series are optional (contract §4)
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     aoi = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == "aoi"]
-    if aoi.empty:
-        return []
-    scale_factor = 1.0
-    if filters is not None:
-        view = apply_filters(bundle, _dict_to_criteria(filters))
-        if view.grid.empty:
-            return []
-        if len(view.grid) < len(bundle.grid) and not bundle.grid.empty:
-            base_med = float(bundle.grid["delta_change"].median())
-            sub_med = float(view.grid["delta_change"].median())
-            if abs(base_med) > 1e-9:
-                scale_factor = sub_med / base_med
     return [
         {
             "date": str(r.date),
-            "value": round(float(r.value) * scale_factor, 2),
+            "value": float(r.value),
+            "trend_mm_yr": float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None,
+            "seasonal_mm": float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None,
             "unit": str(r.unit),
             "provenance_id": str(r.provenance_id),
+            "scaled": False,
+            "scale_factor": 1.0,
         }
         for r in aoi.itertuples(index=False)
     ]
@@ -579,10 +613,20 @@ def load_documented_limits(
         return {"section_8_caveat": None, "section_13": []}
     text = path.read_text(encoding="utf-8")
     caveat: str | None = None
-    for line in text.splitlines():
-        if "validate against GNSS" in line:
-            caveat = " ".join(line.strip("* ").split())
+    paragraphs = [
+        " ".join(line.strip() for line in block.splitlines() if line.strip())
+        for block in re.split(r"\n\s*\n", text)
+    ]
+    gnss_re = re.compile(r"validat\w*\s+(?:the\s+convention\s+)?against\s+GNSS", re.IGNORECASE)
+    for para in paragraphs:
+        if gnss_re.search(para) and "Sign and heading conventions" in para:
+            caveat = para
             break
+    if caveat is None:
+        for para in paragraphs:
+            if gnss_re.search(para):
+                caveat = para
+                break
 
     start = text.find("## 13.")
     end = text.find("## 14.")

@@ -90,6 +90,54 @@ def test_incidence_outside_the_valid_domain_is_rejected() -> None:
         T.los_to_vertical(1.0, INCIDENCE, float("inf"))
 
 
+# -- O-08: the projection's sign is a physical statement, not a bookkeeping choice ---------------
+
+
+def test_uplift_projects_to_positive_los_and_subsidence_to_negative() -> None:
+    """O-08's close criterion at the arithmetic layer: uplift ⇒ positive LOS.
+
+    `u_up = cos(theta) = 0.777 > 0`, so the frozen projection is **toward-sensor-positive**: a pure
+    upward motion (up is positive in this project) gives a positive `d_LOS`, and subsidence
+    (downward) a negative one. `pipeline/process_case.py` labels the phase conversion that
+    reproduces this `--los-sign toward-sensor`, and that label is the default. This is what the
+    previous `away-from-sensor` label contradicted.
+    """
+    u_up = float(T.los_unit_vector(INCIDENCE, HEADING)[0])
+    assert u_up == pytest.approx(np.cos(np.radians(INCIDENCE)))
+    vertical = np.array([+10.0, +2.5, -10.0])
+    np.testing.assert_allclose(
+        T.project_to_los(vertical, INCIDENCE, HEADING), vertical * u_up, rtol=0.0, atol=0.0
+    )
+    assert T.project_to_los(+10.0, INCIDENCE, HEADING) > 0.0  # uplift is positive LOS
+    assert T.project_to_los(-10.0, INCIDENCE, HEADING) < 0.0  # subsidence is negative
+    assert T.project_to_los(0.0, INCIDENCE, HEADING) == 0.0
+
+
+def test_known_horizontal_motion_keeps_the_sign_the_unit_vector_declares() -> None:
+    """A known horizontal motion must project with the sign of its own unit-vector component.
+
+    At theta = 39 deg, alpha = 168 deg: `u = [0.777, +0.616, -0.131]`, so pure +east points partly
+    *toward* the satellite (positive LOS) and pure +north partly *away* (negative LOS). Asserting
+    both directions matters: "horizontals move LOS" alone would pass under either sign convention.
+    """
+    u = T.los_unit_vector(INCIDENCE, HEADING)
+    east_los = float(T.project_to_los(0.0, INCIDENCE, HEADING, v_east=10.0))
+    north_los = float(T.project_to_los(0.0, INCIDENCE, HEADING, v_north=10.0))
+    assert u[1] > 0.0 > u[2]  # the declared signs at this azimuth
+    assert east_los == pytest.approx(10.0 * u[1], abs=1e-12)
+    assert north_los == pytest.approx(10.0 * u[2], abs=1e-12)
+    assert east_los > 0.0 > north_los
+    # Motion straight along +u is the extreme case: the ground moves exactly toward the sensor.
+    along = 10.0 * np.asarray(u)
+    assert float(
+        T.project_to_los(along[0], INCIDENCE, HEADING, v_east=along[1], v_north=along[2])
+    ) == pytest.approx(10.0, abs=1e-12)
+    # ... and the same motion with every component negated (along -u) is away from it.
+    assert float(
+        T.project_to_los(-along[0], INCIDENCE, HEADING, v_east=-along[1], v_north=-along[2])
+    ) == pytest.approx(-10.0, abs=1e-12)
+
+
 # ---------------------------------------------------------------------------------------------
 # 2. Harmonic fit (README §6, step P6)
 # ---------------------------------------------------------------------------------------------
@@ -331,6 +379,50 @@ def test_coverage_thresholds_are_exact_and_documented() -> None:
     assert short_linear.seasonal_identifiable is True
     assert short_linear.warnings == ()
     assert short_linear.seasonal_amp_mm == 0.0
+
+
+@pytest.mark.parametrize(
+    ("n_epochs", "span_years", "expected"),
+    [
+        # 4 epochs are enough for one harmonic (2 + 2*1), so the span gate is the one that binds.
+        (4, 0.749, 0),
+        (4, 0.750, 1),
+        # 1.50 yr with 6 epochs carries two harmonics; at 1.49 yr only one is publishable.
+        (6, 1.490, 1),
+        (6, 1.500, 2),
+        # ... and 1.50 yr with 5 epochs is one harmonic: the epoch floor 2 + 2*2 = 6 binds first.
+        (5, 1.500, 1),
+        # 3 epochs are below even the one-harmonic floor of 4, however long the span claims to be.
+        (3, 0.750, 0),
+        (12, 2.000, 2),
+    ],
+)
+def test_harmonic_order_is_exact_at_both_gates(
+    n_epochs: int, span_years: float, expected: int
+) -> None:
+    """The order ladder is ``span >= 0.75·k yr AND n_epochs >= 2 + 2k``, with no slack either way.
+
+    ``harmonic_order`` decides whether the published ``seasonal_amp_mm`` is a *fit* or a typed
+    ``0.0``, and ``contracts`` 1.1 makes that column required, so a boundary that drifts by one
+    day or one epoch silently converts a not-fitted stack into a claimed amplitude (or withholds
+    one the span supports). Both gates are therefore pinned *at* the threshold: the cases below
+    bracket 0.75 yr and 1.50 yr by 1 day-ish, and each span is paired with an epoch count that
+    makes one of the two gates the binding one.
+    """
+    # The ladder is written in units of the coverage constant, not in magic years, so restate the
+    # constant here: if MIN_SEASONAL_COVERAGE_PER_HARMONIC moves, these pins must move with it
+    # instead of quietly testing a ladder the module no longer has.
+    assert T.MIN_SEASONAL_COVERAGE_PER_HARMONIC == 0.75
+    assert T.harmonic_order(4, T.MIN_SEASONAL_COVERAGE_PER_HARMONIC) == 1
+    assert T.harmonic_order(6, 2.0 * T.MIN_SEASONAL_COVERAGE_PER_HARMONIC) == 2
+
+    got = T.harmonic_order(n_epochs, span_years)
+    assert got == expected, (
+        f"harmonic_order(n_epochs={n_epochs}, span_years={span_years:g}) = {got}, expected "
+        f"{expected}: 2 harmonics need span >= "
+        f"{2 * T.MIN_SEASONAL_COVERAGE_PER_HARMONIC:g} yr AND n_epochs >= 6, 1 harmonic needs "
+        f"span >= {T.MIN_SEASONAL_COVERAGE_PER_HARMONIC:g} yr AND n_epochs >= 4, otherwise 0."
+    )
 
 
 def test_guard_also_catches_dates_clustered_inside_a_long_span() -> None:

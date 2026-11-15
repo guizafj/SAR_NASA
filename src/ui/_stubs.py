@@ -7,6 +7,7 @@ They are not measurements. Do not copy them into scientific copy.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -542,10 +543,20 @@ def load_documented_limits() -> dict[str, Any]:
         return {"section_8_caveat": None, "section_13": []}
     text = _README.read_text(encoding="utf-8")
     caveat = None
-    for line in text.splitlines():
-        if "validate against GNSS" in line:
-            caveat = " ".join(line.split())
+    paragraphs = [
+        " ".join(line.strip() for line in block.splitlines() if line.strip())
+        for block in re.split(r"\n\s*\n", text)
+    ]
+    gnss_re = re.compile(r"validat\w*\s+(?:the\s+convention\s+)?against\s+GNSS", re.IGNORECASE)
+    for para in paragraphs:
+        if gnss_re.search(para) and "Sign and heading conventions" in para:
+            caveat = para
             break
+    if caveat is None:
+        for para in paragraphs:
+            if gnss_re.search(para):
+                caveat = para
+                break
 
     start = text.find("## 13.")
     end = text.find("## 14.")

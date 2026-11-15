@@ -33,7 +33,7 @@ cases:
     limitations:
       - "Lacustrine clay, closed basin: rates are not transferable to the other two cities."
       - "GUNW posting 80 m: city scale, not building scale."
-      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+      - "The 2-year mock window (62 dates, 732 d = 2.00 annual cycles) DOES identify the seasonal term: 2.00 cycles clears the 0.75-yr-per-harmonic gate and designs at condition 4.1 (limit 30), so seasonal_amp_mm is fitted and published — the previous 132-day window (0.36 cycles / 66.8) could not. The mock is noise-free in time, so the fit recovers the injected 1.5 mm exactly; a real 2-year stack would carry an uncertainty this artefact does not."
       # Physics of the mock amplitude, not a decoration: lacustrine clay compacts inelastically and
       # irreversibly, so the reversible seasonal term must stay much smaller than the secular trend
       # (|trend| > 2 * seasonal_amplitude ⇒ inelastic). A large harmonic here would read as 5 mm of
@@ -66,7 +66,7 @@ cases:
       - "Not the capital-planning case: ground truth is fragmented across agencies."
       - "Coastal: inundation, not just subsidence, drives the story."
       - "GUNW posting 80 m: city scale, not building scale."
-      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+      - "The 2-year mock window (62 dates, 732 d = 2.00 annual cycles) DOES identify the seasonal term: 2.00 cycles clears the 0.75-yr-per-harmonic gate and designs at condition 4.1 (limit 30), so seasonal_amp_mm is fitted and published — the previous 132-day window (0.36 cycles / 66.8) could not. The mock is noise-free in time, so the fit recovers the injected 12 mm exactly; a real 2-year stack would carry an uncertainty this artefact does not."
     mock:
       peak_velocity_mm_yr: -300
       peak_lonlat: [106.85, -6.13]                 # north coast
@@ -97,7 +97,7 @@ cases:
       - "Rates are at or below the detection floor: the bound IS the result."
       - "Do not present flatness as absence of aquifer stress — it is a compressibility result."
       - "GUNW posting 80 m: city scale, not building scale."
-      - "A ~4.5-month window cannot separate seasonal from secular motion: do not publish seasonal_amp_mm from this stack."
+      - "The 2-year mock window (62 dates, 732 d = 2.00 annual cycles) DOES identify the seasonal term: 2.00 cycles clears the 0.75-yr-per-harmonic gate and designs at condition 4.1 (limit 30), so seasonal_amp_mm is fitted and published — the previous 132-day window (0.36 cycles / 66.8) could not. The mock is noise-free in time, so the fit recovers the injected 3.5 mm exactly; a real 2-year stack would carry an uncertainty this artefact does not."
       # Opposite physics to Mexico City: a karst aquifer is elastic, so a real seasonal cycle of
       # recharge is expected to move the surface recoverably by an amount comparable to (or larger
       # than) the tiny secular trend (|trend| < seasonal_amplitude ⇒ elastic).
@@ -119,6 +119,15 @@ processing:
   coherence_min: 0.35                             # overridden per (sensor, product) by contracts.py
   k_sigma: 2.5
   min_area_m2: 500
-  dates_start: "2026-07-02"                       # mock window; real dates come from the granules
+  dates_start: "2024-11-10"                       # mock window; real dates come from the granules
   dates_step_days: 12
-  dates_count: 12
+  # 62 dates x 12 d = 732 d = 2.00 annual cycles (2024-11-10 .. 2026-11-12). The length is a
+  # contract-1.1 decision, not a decoration: seasonal_amp_mm is now a required, FITTED column, and
+  # the pipeline only publishes a seasonal amplitude when the span and conditioning gates of
+  # pipeline/science/transforms.py pass (>= 0.75 yr per harmonic, design condition <= 30). Measured
+  # at this cadence: 276 d -> coverage 0.7556 / cond 11.50 (knife-edge: one dropped date kills it),
+  # 360 d -> 0.9856 / 5.83, 552 d -> 1.511 / 3.89, 732 d -> 2.004 / 4.12 (two harmonics; 4.02 at
+  # one). Do not shorten this
+  # without re-reading that gate, and do not pick 1 yr: transforms.harmonic_order asks for two
+  # harmonics from a 1.5 yr span, so a 1-year stack would refuse the second harmonic it requested.
+  dates_count: 62

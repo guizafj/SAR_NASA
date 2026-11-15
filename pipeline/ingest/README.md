@@ -59,10 +59,15 @@ Each source entry also gains `granule_ids` (all ids in acquisition-date order, c
 
 The id lists are the only unbounded part of a report, so they are capped: `granule_ids` ≤ 120
 ids, `stacks` ≤ 10 × 12 ids, and `granules` mirrors `granule_ids`. `search` prints the size
-delta per case (`json X KB (+Y B vs previous)`) so the growth stays visible. On the current
-evidence: `malaga.json` 7,683 B → 76,953 B (+69,270 B, real 26-granule NISAR payload);
-`mexico-city.json` and `jakarta.json` are unchanged until `search` is re-run (their committed
-copies predate stack derivation).
+delta per case (`json X KB (+Y B vs previous)`) so the growth stays visible.
+
+All three committed reports now carry `stacks` (for `nisar_gunw` and `sentinel1_slc` alike), the
+per-source `granule_ids` list and the mirrored `granules` records (`url`/`size_mb`), so each file
+is roughly an order of magnitude larger than the first probe output that held only
+`sample_granules`. Measured from the committed artefacts: `malaga.json` 79,668 B (7,683 B before
+stack derivation), `mexico-city.json` 112,285 B and `jakarta.json` 82,220 B (both ~7.4 KB before).
+The size tracks how many granules a probe returned, so read those byte counts as a snapshot of
+these artefacts; `search` reprints the per-case delta every time it rewrites a file.
 
 ## `download --stack`
 
@@ -107,8 +112,9 @@ Consequences, in the order they matter:
   NOT refuse before transfer` and says that enforcement is mid-stream only (after bytes have
   flowed, leaving a `.part`).
 - With `--probe-sizes`, the plan prints `known size X GB` and the guard refuses (exit 5, zero
-  bytes) when X exceeds the budget. A 12-id stack at ~2.34 GB/granule is ≈ 28 GB, so the 6 GB
-default cannot cover a full NISAR stack: measure first, then raise `--max-gb` deliberately.
+  bytes) when X exceeds the budget. A 12-id stack at ~2.34 GB/granule is ≈ 28 GB, so the
+  `--max-gb` default (2 GB) cannot cover a full NISAR stack: measure first, then raise `--max-gb`
+  deliberately.
 
 ### Guards, in the order they fire
 

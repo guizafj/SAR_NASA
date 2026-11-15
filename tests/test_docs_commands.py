@@ -18,9 +18,18 @@ This module is deliberately **fail-closed**:
 It reports; it never edits a doc. A failure names the file, the line, the command and the exact
 missing flag/path, so the fix is a one-line edit in the doc or the CLI -- not an archaeology dig.
 
-Scope is intentionally narrow: only ``README.md``, ``docs/handoff-mock.md``,
-``docs/data-source-contract*`` (when present), ``docs/first-granule-runbook.md`` (when present)
-and ``pipeline/README.md`` are parsed. Nothing here opens a socket.
+Scope is intentionally narrow: the entry points, operator runbooks, and command-bearing technical
+guides are parsed. Commandless reference guides need link checks, not an artificial command. Nothing
+here opens a socket.
+
+The ingest README documents the real-data CLI surface (``search``/``report``/``download``), and
+some of those lines are *network by design* (``--probe-sizes`` issues HEAD requests; a
+``download`` without ``--dry-run`` transfers). Those are never executed: they are verified
+statically against the program's own argparse ``--help`` -- every documented long option and the
+subcommand token must appear there (see ``_static_problems``). A line that would need a socket
+(or that is not a dry-run plan) is classified as static-only by ``_execution_refusal`` and
+asserted absent from the execution allowlist, so adding it to the docs can never turn this suite
+into a network test.
 """
 
 from __future__ import annotations
@@ -43,10 +52,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: never treated as "nothing to check".
 DOC_PATTERNS: tuple[str, ...] = (
     "README.md",
+    "CONTEXT.md",
+    "docs/science-guide.md",
+    "docs/verification.md",
     "docs/handoff-mock.md",
     "docs/data-source-contract*",
     "docs/first-granule-runbook.md",
     "pipeline/README.md",
+    "pipeline/ingest/README.md",
 )
 
 PREFIXES = ("./scripts/python.sh", "pipeline/")
@@ -386,6 +399,72 @@ def _subcommands(help_text: str) -> set[str]:
     return {name.strip() for name in match.group(1).split(",") if name.strip()}
 
 
+def _primary_usage(help_text: str) -> str:
+    """Only argparse's own ``usage:`` header, not a later prose/plugin line that also says usage.
+
+    The header may be wrapped over several indented lines; the program description follows a
+    blank line (or an unindented line), which ends the header.
+    """
+    lines = help_text.splitlines()
+    for index, line in enumerate(lines):
+        if not line.startswith("usage:"):
+            if line.strip():
+                # The program printed something else first: no argparse usage header.
+                return ""
+            continue
+        block = [line]
+        for extra in lines[index + 1 :]:
+            if not extra.strip() or extra[:1] not in {" ", "\t"}:
+                break
+            block.append(extra)
+        return "\n".join(block)
+    return ""
+
+
+def _primary_subcommands(help_text: str) -> set[str]:
+    """Subcommands declared by ``prog {a,b,c} ...`` in the primary usage header."""
+    return _subcommands(_primary_usage(help_text))
+
+
+@lru_cache(maxsize=None)
+def _source_mentions_subparsers(path: Path) -> bool:
+    try:
+        return "add_subparsers" in path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def _may_have_subcommands(invocation: Invocation) -> bool:
+    """Cheap pre-filter: only argparse programs that build subparsers need their slot verified.
+
+    Reading the source avoids paying for a ``--help`` subprocess on every flagless documented
+    command just to learn that the program has no subcommands at all.
+    """
+    target = invocation.target
+    if target is None:
+        return False
+    if invocation.kind == "module":
+        path = _module_path(target)
+    elif invocation.kind == "script" and target.endswith(".py"):
+        path = REPO_ROOT / target
+    else:
+        return False
+    return path is not None and path.is_file() and _source_mentions_subparsers(path)
+
+
+def _subcommand_slot(tokens: list[str], target_index: int) -> str | None:
+    r"""The first bare word after the program name: argparse's subcommand slot.
+
+    ``prog download --city malaga`` -> ``download``. Placeholders (``{city}``) and option values
+    that come before any subcommand never reach this slot in the docs we parse.
+    """
+    for token in tokens[target_index + 1 :]:
+        if token.startswith("-"):
+            continue
+        return None if _is_placeholder(token) else token
+    return None
+
+
 def _subcommand_for(invocation: Invocation, tokens: list[str], base_help: str) -> str | None:
     known = _subcommands(base_help)
     if not known:
@@ -468,13 +547,14 @@ def _static_problems(command: DocumentedCommand) -> list[str]:
             if not (REPO_ROOT / candidate).exists():
                 problems.append(f"path `{candidate}` does not exist")
 
-    # Flags: the module's own --help is the source of truth. A documented command with no long
-    # flags never needs a subprocess, which keeps pytest/pip out of the execution path.
+    # Flags and subcommands: the program's own --help is the source of truth. A command with no
+    # long flags and no subparsers never needs a subprocess, which keeps pytest/pip out of the
+    # execution path.
     wanted = _long_flags(tokens)
-    if not wanted:
-        return problems
     if invocation.kind == "script" and not target.endswith(".py"):
         # A shell script's flags are not argparse flags; only the executable bit is testable.
+        return problems
+    if not wanted and not _may_have_subcommands(invocation):
         return problems
 
     base_code, base_text = _help_output(_help_argv(invocation))
@@ -483,6 +563,19 @@ def _static_problems(command: DocumentedCommand) -> list[str]:
             f"`{' '.join(_help_argv(invocation)[1:])}` exited {base_code} "
             f"(cannot verify flags): {base_text.strip()[-400:]}"
         )
+        return problems
+
+    # Subcommands: ``prog download|search|report``. A documented token that the parser's usage
+    # header does not declare is drift, even when the line carries no flags at all.
+    declared = _primary_subcommands(base_text)
+    slot = _subcommand_slot(tokens, invocation.target_index)
+    if declared and slot is not None and slot not in declared:
+        problems.append(
+            f"subcommand `{slot}` is not accepted by "
+            f"`{' '.join(_help_argv(invocation)[1:-1])}`; its --help declares: "
+            + ", ".join(sorted(declared))
+        )
+    if not wanted:
         return problems
 
     subcommand = _subcommand_for(invocation, tokens, base_text)
@@ -562,13 +655,13 @@ def test_every_existing_doc_yields_at_least_one_command() -> None:
 @pytest.mark.parametrize("target", sorted(HELP_TARGETS), ids=sorted(HELP_TARGETS))
 def test_documented_module_help_exits_zero(target: str) -> None:
     """A documented module must at least be importable and able to print its own help."""
-    argv = [sys.executable, target, "--help"]
-    completed = _run(argv, timeout=HELP_TIMEOUT_S)
-    if completed.returncode != 0:
+    # Uses the shared cache: the static flag/subcommand checks above run the same --help.
+    code, output = _help_output((sys.executable, target, "--help"))
+    if code != 0:
         where = ", ".join(f"{doc}:{line}" for doc, line in HELP_TARGETS[target])
         pytest.fail(
-            f"`{target} --help` exited {completed.returncode} (documented at {where}).\n"
-            f"  output tail: {(completed.stdout or '').strip()[-800:]}",
+            f"`{target} --help` exited {code} (documented at {where}).\n"
+            f"  output tail: {output.strip()[-800:]}",
             pytrace=False,
         )
 
@@ -598,14 +691,48 @@ def test_check_phase_a_is_executable_but_never_run() -> None:
 
 # --- --dry-run: the only documented command we execute beyond --help/--self-test -------------
 
+PROBE_FLAG = "--probe-sizes"
+DOWNLOAD_WORD_RE = re.compile(r"(?<![\w-])download(?![\w-])")
+
+
+def _execution_refusal(command: DocumentedCommand) -> str | None:
+    """Why this documented ingest line must stay static: running it would open a socket.
+
+    Only ``download ... --dry-run`` *without* ``--probe-sizes`` is executed by this module. Every
+    other real-data line is verified against the parser's own ``--help`` (``_static_problems``)
+    and never handed to ``subprocess.run``.
+    """
+    if "pipeline/ingest/02_search_download.py" not in command.text:
+        return None
+    try:
+        tokens = _tokenize(command.text)
+    except ValueError:
+        return "cannot tokenise the command, so it cannot be classified as offline"
+    if PROBE_FLAG in tokens or any(token.startswith(f"{PROBE_FLAG}=") for token in tokens):
+        return f"`{PROBE_FLAG}` issues one unauthenticated HEAD per planned granule"
+
+    invocation = _target_of(command.text)
+    subcommand = _subcommand_slot(tokens, invocation.target_index)
+    if subcommand is None:
+        return None  # e.g. ``--help`` only: no data access
+    if subcommand == "download":
+        if "--dry-run" not in tokens:
+            return "`download` without `--dry-run` transfers bytes and reads credentials"
+        return None
+    if subcommand == "search":
+        return "`search` calls the ASF SearchAPI"
+    return f"`{subcommand}` is not a dry-run plan; only `download --dry-run` is executed"
+
 
 def _documented_dry_runs() -> list[DocumentedCommand]:
     return [
         command
         for command in COMMANDS
         if "pipeline/ingest/02_search_download.py" in command.text
-        and re.search(r"(?<![\w-])download(?![\w-])", command.text)
+        and DOWNLOAD_WORD_RE.search(command.text)
         and "--dry-run" in command.text
+        # A dry run with --probe-sizes still issues HEAD requests; it is verified statically.
+        and _execution_refusal(command) is None
     ]
 
 
@@ -613,6 +740,49 @@ DRY_RUNS = [
     pytest.param(command, id=f"{command.doc}:{command.line}")
     for command in _documented_dry_runs()
 ]
+
+EXECUTED_COMMANDS = frozenset(param.values[0] for param in DRY_RUNS)
+
+
+def test_network_dependent_lines_are_verified_statically_only() -> None:
+    """The ingest CLI surface is declared, not executed: no documented line opens a socket here.
+
+    ``--probe-sizes`` and a non-dry-run ``download`` are the two shapes that *must* stay static.
+    They are proven to be outside the execution allowlist, and their flags/subcommand are still
+    checked against the real parser (``_static_problems``, which every command also runs through
+    the parametrised ``test_documented_command_static_checks``).
+    """
+    ingested = [command for command in COMMANDS if command.doc == "pipeline/ingest/README.md"]
+    assert ingested, (
+        "pipeline/ingest/README.md documents the real-data CLI but yielded no commands; "
+        "the extractor stopped finding them"
+    )
+    surfaces = " ".join(command.text for command in ingested)
+    for token in ("search", "report", "download", PROBE_FLAG, "--max-gb", "--stack"):
+        assert token in surfaces, (
+            f"pipeline/ingest/README.md no longer documents `{token}`; the ingest README must "
+            "describe the whole real-data CLI surface"
+        )
+
+    static_only: list[str] = []
+    for command in ingested:
+        refusal = _execution_refusal(command)
+        if refusal is None:
+            continue
+        static_only.append(f"{command.doc}:{command.line}: {refusal}")
+        assert command not in EXECUTED_COMMANDS, (
+            f"{command.doc}:{command.line} would be executed, but {refusal}."
+        )
+    assert static_only, (
+        "pipeline/ingest/README.md no longer shows a network-only command; the static-only "
+        "classification is no longer exercised"
+    )
+    print(
+        f"pipeline/ingest/README.md: {len(ingested)} command(s) parsed, "
+        f"{len(static_only)} static-only"
+    )
+    for line in static_only:
+        print(f"  {line}")
 
 
 def _dry_run_argv(command: DocumentedCommand, *, availability: Path, raw: Path) -> list[str]:
@@ -627,6 +797,12 @@ def _dry_run_argv(command: DocumentedCommand, *, availability: Path, raw: Path) 
     argv = [sys.executable, *tokens[1:]]
     if "--dry-run" not in argv:
         pytest.fail("refusing to execute a documented command without --dry-run", pytrace=False)
+    if PROBE_FLAG in argv:
+        pytest.fail(
+            f"refusing to execute `{PROBE_FLAG}`: it issues HEAD requests, so "
+            f"{command.doc}:{command.line} is verified statically instead",
+            pytrace=False,
+        )
     return [*argv, "--availability", str(availability), "--raw", str(raw)]
 
 

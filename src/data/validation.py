@@ -11,8 +11,13 @@ safe before a single component renders:
 3. `grid.cell_id` values are valid H3 resolution-9 indices.
 4. `timeseries.csv` includes the mandatory `"aoi"` aggregate series with finite values and no
    duplicate `(cell_id, date)` rows; any cell-level series references cells present in `grid`.
-5. `meta.stats.n_cells` and `meta.stats.n_dates` match the actual emitted rows/dates.
-6. Total size under `data/processed/` stays within the 15 MiB budget (README §8).
+5. `meta.stats.n_cells` and `meta.stats.n_dates` match the actual emitted rows/dates, and the
+   seasonal aggregates (`median_seasonal_amp_mm`, `median_ratio_R`, `dominant_regime`) match the
+   per-cell fitted columns they summarise.
+6. The v1.1 seasonal columns are internally consistent: `ratio_R == |velocity_mm_yr| /
+   seasonal_amp_mm`, and `value - trend_mm_yr*t - seasonal_mm` is constant along every series (the
+   fitted trend/seasonal pair must decompose the very numbers stored beside it).
+7. Total size under `data/processed/` stays within the 15 MiB budget (README §8).
 
 CLI usage (CI gate & local check):
     ./scripts/python.sh -m src.data.validation --processed data/processed
@@ -166,6 +171,147 @@ def discover_case_dirs(processed_dir: pathlib.Path) -> dict[str, pathlib.Path]:
     return discovered
 
 
+def _seasonal_stat_problems(
+    *, grid: pd.DataFrame | None, stats: Mapping[str, Any]
+) -> list[str]:
+    """Cross-check the v1.1 seasonal aggregates against the per-cell fitted columns.
+
+    Same estimator as the generator (`pandas.median`, label tie-break for the regime mode), so a
+    disagreement means one artefact is stale — not that two statistics disagree about a definition.
+    """
+    problems: list[str] = []
+    if not isinstance(grid, pd.DataFrame) or grid.empty:
+        return problems
+    if {"seasonal_amp_mm", "ratio_R"} <= set(grid.columns):
+        amplitude = pd.to_numeric(grid["seasonal_amp_mm"], errors="coerce")
+        ratio = pd.to_numeric(grid["ratio_R"], errors="coerce")
+        for key, column, tolerance in (
+            ("median_seasonal_amp_mm", "seasonal_amp_mm", 1e-2),
+            ("median_ratio_R", "ratio_R", 1e-4),
+        ):
+            declared = stats.get(key)
+            values = amplitude if column == "seasonal_amp_mm" else ratio
+            if values.isna().any() and column == "seasonal_amp_mm":
+                continue  # null amplitudes are a contract problem, reported there
+            defined = values.dropna()
+            if declared is None:
+                # Legal only when the ratio is undefined everywhere (no harmonic fitted); a null
+                # median next to a defined ratio is a withheld statistic, caught below.
+                if column == "ratio_R" and not defined.empty:
+                    problems.append(
+                        "cross_check: meta.stats.median_ratio_R is null but "
+                        f"{len(defined)} cell(s) carry a defined ratio_R"
+                    )
+                continue
+            if defined.empty:
+                problems.append(
+                    f"cross_check: meta.stats.{key} is {declared!r} but no cell carries a "
+                    f"defined {column}"
+                )
+                continue
+            recomputed = float(defined.median())
+            if abs(float(declared) - recomputed) > tolerance:
+                problems.append(
+                    f"cross_check: meta.stats.{key} ({declared}) != grid {column} median "
+                    f"({recomputed:.6f})"
+                )
+    if "regime" in grid.columns:
+        declared_regime = stats.get("dominant_regime")
+        counts = grid["regime"].astype(str).value_counts()
+        if declared_regime is not None and not counts.empty:
+            dominant = sorted(counts.items(), key=lambda item: (-int(item[1]), str(item[0])))[0][0]
+            if str(declared_regime) != str(dominant):
+                problems.append(
+                    f"cross_check: meta.stats.dominant_regime ({declared_regime!r}) != the most "
+                    f"frequent grid regime ({dominant!r})"
+                )
+    return problems
+
+
+def _seasonal_column_problems(
+    *, grid: pd.DataFrame | None, timeseries: pd.DataFrame | None
+) -> list[str]:
+    """Cross-check the seasonal columns of both artefacts against each other (contract v1.1).
+
+    Three invariants a typed constant cannot satisfy:
+
+    * ``ratio_R == |velocity_mm_yr| / seasonal_amp_mm`` wherever the amplitude was fitted;
+    * ``ratio_R`` is **null** exactly where ``seasonal_amp_mm == 0`` (no harmonic fitted), because
+      ``|trend|/0`` is undefined — a number there is fabricated, and a number withheld where the
+      amplitude *was* fitted is a hidden statistic;
+    * ``value - trend_mm_yr·t - seasonal_mm`` is **constant** along every series, i.e. the published
+      trend and seasonal components really are the decomposition of the published cumulative
+      displacement (the constant is the fit intercept, which the contract does not publish).
+    """
+    problems: list[str] = []
+    if isinstance(grid, pd.DataFrame) and not grid.empty and {
+        "velocity_mm_yr",
+        "seasonal_amp_mm",
+        "ratio_R",
+    } <= set(grid.columns):
+        velocity = pd.to_numeric(grid["velocity_mm_yr"], errors="coerce")
+        amplitude = pd.to_numeric(grid["seasonal_amp_mm"], errors="coerce")
+        ratio = pd.to_numeric(grid["ratio_R"], errors="coerce")
+        fitted = amplitude.notna() & (amplitude > 0.0)
+        not_fitted = amplitude.notna() & (amplitude == 0.0)
+        if bool((amplitude < 0.0).any()):
+            problems.append(
+                f"cross_check: grid.seasonal_amp_mm is negative for "
+                f"{int((amplitude < 0.0).sum())} row(s); an amplitude is a magnitude"
+            )
+        withheld = fitted & ratio.isna()
+        if withheld.any():
+            problems.append(
+                f"cross_check: grid.ratio_R is null for {int(withheld.sum())} row(s) whose "
+                "seasonal_amp_mm > 0; a fitted harmonic has a defined ratio, so publish it"
+            )
+        fabricated = not_fitted & ratio.notna()
+        if fabricated.any():
+            problems.append(
+                f"cross_check: grid.ratio_R carries a number for {int(fabricated.sum())} row(s) "
+                "whose seasonal_amp_mm == 0: |trend|/0 is undefined, so the value must be null"
+            )
+        if fitted.any():
+            residual = (ratio[fitted] - velocity[fitted].abs() / amplitude[fitted]).abs()
+            if float(residual.max()) > 1e-6:
+                problems.append(
+                    "cross_check: grid.ratio_R is not abs(velocity_mm_yr)/seasonal_amp_mm for "
+                    f"{int((residual > 1e-6).sum())} row(s) (max residual {float(residual.max()):.3e})"
+                )
+
+    if not isinstance(timeseries, pd.DataFrame) or timeseries.empty:
+        return problems
+    needed = {"cell_id", "date", "value", "trend_mm_yr", "seasonal_mm"}
+    if not needed <= set(timeseries.columns):
+        return problems
+    try:
+        frame = timeseries.loc[:, ["cell_id", "date", "value", "trend_mm_yr", "seasonal_mm"]].copy()
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        for column in ("value", "trend_mm_yr", "seasonal_mm"):
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        if frame[["date", "value", "trend_mm_yr", "seasonal_mm"]].isna().any().any():
+            return problems  # null/non-numeric already reported by the contract validator
+        first = frame.groupby("cell_id")["date"].transform("min")
+        years = (frame["date"] - first).dt.days.to_numpy(dtype=float) / 365.25
+        offset = (
+            frame["value"].to_numpy(dtype=float)
+            - frame["trend_mm_yr"].to_numpy(dtype=float) * years
+            - frame["seasonal_mm"].to_numpy(dtype=float)
+        )
+        frame["offset"] = offset
+        spread = frame.groupby("cell_id")["offset"].agg(lambda values: float(values.max() - values.min()))
+        bad = spread[spread > 1e-6]
+        if not bad.empty:
+            problems.append(
+                f"cross_check: value - trend_mm_yr*t - seasonal_mm is not constant for "
+                f"{len(bad)} cell_id(s) (max spread {float(spread.max()):.3e} mm), e.g. "
+                f"{sorted(bad.index.astype(str))[:3]}"
+            )
+    except Exception as exc:  # noqa: BLE001 - a check that cannot run must not pass silently
+        problems.append(f"cross_check: could not verify the trend/seasonal decomposition: {exc}")
+    return problems
+
+
 def _validate_cross_artifact(
     *,
     grid: pd.DataFrame | None,
@@ -262,6 +408,10 @@ def _validate_cross_artifact(
                 problems.append(
                     f"cross_check: meta.stats.n_cells ({n_cells}) != len(grid) ({len(grid)})"
                 )
+
+    if isinstance(meta.get("stats"), Mapping):
+        problems.extend(_seasonal_stat_problems(grid=grid, stats=meta["stats"]))
+    problems.extend(_seasonal_column_problems(grid=grid, timeseries=timeseries))
 
     if strict_stats_count and isinstance(meta.get("stats"), Mapping) and isinstance(
         meta.get("dates"), (list, tuple)

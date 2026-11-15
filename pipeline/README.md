@@ -1,6 +1,10 @@
 # Offline pipeline — what runs before the app
 
-Status: 2026-11-14, contract v1.1 (`9a749cea…`). Scope: `pipeline/` only. Facts come from `README.md`
+Status: 2026-11-15, contract v1.1, fingerprint `ed92be80…` (bumped 2026-11-15 from contract v1.0 — O-05 in `docs/decisions.md`).
+The bump moved the contract fingerprint: re-derive it with
+`./scripts/python.sh -m src.domain.contracts` instead of trusting a remembered hash (the abbreviated
+prefix above is a convenience; the command is the authority).
+Scope: `pipeline/` only. Facts come from `README.md`
 §4–§6/§13, `docs/data-contract-v1.md`, `docs/data-source-decision.md`, `docs/nisar-gunw-layout.md`,
 `docs/handoff-mock.md`, `config/study_cases.yaml` and the modules below.
 
@@ -23,7 +27,7 @@ Per case under `data/processed/<case>/` (contract §1 names `data/processed/{cas
 
 | File | Contents, one line | Governed by |
 |---|---|---|
-| `nisar_grid.parquet` | one row per H3 res-9 cell (~200 m): lat/lon, `val_t1`/`val_t2`/`delta_change` (cumulative mm), `velocity_mm_yr`, coherence, land use, risk band, provenance | contract §3 |
+| `nisar_grid.parquet` | one row per H3 res-9 cell (~200 m): lat/lon, `val_t1`/`val_t2`/`delta_change` (cumulative mm), `velocity_mm_yr`, coherence, land use, risk band, provenance; contract v1.1 adds the fitted `seasonal_amp_mm`, `ratio_R` and `regime` | contract §3 |
 | `timeseries.csv` | cumulative mm per date; `cell_id == "aoi"` is the case aggregate, H3 rows are opt-in drill-down | contract §4 |
 | `context_layers.geojson` | FeatureCollection, EPSG:4326 declared per feature: `land_use`, `infrastructure`, `water`, `admin_boundary` | contract §6 |
 | `meta.json` | dates, `revisit_days`, `thresholds`, `provenance`, `stats`, `limitations`, `null_policy` | contract §5 |
@@ -52,7 +56,7 @@ Per case under `data/processed/<case>/` (contract §1 names `data/processed/{cas
 Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path), never `.venv/bin/python`.
 
 ```bash
-# 1 regenerate the mock (seed 7, all cases, 1.641 MB total)
+# 1 regenerate the mock (seed 7, all cases, 1.69 MB total)
 ./scripts/python.sh pipeline/generate_mock.py
 # 2 validate the artefacts on disk (fail-closed: zero cases is a FAIL)
 ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed
@@ -62,6 +66,10 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 # 4 dry-run a download: identity/budget plan, no credentials, no writes
 ./scripts/python.sh pipeline/ingest/02_search_download.py download \
     --city malaga --source nisar_gunw --max-gb 2 --dry-run
+# 4b one granule first: `--max-granules N` keeps the FIRST N in reference-date order (O-01),
+#    which is cheaper than the whole stack when the reader is what you are verifying
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city malaga --source nisar_gunw --max-granules 1 --dry-run
 # 5 inspect a granule before trusting any path in it
 ./scripts/python.sh pipeline/ingest/inspect_hdf5.py data/raw/malaga/nisar_gunw/<granule>.h5 --json
 ./scripts/python.sh pipeline/ingest/nisar_gunw.py data/raw/malaga/nisar_gunw/<granule>.h5 --json
@@ -74,7 +82,7 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 ./scripts/check_phase_a.sh
 ```
 
-Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.641 MB.
+Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.69 MB.
 
 ## 5. Provenance chain
 
@@ -99,14 +107,14 @@ hashes sorted granule file stems — neither hashes file bytes.
 
 Reproduce it: `./scripts/python.sh -c "import math; from pipeline.science import transforms as V; print(round(V.vertical_from_los(0.2384/(4*math.pi)*1e3,39,192),2))"` → `24.41`.
 
-Mexico City at −420 mm/yr is −13.8 mm vertical in a 12-day pair, ≈ 0.09 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13).
+Mexico City's mock `peak_velocity_mm_yr` (config/study_cases.yaml — the model's peak parameter and not a measured cell) at −420 mm/yr is −13.8 mm vertical in a 12-day pair, ≈ 0.09 fringe: unwrapping error, not noise, dominates (`docs/nisar-gunw-layout.md` §4, README §13). The strongest grid cell measures −415.14 mm/yr — −13.6 mm vertical, ≈ 0.09 fringe over the same 12-day pair.
 
-Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprinted by `./scripts/check_phase_a.sh`; seed 7, 12 dates 2026-07-02 → 2026-11-11, product `mock`):
+Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprinted by `./scripts/check_phase_a.sh`; seed 7, 62 dates 2024-11-10 → 2026-11-12, product `mock`):
 
 | case | cells | median mm/yr | p05 | size |
 |---|---:|---:|---:|---:|
-| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.97 MB |
-| `jakarta` | 4,811 | −25.4 | −141.9 | 0.43 MB |
+| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.99 MB |
+| `jakarta` | 4,811 | −25.4 | −141.9 | 0.44 MB |
 | `malaga` | 2,645 | −1.4 | −3.5 | 0.25 MB |
 
 Coherence 0.35–0.95 (0.44–0.95 in Mexico City) and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
@@ -116,11 +124,11 @@ Coherence 0.35–0.95 (0.44–0.95 in Mexico City) and 6 `land_use` classes in e
 1. **NISAR urban coverage unverified**: GUNW is provisional and cryosphere-derived, and intersecting is not covering (`docs/data-source-decision.md`; its checklist has not been run).
 2. **Dataset names confirmed only against published documentation**, not a real 2026 granule: x/y dataset names, CRS location, fill convention and 80 m vs 20 m coherence stay open (`docs/nisar-gunw-layout.md` status line, §5). The first granule must correct that page.
 3. **80 m posting**: city scale, not building scale (README §13.3, contract §7.3).
-4. **A 132-day stack cannot separate seasonality from trend**: `harmonic_fit` needs 0.75 yr of coverage for the annual term and sets `seasonal_identifiable=False` below it, so `seasonal_amp_mm` must not be published from a window like ours (`science/transforms.py`).
+4. **Seasonality is identified on the current window; the old one is history**: the current 732-day stack spans annual coverage 2.004 yr (2.00 cycles against the 0.75 yr-per-harmonic gate) at design condition 4.12 (limit `MAX_DESIGN_CONDITION = 30`), so the annual term *is* separable from `[1, t]` and `seasonal_amp_mm`, `ratio_R` and `regime` are published as FIT results, not typed constants (`science/transforms.py`; the per-case medians are `stats.median_seasonal_amp_mm` 1.5 / 12.0 / 3.5 mm, `stats.median_ratio_R` 41.38 / 2.12 / 0.40 and `stats.dominant_regime` inelastic / inelastic / elastic, in the order of the table above). The gates were calibrated against the old 132-day window (0.36 annual cycles, design condition 66.8), where `harmonic_fit` set `seasonal_identifiable=False` and withheld the amplitude: that is why the gates exist, not a statement about the current tree (O-05, 2026-11-15). One caveat is unchanged: the mock is noise-free in time, so the fit recovers the injected amplitude exactly; a real 2-year stack would carry an uncertainty this artefact does not.
 5. **Sign and heading conventions need GNSS validation**: ISCE2, MintPy and SNAP disagree on azimuth origin and on which LOS direction is positive (README §6, `transforms.los_to_vertical`); target < 5 mm/yr RMSE (README §13). `process_case` writes "NOT yet validated against GNSS" into `provenance.method` on purpose.
 6. **One geometry only**: `v_north ≈ 0` is an assumption, residual `tanθ·sinα·v_north`, east unconstrained, no asc/desc pairing (`transforms.los_to_vertical`).
 7. **Nothing has run on real data**: no download (no credentials), no real granule read, no coverage number; real-path evidence is synthetic fixtures only.
-8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor and returned spans are ~12 months (Málaga 2025-11-18 → 2026-11-13), not 5 years. The window slides with every probe, so treat those endpoints as an example rather than a fact about the archive.
+8. **Sentinel-1 counts are page caps**: the probe requests 2019→2035 with `maxResults=250`, so "250+ granules" is a floor: every case's result set truncates at that page, and the span the 250 records cover is whatever the date-sorted page returns — ~12 months (Málaga 2025-11-18 → 2026-11-13) where the archive samples the AOI sparsely, years where it samples densely (Jakarta 2023-05-10 → 2026-06-23, ~3.1 years). Neither is the ~16-year history the query window suggests, so this is not 5 years of coverage. The window slides with every probe, so treat those endpoints as an example rather than a fact about the archive.
 
 ## 8. Where to look next
 

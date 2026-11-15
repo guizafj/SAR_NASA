@@ -222,32 +222,8 @@
       ],
       "stacks": [
         {
-          "track": "020",
-          "direction": "ASCENDING",
-          "n_granules": 17,
-          "date_range": [
-            "2026-10-06T05:22:49Z",
-            "2026-10-06T05:22:49Z"
-          ],
-          "full_date_range": [
-            "2026-06-20T05:22:52Z",
-            "2026-10-06T05:22:49Z"
-          ],
-          "mean_interval_days": 6.0,
-          "granule_ids": [
-            "NISAR_L2_PR_GUNW_032_087_A_020_033_2000_SH_20261006T052249_20261006T052324_20261018T052249_20261018T052324_P05023_N_F_J_001"
-          ],
-          "granule_ids_truncated": true,
-          "sample_purpose": "download",
-          "n_epochs": 19,
-          "connected_epochs": 2,
-          "download_epochs": 2,
-          "min_fit_points": 4,
-          "epoch_sufficient": false,
-          "warning": "this stack yields 2 connected epoch(s), below MIN_FIT_POINTS=4: `process_case` would refuse the download. Use `--stack 070` (track 070/DESCENDING, 10 epoch(s)) instead."
-        },
-        {
-          "track": "070",
+          "track": "095",
+          "frame": "070",
           "direction": "DESCENDING",
           "n_granules": 9,
           "date_range": [
@@ -271,36 +247,108 @@
             "NISAR_L2_PR_GUNW_032_095_D_070_033_2000_SH_20261006T191031_20261006T191105_20261018T191031_20261018T191105_P05023_N_F_J_001"
           ],
           "granule_ids_truncated": false,
+          "sample_purpose": "download",
+          "n_epochs": 10,
+          "connected_epochs": 10,
+          "download_epochs": 10,
+          "min_fit_points": 4,
+          "epoch_sufficient": true,
+          "warning": null
+        },
+        {
+          "track": "087",
+          "frame": "020",
+          "direction": "ASCENDING",
+          "n_granules": 9,
+          "date_range": [
+            "2026-06-20T05:22:52Z",
+            "2026-10-06T05:22:49Z"
+          ],
+          "full_date_range": [
+            "2026-06-20T05:22:52Z",
+            "2026-10-06T05:22:49Z"
+          ],
+          "mean_interval_days": 12.0,
+          "granule_ids": [
+            "NISAR_L2_PR_GUNW_023_087_A_020_024_2000_SH_20260620T052252_20260620T052327_20260702T052252_20260702T052326_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_024_087_A_020_025_2000_SH_20260702T052252_20260702T052326_20260714T052251_20260714T052326_P05023_F_F_J_001",
+            "NISAR_L2_PR_GUNW_025_087_A_020_026_2000_SH_20260714T052251_20260714T052326_20260726T052250_20260726T052325_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_026_087_A_020_028_2000_SH_20260726T052250_20260726T052325_20260819T052249_20260819T052324_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_028_087_A_020_029_2000_SH_20260819T052249_20260819T052324_20260831T052249_20260831T052324_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_029_087_A_020_030_2000_SH_20260831T052249_20260831T052324_20260912T052249_20260912T052323_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_030_087_A_020_031_2000_SH_20260912T052249_20260912T052323_20260924T052249_20260924T052324_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_031_087_A_020_032_2000_SH_20260924T052249_20260924T052324_20261006T052249_20261006T052324_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_032_087_A_020_033_2000_SH_20261006T052249_20261006T052324_20261018T052249_20261018T052324_P05023_N_F_J_001"
+          ],
+          "granule_ids_truncated": false,
           "sample_purpose": "preview",
           "n_epochs": 10,
           "connected_epochs": 10
+        },
+        {
+          "track": "015",
+          "frame": "020",
+          "direction": "ASCENDING",
+          "n_granules": 8,
+          "date_range": [
+            "2026-06-27T05:31:11Z",
+            "2026-10-01T05:31:08Z"
+          ],
+          "full_date_range": [
+            "2026-06-27T05:31:11Z",
+            "2026-10-01T05:31:08Z"
+          ],
+          "mean_interval_days": 12.0,
+          "granule_ids": [
+            "NISAR_L2_PR_GUNW_024_015_A_020_025_2000_SH_20260627T053111_20260627T053146_20260709T053110_20260709T053145_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_025_015_A_020_026_2000_SH_20260709T053110_20260709T053145_20260721T053110_20260721T053144_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_026_015_A_020_028_2000_SH_20260721T053110_20260721T053144_20260814T053108_20260814T053143_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_028_015_A_020_029_2000_SH_20260814T053108_20260814T053143_20260826T053108_20260826T053143_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_029_015_A_020_030_2000_SH_20260826T053108_20260826T053143_20260907T053108_20260907T053143_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_030_015_A_020_031_2000_SH_20260907T053108_20260907T053143_20260919T053108_20260919T053143_P05023_F_F_J_001",
+            "NISAR_L2_PR_GUNW_031_015_A_020_032_2000_SH_20260919T053108_20260919T053143_20261001T053108_20261001T053143_P05023_N_F_J_001",
+            "NISAR_L2_PR_GUNW_032_015_A_020_033_2000_SH_20261001T053108_20261001T053143_20261013T053108_20261013T053143_P05023_N_F_J_001"
+          ],
+          "granule_ids_truncated": false,
+          "sample_purpose": "preview",
+          "n_epochs": 9,
+          "connected_epochs": 9
         }
       ],
       "recommended_stack": {
-        "track": "020",
-        "direction": "ASCENDING",
-        "n_granules": 17,
+        "track": "095",
+        "frame": "070",
+        "direction": "DESCENDING",
+        "n_granules": 9,
         "date_range": [
-          "2026-10-06T05:22:49Z",
-          "2026-10-06T05:22:49Z"
+          "2026-06-20T19:10:34Z",
+          "2026-10-06T19:10:31Z"
         ],
         "full_date_range": [
-          "2026-06-20T05:22:52Z",
-          "2026-10-06T05:22:49Z"
+          "2026-06-20T19:10:34Z",
+          "2026-10-06T19:10:31Z"
         ],
-        "mean_interval_days": 6.0,
+        "mean_interval_days": 12.0,
         "granule_ids": [
-          "NISAR_L2_PR_GUNW_032_087_A_020_033_2000_SH_20261006T052249_20261006T052324_20261018T052249_20261018T052324_P05023_N_F_J_001"
+          "NISAR_L2_PR_GUNW_023_095_D_070_024_2000_SH_20260620T191034_20260620T191109_20260702T191033_20260702T191108_P05023_N_F_J_001",
+          "NISAR_L2_PR_GUNW_024_095_D_070_025_2000_SH_20260702T191033_20260702T191108_20260714T191033_20260714T191108_P05023_F_F_J_001",
+          "NISAR_L2_PR_GUNW_025_095_D_070_026_2000_SH_20260714T191033_20260714T191108_20260726T191032_20260726T191107_P05023_N_F_J_001",
+          "NISAR_L2_PR_GUNW_026_095_D_070_028_2000_SH_20260726T191032_20260726T191107_20260819T191031_20260819T191106_P05023_N_F_J_001",
+          "NISAR_L2_PR_GUNW_028_095_D_070_029_2000_SH_20260819T191031_20260819T191106_20260831T191031_20260831T191105_P05023_N_F_J_001",
+          "NISAR_L2_PR_GUNW_029_095_D_070_030_2000_SH_20260831T191031_20260831T191105_20260912T191030_20260912T191105_P05023_N_F_J_001",
+          "NISAR_L2_PR_GUNW_030_095_D_070_031_2000_SH_20260912T191030_20260912T191105_20260924T191031_20260924T191105_P05023_N_F_J_001",
+          "NISAR_L2_PR_GUNW_031_095_D_070_032_2000_SH_20260924T191031_20260924T191105_20261006T191031_20261006T191105_P05023_N_F_J_001",
+          "NISAR_L2_PR_GUNW_032_095_D_070_033_2000_SH_20261006T191031_20261006T191105_20261018T191031_20261018T191105_P05023_N_F_J_001"
         ],
-        "granule_ids_truncated": true,
+        "granule_ids_truncated": false,
         "sample_purpose": "download",
-        "n_epochs": 19,
-        "connected_epochs": 2,
-        "download_epochs": 2,
+        "n_epochs": 10,
+        "connected_epochs": 10,
+        "download_epochs": 10,
         "min_fit_points": 4,
-        "epoch_sufficient": false,
-        "warning": "this stack yields 2 connected epoch(s), below MIN_FIT_POINTS=4: `process_case` would refuse the download. Use `--stack 070` (track 070/DESCENDING, 10 epoch(s)) instead.",
-        "why": "largest single-geometry stack (track 020/ASCENDING); 1 of 17 granules, 2 connected epoch(s), 2026-10 .. 2026-10"
+        "epoch_sufficient": true,
+        "warning": null,
+        "why": "largest single-geometry stack (track 095 frame 070/DESCENDING); 9 of 9 granules, 10 connected epoch(s), 2026-06 .. 2026-10"
       },
       "platforms": [
         "NISAR"

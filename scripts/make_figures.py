@@ -74,6 +74,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.domain import contracts as C  # noqa: E402
+from pipeline.science import transforms as V  # noqa: E402
 
 # ---------------------------------------------------------------------------------------------
 # Fixed presentation constants. These are *styling*, not science: thresholds and units are read
@@ -112,8 +113,10 @@ COHERENCE_CMAP = "viridis"  # sequential, perceptually ordered; low coherence is
 
 FOOTER_FONTSIZE = 6.4
 FOOTER_TOP = 0.160
-FOOTER_STEP = 0.028
-FOOTER_MAX_LINES = 6
+#: Seven lines is what the timeseries figure needs since contract v1.1 added the seasonal-split
+#: sentence (files, provenance, source, AOI endpoints, detection floor, seasonal split, units).
+FOOTER_MAX_LINES = 7
+FOOTER_STEP = 0.022
 AXES_BOTTOM = 0.245
 
 
@@ -140,6 +143,10 @@ class CasePanel:
     coherence_min: float
     n_rows_in_file: int
     n_below_coherence: int
+    #: v1.1 fitted seasonal trio, read from the grid (None on a pre-1.1 artefact set).
+    median_seasonal_amp_mm: float | None
+    median_ratio_R: float | None
+    dominant_regime: str | None
 
     @property
     def n_cells(self) -> int:
@@ -183,6 +190,11 @@ class CasePanel:
 
 def _note(message: str) -> None:
     print(f"note: {message}")
+
+
+def _ratio_text(value: float | None) -> str:
+    """`R = |trend|/A` for a figure that must never print `nan` or imply a fabricated ratio."""
+    return "n/a (not fitted)" if value is None else f"{value:.3f}"
 
 
 def local_metres(lon: pd.Series, lat: pd.Series) -> tuple[pd.Series, pd.Series]:
@@ -330,6 +342,31 @@ def load_case(processed: Path, case_id: str) -> CasePanel | None:
 
     n_below = int((numeric["coherence"] < coherence_min).sum())
 
+    # v1.1 seasonal trio. Read, never derived: `seasonal_amp_mm` / `ratio_R` / `regime` are the
+    # per-cell outputs of the pipeline's harmonic fit, and this script only summarises them (the
+    # contract validator has already certified their presence and ranges).
+    median_seasonal_amp_mm: float | None = None
+    median_ratio_R: float | None = None
+    dominant_regime: str | None = None
+    if {"seasonal_amp_mm", "ratio_R", "regime"} <= set(grid.columns):
+        seasonal_amp = pd.to_numeric(grid["seasonal_amp_mm"], errors="coerce").dropna()
+        ratio = pd.to_numeric(grid["ratio_R"], errors="coerce").dropna()
+        regimes = grid["regime"].dropna().astype(str)
+        if not seasonal_amp.empty:
+            median_seasonal_amp_mm = float(seasonal_amp.median())
+        if not ratio.empty:
+            median_ratio_R = float(ratio.median())
+        if not regimes.empty:
+            counts = regimes.value_counts()
+            dominant_regime = sorted(
+                counts.items(), key=lambda item: (-int(item[1]), str(item[0]))
+            )[0][0]
+    else:
+        _note(
+            f"case '{case_id}' has no seasonal_amp_mm/ratio_R/regime columns: the seasonal "
+            "annotation and the footer sentence will be omitted (contract v1.1 requires them)"
+        )
+
     return CasePanel(
         case_id=case_id,
         name=str(meta.get("name") or case_id),
@@ -345,6 +382,9 @@ def load_case(processed: Path, case_id: str) -> CasePanel | None:
         coherence_min=float(coherence_min),
         n_rows_in_file=n_rows_in_file,
         n_below_coherence=n_below,
+        median_seasonal_amp_mm=median_seasonal_amp_mm,
+        median_ratio_R=median_ratio_R,
+        dominant_regime=dominant_regime,
     )
 
 
@@ -841,6 +881,30 @@ def build_timeseries_figure(panels: Sequence[CasePanel], path: Path) -> dict:
         )
     else:
         extra.append("No case declares a null result, so no detection-floor band is drawn.")
+    # v1.1: the fitted seasonal split, which is what makes the wiggle in these curves quotable.
+    seasonal = [
+        f"{p.case_id} A={p.median_seasonal_amp_mm:.2f} mm, R={_ratio_text(p.median_ratio_R)}, "
+        f"{p.dominant_regime}"
+        for p in with_series
+        if p.median_seasonal_amp_mm is not None and p.dominant_regime is not None
+    ]
+    if seasonal:
+        cycles = (
+            (last_date_all - first_date).days / V.DAYS_PER_YEAR if len(with_series) else 0.0
+        )
+        extra.append(
+            "Fitted seasonal term (per-cell harmonic fit, contract v1.1; not a typed constant): "
+            + "; ".join(seasonal)
+            + f". The span is {cycles:.2f} annual cycles vs the "
+            f"{V.MIN_SEASONAL_COVERAGE_PER_HARMONIC:.2f}-cycle-per-harmonic identifiability gate "
+            "of pipeline/science/transforms.py, which is what makes the amplitude publishable."
+            " Regime is classify_regime(R = |trend| / A_seasonal): inelastic R > 2, elastic R < 1."
+        )
+    else:
+        extra.append(
+            "No case publishes the v1.1 seasonal columns, so no seasonal split is annotated "
+            "(the grid predates contract 1.1)."
+        )
     extra.append(
         f"Units from the artefacts: series value in {C.UNIT}; grid velocity in {C.VELOCITY_UNIT}. "
         f"Generated by scripts/make_figures.py · {DPI} dpi · {PX_W}×{PX_H} px"
@@ -1039,6 +1103,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"median={panel.median_velocity:+8.1f} mm/yr  product={panel.product} "
             f"revisit={panel.revisit_days} d  provenance={panel.provenance_id}"
         )
+        if panel.median_seasonal_amp_mm is not None:
+            print(
+                f"  {'':<12} {'':<18} seasonal A_med={panel.median_seasonal_amp_mm:6.2f} mm"
+                f"  R_med={_ratio_text(panel.median_ratio_R):>8}  regime={panel.dominant_regime}"
+            )
         if not panel.provenance_ok():
             _note(
                 f"provenance_id '{panel.provenance_id}' does not match the frozen format "

@@ -76,7 +76,7 @@ attributes). Do not guess these — the inspector prints them.
 ## 4. Phase → displacement
 
 ```
-d_LOS = -λ / (4π) · φ_unwrapped          (sign convention must be validated, see below)
+d_LOS = -λ / (4π) · φ_unwrapped          (default label: toward-sensor — positive = toward the sensor = uplift; still to be validated, see below)
 λ_L  ≈ 0.2384 m                          (NISAR L-band, ~1.2575 GHz — confirm in metadata)
 ```
 
@@ -106,7 +106,10 @@ dominates the budget (README §13) — and why a single bad cycle slip outranks 
 Then project LOS → vertical with `pipeline/science/transforms.py` (`v_north ≈ 0`), and reference to
 the case's `reference_point` before aggregation. **Axis and sign conventions differ between
 ISCE2, MintPy and SNAP** (README §6): validate against GNSS or a published rate before publishing a
-velocity, and record which convention was used.
+velocity, and record which convention was used. The pipeline's default sign label is
+`toward-sensor`, which matches the frozen `u` above (`u_up = cos θ > 0`, so uplift is positive LOS);
+`--los-sign away-from-sensor` is the flip. The label was renamed to match the arithmetic in O-08; the
+factor -1.0 and every number it produces are unchanged.
 
 ## 5. What we still do not know
 

@@ -319,7 +319,17 @@ def list_available_cases(
 
 def _normalise_grid(grid: pd.DataFrame) -> pd.DataFrame:
     df = grid.copy()
-    numeric_cols = ("lat", "lon", "val_t1", "val_t2", "delta_change", "velocity_mm_yr", "coherence")
+    numeric_cols = (
+        "lat",
+        "lon",
+        "val_t1",
+        "val_t2",
+        "delta_change",
+        "velocity_mm_yr",
+        "seasonal_amp_mm",
+        "ratio_R",
+        "coherence",
+    )
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="raise").astype("float64")
@@ -327,6 +337,7 @@ def _normalise_grid(grid: pd.DataFrame) -> pd.DataFrame:
         "cell_id",
         "land_use",
         "risk_level",
+        "regime",
         "case_id",
         "sensor",
         "product",
@@ -347,8 +358,9 @@ def _normalise_grid(grid: pd.DataFrame) -> pd.DataFrame:
 
 def _normalise_timeseries(series: pd.DataFrame) -> pd.DataFrame:
     df = series.copy()
-    if "value" in df.columns:
-        df["value"] = pd.to_numeric(df["value"], errors="raise").astype("float64")
+    for col in ("value", "trend_mm_yr", "seasonal_mm"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="raise").astype("float64")
     for col in ("case_id", "cell_id", "date", "unit", "sensor", "product", "quality", "provenance_id"):
         if col in df.columns:
             df[col] = df[col].astype(str)

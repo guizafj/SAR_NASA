@@ -211,19 +211,27 @@ def build_meta(
     median = float(pd.Series(velocities).median())
     p05 = float(pd.Series(velocities).quantile(0.05))
     p95 = float(pd.Series(velocities).quantile(0.95))
-    median_amp = float(pd.Series(model.seasonal_amp_mm).median())
-    median_ratio = float(pd.Series(model.ratio_R).median())
+    median_seasonal_amp = float(pd.Series(model.seasonal_amp_mm).median())
+    median_ratio_R = float(pd.Series(model.ratio_R).median())
+    # Deterministic tie-break by label: `value_counts` alone would let two regimes with equal
+    # counts swap places between runs and break byte-identical output.
     regime_counts = pd.Series(model.regime).value_counts()
+    dominant_regime = sorted(regime_counts.items(), key=lambda item: (-int(item[1]), str(item[0])))[0][0]
 
     stats: dict[str, Any] = {
         "n_cells": model.n_cells,
         "n_dates": len(model.dates),
         "median_velocity_mm_yr": round(median, 3),
-        "median_seasonal_amp_mm": round(median_amp, 3),
-        "median_ratio_R": round(median_ratio, 3),
-        "dominant_regime": str(regime_counts.index[0]),
+        "median_seasonal_amp_mm": round(median_seasonal_amp, 3),
+        "median_ratio_R": round(median_ratio_R, 6),
+        "dominant_regime": str(dominant_regime),
         "p05_velocity_mm_yr": round(p05, 3),
         "p95_velocity_mm_yr": round(p95, 3),
+        # The evidence behind the seasonal trio, so a reader can re-run the gate without trusting
+        # the prose: the harmonic order actually fitted and the two diagnostics harmonic_fit used.
+        "seasonal_n_harmonics": int(model.n_harmonics),
+        "annual_coverage": round(float(model.annual_coverage), 6),
+        "design_condition": round(float(model.design_condition), 6),
         "n_series_rows": int(n_series_rows),
         "n_context_features": int(n_context_features),
         "per_cell_series": per_cell,
@@ -265,8 +273,12 @@ def build_meta(
                 "displacement d(t) = v*(t-t_first) + A_seasonal*(cos(2*pi*(t-c)/yr) - cos(2*pi*c/yr)) "
                 "with c the centre of the observation window, so both endpoints carry the same "
                 "seasonal offset and val_t1 = 0 mm at the reference epoch; val_t1/val_t2 are d(t) at "
-                "the first/last date; velocity_mm_yr is the trend coefficient of a joint "
-                "[1, t, cos, sin] fit (trend/seasonal split, README §6 P6); cells below the frozen "
+                "the first/last date; velocity_mm_yr, seasonal_amp_mm, ratio_R, regime, trend_mm_yr "
+                "and seasonal_mm are ALL outputs of one joint fit per cell by "
+                "pipeline.science.transforms.harmonic_fit over the whole window "
+                f"({model.n_harmonics} annual harmonic(s), README §6 P6), not values copied from "
+                "the config; ratio_R = abs(velocity_mm_yr)/seasonal_amp_mm and regime is "
+                "transforms.classify_regime on the same pair; cells below the frozen "
                 "coherence_min are dropped, so water and other decorrelating surfaces are absent "
                 "rather than zero; coherence, land use, risk bands and context layers are "
                 "deterministic spatial rules; land use and its polygons share one assignment."

@@ -247,7 +247,7 @@ def build_stack(directory: pathlib.Path) -> Stack:
         phase = -4.0 * np.pi * (los_mm / 1000.0) / WAVELENGTH_M
         phase[NAN_PATCH[0] : NAN_PATCH[1], NAN_PATCH[2] : NAN_PATCH[3]] = np.nan
         name = (
-            f"NISAR_L2_PR_GUNW_001_005_A_{index + 1:03d}_002_4000_SH_"
+            f"NISAR_L2_PR_GUNW_{index + 1:03d}_001_A_005_{index + 2:03d}_4000_SH_"
             f"{reference_date.replace('-', '')}T031245_"
             f"{secondary_date.replace('-', '')}T031245.h5"
         )
@@ -600,7 +600,10 @@ def test_link_6_refusals_hold_across_stages(tmp_path):
     # (a) A stack that mixes relative orbits is refused by process_case, with a non-zero CLI exit.
     stack = build_stack(tmp_path / "granules")
     moved = stack.granules[1]
-    renamed = moved.with_name(moved.name.replace("GUNW_001_005_A", "GUNW_002_005_A", 1))
+    # Only the TRACK token moves (001 -> 002); the cycle chain stays intact. The marker can only
+    # be the track token under the census order.
+    renamed = moved.with_name(moved.name.replace("_001_A_005_", "_002_A_005_", 1))
+    assert renamed.name != moved.name, "the fixture name must contain the track token"
     moved.rename(renamed)
     stack.granules[1] = renamed
 

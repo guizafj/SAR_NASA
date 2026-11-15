@@ -7,18 +7,22 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 
 | | |
 |---|---|
-| Demo | *not deployed yet* — the app shell is the frontend role's next task |
+| Demo | *no public URL yet* — `app.py` boots locally on the committed mock (verified 2026-11-14: Streamlit `/_stcore/health` → 200, root → 200); deployment is the last open deliverable |
 | Repository | `github.com/neoyuls/SAR_NASA`, branch **`yuls`** (this is the branch with the artefacts; `main` lags) |
 | Video | script ready in [`docs/video-script.md`](docs/video-script.md); recording pending |
 | Team | **yuls** SAR science, GIS, product · **pozo** geospatial backend, deployment · **fradiaz** frontend, interaction |
 | Challenge | NASA Space Apps 2026 — *Dancing with the SARs* |
 
-> **What works today (2026-11-14, ~hour 40 of 48).** Contract v1.1 frozen and enforced by tests ·
+> **What works today (2026-11-14, ~hour 41 of 48).** Contract v1.0 frozen and enforced by tests ·
 > three contract-conformant **mock** artefact sets · the whole offline pipeline, rehearsed on
-> synthetic granules · `./scripts/check_phase_a.sh` → PASS, and a fresh clone of this branch runs
-> the full suite green.
+> synthetic granules · a Streamlit shell (`app.py`) that boots on the committed mock with no
+> credentials · loaders, validation, filters and the PyDeck adapter (`src/data/`, `src/domain/`)
+> with their own tests · `deploy/Dockerfile` and `.github/workflows/ci.yml` in the tree ·
+> `./scripts/check_phase_a.sh` → PASS, `./scripts/preflight.sh` → `VERDICT: READY` (7/7 gates),
+> and a fresh clone of this branch runs the full suite green.
 >
-> **What does not exist yet:** any UI, any run on a real granule, any deployed URL.
+> **What does not exist yet:** any run on a real granule, and any deployed URL. The image build and
+> the first CI run are committed but unverified here, because this machine has no `docker` binary.
 > **Every number in `data/processed/` is synthetic** — `product: "mock"`, and every artefact says so
 > in its own `provenance` and `limitations`.
 >
@@ -36,7 +40,7 @@ them barely moves at all.
 
 | Capability | What the user does |
 |---|---|
-| **Time scrub** | Drag a date slider; charts and KPIs update across the 12 dates — the **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid) |
+| **Time scrub** | Drag a date slider; charts and KPIs update across the 62 dates — the **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid) |
 | **Click to interrogate** | Click a cell → displacement series, trend, quality (needs `--per-cell-series` artefacts; the committed set carries only the AOI aggregate) |
 | **Compare mode** | Three cities on **one shared colour scale** |
 | **Filter** | Coherence, land use, risk level, critical-velocity threshold |
@@ -70,17 +74,17 @@ Mexico City's bowl, Jakarta's coastal edge, and Málaga essentially blank. Gener
 ### Verify in 15 seconds
 
 ```bash
-./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.641 MB / 15 MB
+./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.687 MB / 15 MB
 ./scripts/preflight.sh         # fuller: seven gates, per-gate table, ends in a VERDICT line
 ```
 
 | case | cells | window | median mm/yr | product | source |
 |---|---:|---|---:|---|---|
-| `mexico-city` | 11,694 | 2026-07-02 → 2026-11-11 | −62.1 | mock | synthetic |
+| `mexico-city` | 11,694 | 2024-11-10 → 2026-11-12 | −62.1 | mock | synthetic |
 | `jakarta` | 4,811 | same window | −25.4 | mock | synthetic |
 | `malaga` | 2,645 | same window | −1.4 | mock | synthetic |
 
-The full suite (`./scripts/python.sh -m pytest tests`, ~2.5 min) is the thorough check; the gate is
+The full suite (`./scripts/python.sh -m pytest tests`, ~4.5 min) is the thorough check; the gate is
 what a judge should run first. `scripts/demo_numbers.py` prints every number a presenter may say,
 derived from the artefacts rather than typed into a slide.
 
@@ -184,8 +188,8 @@ Source of truth (code): **[`src/domain/contracts.py`](src/domain/contracts.py)**
 
 | | |
 |---|---|
-| Version | `1.0`, revision 1, frozen 2026-11-14 |
-| Fingerprint | `9a749cea…` (`contract_fingerprint()`) |
+| Version | `1.1`, revision 2, frozen 2026-11-14 |
+| Fingerprint | `ed92be80…` (`contract_fingerprint()`) |
 | Changing it | bump `SCHEMA_VERSION` + `CHANGELOG` entry + PR section `Impacto sobre el contrato:` + review by all three roles |
 | Enforced by | the contract, mock-plausibility and gate suites (`./scripts/python.sh -m pytest tests -q`); any silent rename, retype or enum drift fails the suite **and** the gate |
 
@@ -218,114 +222,6 @@ nothing is a failure. `--allow-empty` exists for pre-mock CI and says so loudly 
 
 `✓` = live-checked. All open/free unless noted.
 
-| Member | Role | Owns | Ships |
-|---|---|---|---|
-| **yuls** | Geospatial & visualization lead | SAR ingest, InSAR, metrics, tiles, **change detection**, cartography, colour scales | `pipeline/`, all artefacts, layer styling + legend |
-| **pozo** | Backend & infrastructure | Serving, build orchestration, CI/CD, caching, deploy, route contract | `serve/`, `deploy/`, CI, publish step |
-| **fradiaz** | Frontend & interaction | SPA shell, map wiring, slider, charts, **pins + evidence card**, URL state, a11y | `app/src/{ui,state,charts}`, the 5 views |
-
-### Ownership detail
-
-**yuls — geospatial**
-- `asf_search` → HyP3/OPERA/EGMS ingest; ISCE2+MintPy where needed
-- LOS→vertical, harmonic decomposition, velocity/gradient/volume metrics
-- Coherence/amplitude z-scores, persistence, MMU, event polygons, chips
-- COG + PMTiles pyramids at z8–z14; series JSON tiling
-- Colour scale design — incl. the **global shared scale** that makes Málaga look flat
-
-**pozo — backend**
-- Static artefact hosting + CDN/cache headers
-- Build orchestration: run `pipeline/` on CI, publish on success
-- The **route contract** and its validation
-- Deployment, uptime, "does the demo URL work at 4 a.m."
-
-**fradiaz — frontend**
-- MapLibre GL JS + deck.gl layer hierarchy; raster re-tiling on zoom
-- Date slider, swipe divider, play/pause; charts (uPlot/Observable Plot)
-- Event pins, popup/evidence card, type filters, table view
-- URL-hash state; linked brushing; the **shared/independent legend toggle**
-- Keyboard access, mobile layout, loading/empty/error states
-
-### Interface contracts — freeze on Day 0
-
-**1. `meta.json`** — yuls defines → pozo serves → fradiaz consumes (§3)
-
-**2. `series/{z}/{x}/{y}.json`** — yuls produces → fradiaz renders
-
-```jsonc
-{
-  "city": "mexico-city", "cell": [12, 1145, 1650], "n_pixels": 842,
-  "dates": ["2026-01-12", "2026-01-24", "2026-02-05"],
-  "displacement_mm": [0, -3.1, -7.4],
-  "coherence": [0.82, 0.79, 0.81],
-  "fit": { "trend_mm_yr": -128, "seasonal_amp_mm": 9.4, "r2": 0.91 },
-  "regime": "inelastic", "quality": "good"
-}
-```
-
-**3. HTTP routes** — pozo defines → fradiaz consumes
-
-```
-GET /{city}/meta.json
-GET /{city}/vel.pmtiles
-GET /{city}/coh.pmtiles
-GET /{city}/bs/{date}.pmtiles
-GET /{city}/events.pmtiles          # vector, polygon geom
-GET /{city}/series/{z}/{x}/{y}.json
-GET /{city}/chips/{event_id}_{pre|post}.png
-GET /global-scale.json
-```
-
-**4. Event attributes** — the property table baked into `events.pmtiles` (§4)
-
-### Build order
-
-| Window | yuls | pozo | fradiaz |
-|---|---|---|---|
-| **H0–2** | Write `meta.json` + `series` + event schemas; commit **stubs** | Static host + routes | Scaffold SPA against stubs |
-| **H2–20** | Ingest → velocity → tiles | CI auto-publish | Map + slider + charts on stubs |
-| **H20–30** | Metrics, shared scale, **event detection + chips** | Cache headers, size audit | Wire real artefacts; pins + popup |
-| **H30–40** | QC, validation table, figures | Deploy hardening | Polish, a11y, table view |
-| **H40–48** | Provenance badges, docs | Final deploy | Demo script, rehearsal |
-
-**The stub rule:** fradiaz never blocks on yuls. Ship three fake `series` files, one fake
-`meta.json`, and a hand-authored `events.geojson` in H0 — build the whole UI against them.
-
-### Explicit non-overlaps
-- yuls writes no app UI code (layer styles as JSON config only).
-- pozo touches no scientific parameters — no thresholds, no colour ranges.
-- fradiaz computes no geospatial quantity client-side; if a number isn't in an artefact, it
-  doesn't exist.
-
-### Definition of done
-- **yuls:** `meta.json` validates for CDMX y Málaga; Yakarta se incorpora solo como extensión; cada capa lleva
-  `provenance` + `revisit_days`; events pass MMU; precision reported on a 50-event sample.
-- **pozo:** all 8 routes serve with correct MIME + `pmtiles` range-request support; TTFB < 200 ms;
-  CI reproduces artefacts from clean checkout.
-- **fradiaz:** las vistas de mapa, KPIs, serie temporal, comparación y educación son navegables;
-  la comparación muestra escala compartida/independiente y Málaga conserva su cota de detección.
-
-### Bus factor
-Each member writes `docs/handoff-<name>.md` — what they own, how to run it, the one thing that
-will break.
-
----
-
-## 6. Study areas
-
-| City | AOI | Role | Primary hazard |
-|---|---|---|---|
-| Mexico City, MX | 19.43 N, −99.13 W | Case A (extreme) | Differential subsidence → infrastructure, drainage inversion |
-| Jakarta, ID | −6.21 S, 106.85 E | Case B (coastal) | Inundation; 64% piped-water coverage drives well pumping |
-| Málaga, ES | 36.72 N, −4.42 W | **Control / negative** | Seawater intrusion; reservoir depletion |
-
----
-
-## 7. Data sources
-
-`✓` = live-checked. Open/free unless noted.
-
-### SAR / deformation
 | Source | URL | Status |
 |---|---|---|
 | NISAR product summary (ASF) | `asf.alaska.edu/datasets/daac/nisar` | ✓ |
@@ -348,10 +244,21 @@ will break.
 | Sentinel-1 SLC (5 y window) | 250+ granules, ~1.07 TB | 250+ granules, ~1.18 TB | 250+ granules, ~0.96 TB |
 | EGMS | not eligible | not eligible | manual portal download |
 
-Each report also derives `stacks` per (track, flight direction) plus a `recommended_stack` (largest
-single-geometry stack, sampled evenly across its window). `download --stack recommended` plans from
-it, so a fetch is one geometry by construction instead of a preview of everything ASF returned —
-which is what the mixed-geometry guard would otherwise refuse.
+Each report also derives `stacks` per (track, frame, flight direction) plus a `recommended_stack`
+(largest single-geometry stack, sampled evenly across its window). `download --stack recommended`
+plans from it, so a fetch is one geometry by construction instead of a preview of everything ASF
+returned — which is what the mixed-geometry guard would otherwise refuse.
+
+**Every recommended stack clears the fit minimum.** Counted from the same JSON, the recommended
+stack per case is `mexico-city` track 113 / frame 079 descending (33 granules, 22 epochs in one
+connected run, 13 of them in the download window), `jakarta` 018 / 092 descending (8 granules, 9
+epochs) and `malaga` 095 / 070 descending (9 granules, 10 epochs) — all above
+`MIN_FIT_POINTS = 4`, so all three carry `epoch_sufficient: true`. This paragraph used to report
+`malaga` as **2**, an insufficiency that turned out to be an artefact of grouping by frame where the
+grammar says track: two orbits sat under one frame label. The grammar is reconciled (O-06) and the
+reports were re-derived from their unchanged granule lists, so the number is 10. Intersecting the AOI
+is still not the same as having a chain long enough to fit — here it is, and Málaga is the negative
+control for signal, not for fittability.
 
 **Consequences, decided now and written into the contract:**
 
@@ -423,10 +330,15 @@ azimuth conventions give identical numbers here — and "purely vertical" is an 
 measurement.
 
 **Sign and heading conventions are recorded, not validated.** `--los-sign` (default
-`away-from-sensor`) and `--heading-convention` (default `platform`) are written into `provenance`,
-and `provenance.method` keeps its "NOT yet validated against GNSS" hedge; passing the flags restates
-the convention, it does not check it. **Axis/sign conventions differ between ISCE2, MintPy and
-SNAP — validate against GNSS before publishing numbers.**
+`toward-sensor`: `d_LOS = -λ/4π·φ` with a **positive** value meaning the ground moved toward the
+sensor, i.e. uplift, because up is positive and `u_up = cos θ > 0` — the same direction
+`project_to_los` computes; `away-from-sensor` is the `+λ/4π` flip) and `--heading-convention` (default
+`platform`) are written into `provenance`, and `provenance.method` keeps its "NOT yet validated
+against GNSS" hedge; passing the flags restates the convention, it does not check it. **O-08 is
+closed by renaming, not by re-deriving:** the default factor is still -1.0, so no published number
+moved — only the label (and the prose derived from it) now matches the projection. Validate the
+convention against GNSS before publishing real numbers.
+**Axis/sign conventions differ between ISCE2, MintPy and SNAP.**
 
 **Time-series model** (drives the trend/seasonal split) — *harmonic part implemented, step part
 not*:
@@ -517,6 +429,12 @@ Three people, three verticals, one frozen contract. Source of truth (Spanish, pr
 
 ## 8. Repository layout
 
+**[`CONTEXT.md`](CONTEXT.md)** is the concise project orientation. Its detailed companions cover
+[science](docs/science-guide.md), [pipeline internals](docs/pipeline-internals.md), and
+[verification](docs/verification.md); the frozen contract remains in `docs/data-contract-v1.md`.
+The choices made along the way, each with its evidence and the condition that would reverse it, are
+recorded in **[`docs/decisions.md`](docs/decisions.md)**.
+
 ```
 ├── README.md                          ← this file (entry point)
 ├── flujo_trabajo_y_responsabilidades.md   ← operative doc: roles, branches, phases (Spanish)
@@ -530,10 +448,10 @@ Three people, three verticals, one frozen contract. Source of truth (Spanish, pr
 │   └── route-contract.md              ← post-MVP Option B: PMTiles routes (not built yet)
 ├── src/
 │   ├── domain/contracts.py            ← frozen schema, enums, thresholds, validators
-│   ├── domain/{filters,metrics}.py    ← Rol 1 (planned)
-│   ├── data/{loaders,validation}.py   ← Rol 1 (planned)
-│   └── ui/{map_view,charts,kpi_cards,educational}.py  ← Rol 2 (planned)
-├── app.py                             ← Rol 2 (planned): composition only
+│   ├── domain/{filters,metrics,map_adapter}.py  ← Rol 1 (done): filtering, KPIs, PyDeck payload
+│   ├── data/{loaders,ui_bridge,validation}.py    ← Rol 1 (done): cached loaders, cockpit bridge, fail-closed gate
+│   └── ui/                            ← Rol 2 (not built): the shell lives in app.py for now
+├── app.py                             ← Rol 2 (done, local only): Streamlit shell, composition only
 ├── pipeline/
 │   ├── ingest/02_search_download.py   ← availability probe + guarded, resumable download (done)
 │   ├── ingest/aois.json               ← AOI bboxes, CRS, reference points (done)
@@ -554,9 +472,10 @@ Three people, three verticals, one frozen contract. Source of truth (Spanish, pr
 │   ├── check_phase_a.sh               ← contract → suites → artefact gate → handoff summary
 │   ├── make_figures.py                ← the three pitch figures, straight from the artefacts
 │   ├── demo_numbers.py                ← every number the presenter may say, derived not typed
-│   ├── export_grid_geojson.py         ← grid → GeoJSON points for QGIS / kepler.gl
+│   ├── export_grid_geojson.py         ← grid → GeoJSON cell polygons (H3 rings) for QGIS / kepler.gl
+│   ├── style_qgis_layers.py           ← the same palette as generated QGIS .qml styles (no colour declared here)
 │   └── rehearse_first_granule.py      ← runs the runbook's offline steps on a synthetic stack
-├── requirements.txt                   ← pipeline + contract deps (app deps commented out until Rol 2)
+├── requirements.txt                   ← full workspace: pipeline + backend + Streamlit app + tests
 ├── pytest.ini
 ├── data/
 │   ├── raw/                           ← downloads, gitignored
@@ -564,18 +483,6 @@ Three people, three verticals, one frozen contract. Source of truth (Spanish, pr
 └── config/study_cases.yaml            ← primary case + AOI polygon (done; primary = mexico-city)
 ```
 
-**Geospatial py** · *yuls*
-`xarray` · `dask` · `rioxarray` · `rasterio` · `geopandas` · `shapely` · `pyproj` ·
-`rasterstats` · `scipy.ndimage` (z-scores, morphology, Sobel) · `skimage.measure`
-(connected components) · `GDAL` CLI · `pmtiles`
-
-**App** · *fradiaz* (UI) · *pozo* (serving)
-- **MVP actual:** `Streamlit` + `pydeck` + `Plotly`, consumiendo artefactos offline y loaders
-cacheados. No descarga ni procesa HDF5 durante la interacción.
-- **Evolución:** `MapLibre GL JS` + `deck.gl`, `uPlot`/`Observable Plot`, Vite + TypeScript y
-  PMTiles para una entrega estática posterior, sin cambiar el contrato.
-- **Serving:** static host + CDN (Netlify/Pages/S3), GitHub Actions for publish
-- **QC / figures:** QGIS
 `data/raw/` never enters Git. `data/processed/` stays under **15 MB**.
 
 ---
@@ -600,12 +507,26 @@ python3 -m venv .venv
 #    before a socket is opened; `--stack recommended` plans ONE geometry, not a preview of
 #    everything ASF returned.
 ./scripts/python.sh pipeline/ingest/02_search_download.py download \
-    --city mexico-city --source nisar_gunw --stack recommended --max-gb 6 \
-    --probe-sizes --dry-run
-#    NISAR GUNW arrives SIZELESS from the ASF SearchAPI, so without `--probe-sizes` the cap
-#    verifies nothing: it sums 0 MB and cannot refuse. `--probe-sizes` issues one unauthenticated
-#    HEAD per planned granule (~2.34 GB each), so the 12-granule CDMX plan prints 28.23 GB and
-#    exits 5, refusing before any byte moves. See docs/first-granule-runbook.md.
+    --city mexico-city --source nisar_gunw --stack recommended --max-gb 6 --dry-run
+#    Offline and reproducible: no credentials, no writes (a guard executes this exact line).
+#    But NISAR GUNW arrives SIZELESS from the ASF SearchAPI, so this plan cannot refuse on budget:
+#    it sums 0 MB and says the cap was not preflighted, rather than pretending it was.
+#    Details: docs/first-granule-runbook.md.
+
+# 4b. The same plan with sizes resolved, which is what makes `--max-gb` real: one unauthenticated
+#     HEAD per planned granule (~2.34 GB each) reads Content-Length before any granule byte moves.
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city mexico-city --source nisar_gunw --stack recommended --max-gb 6 --probe-sizes --dry-run
+#    exits 5: the 12-granule CDMX plan sums 28.23 GB against the 6 GB cap and refuses.
+#    Raise `--max-gb` only to the size the probe printed (a deliberate act, recorded in
+#    `provenance.json.max_gb`), never blind — see step 5.
+
+# 4c. Spend one granule first, not the stack: `--max-granules N` keeps the FIRST N granules in
+#     reference-date order (O-01), which is the cheapest way to prove the HDF5 reader against a
+#     real file before paying for a whole chain. A plan below `MIN_FIT_POINTS` epochs still
+#     proceeds but warns: one granule is for inspecting the file, not for fitting a case.
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city mexico-city --source nisar_gunw --stack recommended --max-granules 1 --probe-sizes --dry-run
 
 # 5. Download (needs Earthdata credentials AND the one-time ASF application approval;
 #    fails closed, with an actionable message, when either is missing)
@@ -639,7 +560,7 @@ Short branches off `main`, one objective each, merged by PR (full detail in the 
 
 ```
 main
-├── feat/data-contract          ✅ frozen v1.1
+├── feat/data-contract          ✅ frozen v1.0
 ├── feat/pipeline-mock          ← next: unblocks the app
 ├── feat/gis-context
 ├── feat/backend-map-data
@@ -668,7 +589,7 @@ merged. Before submission:
 git checkout main && git merge --ff-only yuls && git push && git checkout yuls
 ```
 
-Everything under `data/processed/` is 1.73 MB (1.641 MB of artefacts plus the `_availability/`
+Everything under `data/processed/` is 1.97 MB (1.687 MB of artefacts plus the `_availability/`
 evidence), so it belongs in the repo; `data/raw/` never does.
 
 **Working safely with uncommitted work.** On 2026-11-14 a `git reset --hard` silently reverted every
@@ -699,11 +620,12 @@ Use `git status` and `git diff` to inspect — they cannot lose work.
       `process_case` → `validate_artifacts`) and tested on synthetic granules
 - [ ] Real-data path **run on an actual granule** (blocked on Earthdata credentials + ASF approval)
 - [x] Mock artefacts committed and pushed once (`01de89e` on `yuls`) — pozo and fradiaz can pull them
-- [ ] **AOI refresh committed** — `config/aoi/*.geojson` (untracked) plus the artefacts regenerated from
-      them; until this is committed, a clone resolves the old rectangles
-- [ ] The app boots on the committed mock alone
+- [x] **AOI refresh committed** — `config/aoi/*.geojson` plus the artefacts regenerated from them; a
+      fresh clone resolves the current rings, and `tests/test_aoi_geometry.py` holds the single-ring rule
+- [x] The app boots on the committed mock alone (`/_stcore/health` → 200, `/` → 200, no credentials)
+- [ ] CI is committed (`.github/workflows/ci.yml` runs the contract self-check, the artefact gate and
+      the suite); no red/green CI run has been observed from this machine
 - [x] `config/study_cases.yaml` with the primary case and the AOI polygon
-- [ ] CI runs the contract tests and `pipeline/validate_artifacts.py`
 - [ ] Local install verified by each member, independently of the others
 - [ ] Units, thresholds and `provenance` confirmed **before** real data replaces the mock
 
@@ -751,22 +673,64 @@ Error budget, largest first: **unwrapping ≫ troposphere ≫ orbital ≫ DEM �
 
 *Cumulative displacement since the first acquisition, with Málaga's detection floor shaded (±1.5
 mm/yr over the window). The series are referenced to the first epoch, so they start at exactly 0 mm
-— and the seasonal bulge is visible mid-window rather than masquerading as secular motion.
-**Do not publish `seasonal_amp_mm` from a ~4.5-month stack:** the artefacts' own `limitations`
-record that the seasonal term is not separable from the secular one here, so this curve shows the
-shape, not a measured amplitude.*
+— and the seasonal bulge is visible mid-window rather than masquerading as secular motion. **The
+seasonal amplitude is a published fit, not a typed constant:** the window now spans two full annual
+cycles and the design sits well inside its conditioning limit, so `seasonal_amp_mm`, `ratio_R` and
+`regime` come from `harmonic_fit`. On the earlier, much shorter window the gate could not identify
+the annual harmonic at all, and the artefacts of that era published an amplitude anyway while
+their own `limitations` said not to — the contradiction the two-year window removes.*
 
-**Limitations** (also shipped inside `meta.limitations`):
+**Limitations.** The per-case subset also ships inside each artefact's `meta.limitations`; the rest
+are project-level statements that no single artefact carries.
 
 1. Málaga may sit at the detection floor — the bound *is* the result.
-2. CDMX is not coastal; don't claim a coastal framing across all cases.
-3. GUNW posting is 80 m — city scale, not building scale.
+2. CDMX is not coastal; do not claim a coastal framing across all three cities.
+3. NISAR GUNW posting is 80 m — city scale, not building scale.
 4. NISAR urban coverage is not guaranteed (§5).
 5. Urban SAR flood mapping is confounded by double-bounce and shadow; use coherence-loss change
    detection, not thresholding.
 6. Coherence depends on revisit interval; **NISAR 12-day ≠ Sentinel-1 6-day**. Never pool them.
 7. "Changes in imagery" ≠ "changes on the ground" — layover/shadow move with acquisition geometry.
 8. Velocity is the calibrated claim; change detection is a supporting layer, not the headline.
+9. **Vertical comes from one geometry, with the horizontal components assumed zero**
+   (`v_north = 0`, `v_east = 0`, so `v_up = d_LOS/cosθ`). Real horizontal motion is therefore folded
+   into the vertical rate — the east sensitivity reaches ±0.63 — and the LOS sign/heading convention
+   is **recorded but not validated**: with zero horizontals no vertical rate can validate it (§6, and
+   the runbook's Step 6 note).
+10. **No real granule has been downloaded or processed.** All three cases are `product: "mock"` and
+    every artefact's own `limitations` says so; what this submission demonstrates is the schema, the
+    pipeline and the map logic — not NISAR velocities.
+11. **The two granule parsers now agree with the ASF filename census (O-06, fixed 2026-11-14).**
+    Token 4 is a 12-day *repeat-cycle bin* of the reference acquisition, not the track; after the
+    product token the order is `cycle, track, A|D, frame, secondary cycle` (tokens 4–8).
+    `pipeline/process_case.py` (`_GRANULE_RE`, `parse_granule_identity`) and
+    `pipeline/ingest/02_search_download.py` (`parse_granule`, which `derive_stacks` groups by) both
+    read track = token 5 and frame = token 7, and the availability reports were re-derived from
+    their unchanged raw granule lists under that grammar. Until then the science parser read
+    track/frame one token left and the ingest parser read the frame *as* the track, so a genuinely
+    connected multi-date stack could be refused as "mixes relative orbits" and two orbits could be
+    merged under one frame label. Nothing published was affected either way: the mock path never
+    parses a granule name, and its provenance digest hashes `case|product|seed`.
+12. **The LOS sign label contradicted the projection arithmetic (O-08, closed by renaming).**
+    `project_to_los` builds `u = [cosθ, −sinθcosα, −sinθsinα]`, so with zero horizontals **uplift
+    gives positive LOS** (toward-sensor-positive) and subsidence negative. The phase conversion's
+    default factor has always been -1.0 — exactly that arithmetic — but it was labelled
+    `away-from-sensor`, and that label landed in `meta.provenance.method`. The label and its prose
+    now say `toward-sensor`, the default factor stays -1.0, and **no published number changed**
+    (the mock synthesises millimetres directly, so none was ever at risk). What remains open is
+    validation, not naming: the convention is still unvalidated against GNSS (`--validated-against`).
+13. **A stack shorter than three quarters of a year fits no annual harmonic, and still publishes a
+    grid.** `harmonic_order` returns 0 below `MIN_SEASONAL_COVERAGE_PER_HARMONIC` (0.75 yr), so the
+    case is a plain trend: `seasonal_amp_mm` is exactly 0.0 — meaning *"not fitted"*, never *"no
+    seasonality measured"*, which would be a claim about the ground — `ratio_R` is **null** (the
+    column is still required, but `|trend| / 0` is undefined, so no number is invented), and
+    `regime` is `"transitional"`, the contract's cannot-classify value, because the
+    secular-vs-seasonal comparison has no seasonal term to compare against. Where no cell in the
+    case fitted a harmonic, `stats.median_ratio_R` is null too, and `meta.limitations` says the term
+    was not fitted and what would publish one. A ~132-day real stack — the planned fetch — is
+    therefore schema-valid but seasonally unfitted: a fitted amplitude needs a chain spanning at
+    least 0.75 yr for one harmonic (≈276 d) or 1.5 yr for two. The two-year mock is unaffected — it
+    spans two annual cycles and does publish a fitted amplitude.
 
 ---
 
