@@ -49,6 +49,7 @@ import datetime as dt
 import hashlib
 import json
 import math
+import numbers
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
@@ -380,6 +381,61 @@ def _series(frame: Any, column: str) -> Any:
         return None
 
 
+def _is_real_number(value: Any) -> bool:
+    """True for a real number, and for nothing that is not one.
+
+    ``bool`` is an ``int`` subclass, so ``isinstance(True, int)`` is True and a JSON ``true`` would
+    otherwise pass as ``1``; it is excluded explicitly. numpy's scalars register in ``numbers``
+    (the pipeline computes the medians with numpy), so ``np.float32``/``np.int64`` are still
+    numbers here. NaN and ±inf *are* real numbers, so the caller checks finiteness: they cannot
+    survive a strict JSON reader and a published statistic must not carry them.
+    """
+    return not isinstance(value, bool) and isinstance(value, numbers.Real)
+
+
+def _is_real_integer(value: Any) -> bool:
+    """True for a whole number, and for nothing that is not one.
+
+    The count counterpart of `_is_real_number`: a cell or date count is a whole number, so ``2.5``
+    and ``"2645"`` are not counts. ``bool`` is excluded for the same reason it is there —
+    ``isinstance(True, int)`` is True, so a JSON ``true`` would otherwise publish as a count of 1.
+    numpy's ``np.int64`` registers in ``numbers.Integral``, so a computed count still passes.
+    """
+    return not isinstance(value, bool) and isinstance(value, numbers.Integral)
+
+
+def _is_null_value(value: Any) -> bool:
+    """True for JSON ``null`` and for the NaN/NA/NaT sentinels a frame uses in its place.
+
+    Whether a null is *legal* is the field's rule, not this helper's: it only classifies. ``pd.NA``
+    raises when coerced to ``bool``, which is why the comparison is guarded.
+    """
+    if value is None:
+        return True
+    try:
+        return not bool(value == value)
+    except Exception:  # noqa: BLE001 - pd.NA/NaT compare to an ambiguous non-boolean
+        return True
+
+
+def _escaped_cell_note(frame: Any, column: str) -> str:
+    """``, e.g. 'abc' (str)`` naming the first cell the numeric gate could not read, or ``""``.
+
+    Message-only: it classifies the raw column *after* the gate has already reached its verdict, so
+    it cannot change one. The sample has to come from the raw values because
+    ``astype("float64", errors="ignore")`` leaves a column it cannot convert exactly as it found
+    it — which is why the gate then failed with a message that named the column but not the value
+    to go and look at.
+    """
+    try:
+        for item in list(_series(frame, column)):
+            if not _is_real_number(item) and not _is_null_value(item):
+                return f", e.g. {item!r} ({type(item).__name__})"
+    except Exception:  # noqa: BLE001 - a sample is optional; never fail while wording a message
+        return ""
+    return ""
+
+
 def _enum_problems(frame: Any, field: Field, problems: list[str]) -> None:
     if field.enum is None or field.name not in _columns(frame):
         return
@@ -530,7 +586,10 @@ def validate_grid(
             if column == "ratio_R" and not observed.ge(0).all():
                 problems.append("grid: ratio_R must be non-negative (abs(trend)/amplitude)")
         except Exception:  # noqa: BLE001 - non-numeric column reported below
-            problems.append(f"grid: {column} is not numeric")
+            # Same verdict as before — only the wording gains the offending cell, which the
+            # generic message did not show. The reader could see *which column* was unusable but
+            # not *which row* to open, so a 15k-row grid with one bad cell gave no way in.
+            problems.append(f"grid: {column} is not numeric{_escaped_cell_note(grid, column)}")
 
     if {"val_t1", "val_t2", "delta_change"} <= set(columns):
         try:
@@ -611,11 +670,29 @@ def validate_timeseries(series: Any, *, dates: Sequence[str] | None = None) -> l
     # The numeric columns are what every consumer plots; a null or a non-finite value would be
     # rendered as a real measurement. `trend_mm_yr`/`seasonal_mm` are 1.1 additions and were not
     # validated at all before this check, so a NaN fit could reach the app unchallenged.
+    # The *type* is checked before any casting: `astype("float64")` silently turns the string
+    # "2.1" into 2.1 and the bool True into 1.0, so a broken serialisation would pass as a
+    # measurement. Nulls and non-finite numbers are reported by the numeric pass below.
     for column in ("value", "trend_mm_yr", "seasonal_mm"):
         if column not in columns:
             continue
+        raw = _series(series, column)
         try:
-            values = _series(series, column).astype("float64")
+            items = list(raw)
+        except Exception:  # noqa: BLE001 - not iterable: the cast below reports it
+            items = []
+        escaped = next(
+            (item for item in items if not _is_real_number(item) and not _is_null_value(item)),
+            None,
+        )
+        if escaped is not None:
+            problems.append(
+                f"timeseries: {column} must hold real numbers, got {escaped!r} "
+                f"({type(escaped).__name__}); a string or a bool is not a measurement"
+            )
+            continue
+        try:
+            values = raw.astype("float64")
         except Exception:  # noqa: BLE001 - non-numeric column reported here, not below
             problems.append(f"timeseries: {column} is not numeric")
             continue
@@ -739,21 +816,82 @@ def validate_meta(meta: Mapping[str, Any]) -> list[str]:
         for key in STATS_REQUIRED_KEYS:
             if key not in stats:
                 problems.append(f"meta: stats missing {key!r}")
+        # The two count keys used to be presence-only: the required-key pass above was the whole
+        # rule, so `"2645"`, `true`, `2.5` and `-1` were all accepted as a cell count and only the
+        # app-level recomputation (`src/data/validation.py`, `len(grid)`) could notice. A count is
+        # a whole number of rows, so the type is checked here and the sign with it: a published
+        # case has at least one cell and one date (`validate_grid` rejects an empty grid outright).
+        for key in ("n_cells", "n_dates"):
+            if key not in stats:
+                continue  # the required-key pass above already reported it
+            value = stats.get(key)
+            if not _is_real_integer(value):
+                problems.append(
+                    f"meta: stats.{key} must be a positive integer, got {value!r} "
+                    f"({type(value).__name__}); a count of rows is a whole number, not a "
+                    "string, a bool or a fraction"
+                )
+            elif value <= 0:
+                problems.append(
+                    f"meta: stats.{key} must be a positive integer, got {value!r}; a published "
+                    "case carries at least one cell and one date"
+                )
         dominant = stats.get("dominant_regime")
         if dominant is not None and str(dominant) not in REGIMES:
             problems.append(
                 f"meta: stats.dominant_regime {dominant!r} is not one of {list(REGIMES)}"
             )
-        for key in ("median_seasonal_amp_mm", "median_ratio_R"):
+        # Every numeric-or-null statistic is classified by *type* first. `median_ratio_R` may be
+        # JSON null when no cell fitted a harmonic, but no key here may hold a string, a bool or a
+        # container: the previous `if isinstance(value, (int, float)) and not isinstance(value,
+        # bool)` guard simply did not fire for those, so a producer that wrote the string "2.1" —
+        # or `true`, which the bool exclusion skipped — passed the contract, and only the
+        # app-level recomputation noticed the arithmetic could not be done. NaN/±inf cannot
+        # survive a strict JSON reader either, so both directions fail closed here. The velocity
+        # trio is included because `p05`/`p95` were not type-checked at all.
+        for key in (
+            "median_velocity_mm_yr",
+            "median_seasonal_amp_mm",
+            "median_ratio_R",
+            "p05_velocity_mm_yr",
+            "p95_velocity_mm_yr",
+        ):
             value = stats.get(key)
-            # `median_ratio_R` may be JSON null when no cell fitted a harmonic, but a non-finite
-            # number is never legal: NaN/inf cannot survive a strict JSON reader and would hide a
-            # broken fit behind a value that merely looks numeric.
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                if not math.isfinite(float(value)):
-                    problems.append(f"meta: stats.{key} must be finite or null, got {value!r}")
-                elif value < 0.0:
-                    problems.append(f"meta: stats.{key} must be non-negative, got {value!r}")
+            if value is None:
+                continue  # JSON null is legal for these keys; the numeric rules follow
+            if not _is_real_number(value):
+                problems.append(
+                    f"meta: stats.{key} must be a finite number or null, got {value!r} "
+                    f"({type(value).__name__}); a string, bool or container is not a statistic"
+                )
+                continue
+            if not math.isfinite(float(value)):
+                problems.append(f"meta: stats.{key} must be finite or null, got {value!r}")
+            elif key in ("median_seasonal_amp_mm", "median_ratio_R") and value < 0.0:
+                problems.append(f"meta: stats.{key} must be non-negative, got {value!r}")
+        # `detection_limit_mm_yr` is a published bound, so it is finite and non-negative wherever
+        # it appears — not only when it is mandatory. The null-result rule below only asks whether
+        # the key is *there*, so a NaN or an inf bound passed beside any ordinary case, and a
+        # negative "limit" banded to the consumer as a real floor. JSON null stays legal: only a
+        # null *result* (|median| < 5 mm/yr) is obliged to publish the bound.
+        limit = stats.get("detection_limit_mm_yr")
+        if limit is not None:
+            if not _is_real_number(limit):
+                problems.append(
+                    f"meta: stats.detection_limit_mm_yr must be a finite, non-negative number or "
+                    f"null, got {limit!r} ({type(limit).__name__}); the detection floor is a "
+                    f"{VELOCITY_UNIT} measurement, not a string, a bool or a container"
+                )
+            elif not math.isfinite(float(limit)):
+                problems.append(
+                    f"meta: stats.detection_limit_mm_yr must be finite, got {limit!r}; NaN or "
+                    "±inf cannot survive a strict JSON reader and is not a detection floor"
+                )
+            elif float(limit) < 0.0:
+                problems.append(
+                    f"meta: stats.detection_limit_mm_yr must be non-negative, got {limit!r}; a "
+                    "detection limit is a magnitude, and the band it defines is ±limit"
+                )
         # The null `ratio_R` must travel with its explanation (docs/data-contract-v1.md §5): if the
         # case fitted no seasonal harmonic, some limitation has to say so, otherwise a reader sees
         # an amplitude of 0 and a null ratio with nothing telling them it means "not fitted".
@@ -774,18 +912,16 @@ def validate_meta(meta: Mapping[str, Any]) -> list[str]:
         # computed number behind an "undefined" marker.
         if stats.get("median_ratio_R") is None:
             amp_median = stats.get("median_seasonal_amp_mm")
-            if (
-                isinstance(amp_median, (int, float))
-                and not isinstance(amp_median, bool)
-                and amp_median > 0.0
-            ):
+            if _is_real_number(amp_median) and amp_median > 0.0:
                 problems.append(
                     f"meta: stats.median_ratio_R is null but median_seasonal_amp_mm is "
                     f"{amp_median!r}; a case that fitted a harmonic has a defined median ratio"
                 )
         median = stats.get("median_velocity_mm_yr")
-        if isinstance(median, (int, float)) and abs(median) < NULL_RESULT_MM_YR:
-            if not isinstance(stats.get("detection_limit_mm_yr"), (int, float)):
+        if _is_real_number(median) and abs(float(median)) < NULL_RESULT_MM_YR:
+            # Same type hole: `isinstance(True, int)` made a JSON `true` count as a published
+            # bound, so the presence test uses the real-number predicate too.
+            if not _is_real_number(stats.get("detection_limit_mm_yr")):
                 problems.append(
                     "meta: |median_velocity_mm_yr| < 5 mm/yr is a null result — "
                     "stats.detection_limit_mm_yr is mandatory (README §13: a null result must "
