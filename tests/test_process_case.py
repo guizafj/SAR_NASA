@@ -844,3 +844,72 @@ def test_duplicate_granule_is_reported_and_deduplicated(tmp_path):
     )
     assert any("duplicate pair" in warning for warning in processed.warnings)
     assert len(processed.epochs) == 4
+
+
+# ---------------------------------------------------------------------------------------------
+# 8. A stack too short for the annual harmonic: the not-fitted seasonal branch
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_short_stack_publishes_the_not_fitted_state(tmp_path):
+    """Four epochs over 36 days fit no harmonic; contract 1.1 still requires the seasonal columns.
+
+    The default fixture spans 36 days, so `transforms.harmonic_order` returns 0 and the chain takes
+    its not-fitted path. That path is invisible in a grid that is merely *valid*, and it is where
+    the honesty rules live: `seasonal_amp_mm` is exactly 0.0 ("the model has no seasonal term",
+    **not** "we measured no seasonality"), `ratio_R` is null everywhere (|trend|/0 is undefined, so
+    any number there would be fabricated) and `regime` is `"transitional"` for every row -- never
+    `"inelastic"`, even though `classify_regime` maps a zero amplitude to `"inelastic"` when the
+    trend is non-zero: that rule is for a *fitted* amplitude, and a zero-harmonic fit never had a
+    seasonal column to classify. The same three statements must reach `meta` (`null`, `0.0`,
+    `n_harmonics = 0`) and one limitation must spell the reason out in words, or a reader sees a
+    null ratio with no explanation.
+    """
+    stack = build_stack(tmp_path / "granules")
+    processed, _, _, (grid, _, meta, _) = chain(stack, tmp_path)
+
+    span_years = (
+        dt.date.fromisoformat(stack.dates[-1]) - dt.date.fromisoformat(stack.dates[0])
+    ).days / V.DAYS_PER_YEAR
+    assert V.harmonic_order(len(stack.dates), span_years) == 0, (
+        "the default fixture is meant to be too short for any harmonic ("
+        f"{len(stack.dates)} epochs over {span_years:.3f} yr); if the ladder now returns a "
+        "harmonic, pick a shorter stack so the not-fitted branch is what this test exercises"
+    )
+    assert any("no annual harmonic fitted" in warning for warning in processed.warnings), (
+        f"the not-fitted branch must announce itself in warnings; got {processed.warnings}"
+    )
+
+    # The grid: an amplitude of exactly 0, a null ratio and no regime verdict.
+    assert (grid["seasonal_amp_mm"] == 0.0).all(), (
+        "seasonal_amp_mm must be exactly 0.0 on every row when no harmonic was fitted, so a "
+        f"fitted-looking value cannot leak through; got {sorted(set(grid['seasonal_amp_mm']))}"
+    )
+    assert grid["ratio_R"].isna().all(), (
+        "ratio_R must be null everywhere when seasonal_amp_mm == 0 (|trend|/0 is undefined); "
+        f"{int(grid['ratio_R'].notna().sum())} row(s) carry a number"
+    )
+    assert (grid["regime"] == "transitional").all(), (
+        "regime must be 'transitional' on every row: a zero-harmonic fit has no seasonal basis, "
+        "so the A==0 -> inelastic rule of classify_regime cannot apply (that rule is for a "
+        f"fitted amplitude); got {sorted(set(grid['regime']))}"
+    )
+
+    # meta.stats carries the same three statements, and the caveat travels with the null.
+    stats = meta["stats"]
+    assert stats["median_ratio_R"] is None, (
+        f"meta.stats.median_ratio_R must be JSON null, not a number or NaN; got {stats['median_ratio_R']!r}"
+    )
+    assert stats["median_seasonal_amp_mm"] == 0.0, (
+        f"meta.stats.median_seasonal_amp_mm must be 0.0, got {stats['median_seasonal_amp_mm']!r}"
+    )
+    assert stats["n_harmonics"] == 0, (
+        f"meta.stats.n_harmonics must name the order actually fitted (0), got {stats['n_harmonics']!r}"
+    )
+    assert any("not fitted" in line.lower() for line in meta["limitations"]), (
+        "a null ratio_R is only honest if meta.limitations says the term was not fitted; "
+        f"limitations were {meta['limitations']}"
+    )
+
+    # Validate with the project's own gate rather than re-implementing the contract's null rule.
+    assert C.validate_grid(grid) == []
