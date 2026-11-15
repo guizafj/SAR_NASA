@@ -7,6 +7,7 @@ Re-exported from `src.data.loaders` so `app.py._loaders()` automatically switche
 from __future__ import annotations
 
 import pathlib
+import re
 from typing import Any, Mapping
 
 import numpy as np
@@ -529,7 +530,9 @@ def load_documented_limits(
     text = path.read_text(encoding="utf-8")
     caveat: str | None = None
     for line in text.splitlines():
-        if "validate against GNSS" in line:
+        # Match the verb in any form: the caveat sentence uses "validated"/"unvalidated"
+        # as often as "validate", and a tense change must not silently drop the caveat.
+        if re.search(r"validat\w* against GNSS", line):
             caveat = " ".join(line.strip("* ").split())
             break
 

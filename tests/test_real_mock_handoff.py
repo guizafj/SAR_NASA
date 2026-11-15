@@ -20,6 +20,7 @@ from src.data import (
 )
 from src.domain.filters import FilterCriteria, apply_filters, available_filter_options
 from src.domain.map_adapter import (
+    COLUMN_BASELINE_M,
     GLOBAL_VELOCITY_RANGE_MM_YR,
     RISK_COLORS_RGB,
     build_map_payload,
@@ -107,8 +108,11 @@ def test_shipped_pydeck_payload_respects_symmetric_425_shared_scale():
         1 for r in p_malaga.grid_records if r["fill_color"][:3] == neutral_rgb
     ) / len(p_malaga.grid_records)
     assert malaga_neutral_share > 0.995
-    assert max(r["elevation_m"] for r in p_malaga.grid_records) < 55.0
-    assert max(r["elevation_m"] for r in p_cdmx.grid_records) > 2800.0
+    # O-07: column height is SIGNED around COLUMN_BASELINE_M (subsidence below it, uplift above),
+    # so "small on the shared scale" means a small deviation from the baseline, not a small
+    # absolute height. CDMX subsides hard, so it must reach far BELOW the baseline.
+    assert max(abs(r["elevation_m"] - COLUMN_BASELINE_M) for r in p_malaga.grid_records) < 55.0
+    assert min(r["elevation_m"] for r in p_cdmx.grid_records) < COLUMN_BASELINE_M - 1000.0
 
     # Independent toggle seeds from meta.stats p05/p95 without mutating data
     p_malaga_ind = build_map_payload(
