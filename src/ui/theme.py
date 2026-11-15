@@ -562,6 +562,57 @@ body,
   padding: 0.6rem var(--card-pad-x);
 }}
 
+/* Compact ramp row for the reading panel: label, gradient, range, scale mode. */
+.legend-inline {{
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.7rem;
+  min-height: 0;
+}}
+
+.legend-inline .legend-bar {{
+  flex: 1 1 auto;
+  min-width: 70px;
+  height: 8px;
+  margin: 0;
+}}
+
+.legend-inline-label,
+.legend-inline-range {{
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.03em;
+  color: var(--muted) !important;
+  white-space: nowrap;
+  min-width: 0;
+}}
+
+.legend-inline-label {{
+  text-transform: uppercase;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+  flex: 0 0 auto;
+}}
+
+.legend-flag {{
+  color: var(--alert) !important;
+}}
+
+.legend-details {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}}
+
+.legend-details .legend-meta,
+.legend-details .kpi-note {{
+  margin: 0;
+}}
+
 .legend-head {{
   display: flex;
   align-items: baseline;

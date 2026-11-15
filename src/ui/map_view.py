@@ -112,13 +112,12 @@ def _scale(loaders: Any, case_id: str, filters: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _legend(
-    scale: dict[str, Any],
-    mode: str,
-    provenance_text: str = "",
-    counts_text: str = "",
-) -> str:
-    """Compact strip under the map: ramp, ticks, scale mode, provenance, counts."""
+def _legend_inline(scale: dict[str, Any], mode: str) -> str:
+    """One-row ramp for the reading panel: label+unit, gradient, range.
+
+    The scale mode is already visible in the radio above the map, and the adapter
+    caption / saturation note live in the "Case comparison and context" expander.
+    """
     vmin = scale.get("min")
     vmax = scale.get("max")
     unit = scale.get("unit") or UNIT_NOT_DECLARED
@@ -127,36 +126,45 @@ def _legend(
     if isinstance(stops, (list, tuple)) and stops:
         gradient = ", ".join(html.escape(str(color)) for color in stops)
     else:
-        # Fallback for `_stubs`, whose scale has no stop list.
         gradient = ", ".join(f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in STOPS)
-    ticks = ""
     if isinstance(vmin, (int, float)) and isinstance(vmax, (int, float)):
-        mid = round(vmin + (vmax - vmin) / 2, 2)
-        ticks = (
-            f"<span>{format_number(vmin, 1)} {html.escape(str(unit))}</span>"
-            f"<span>{format_number(mid, 1)} {html.escape(str(unit))}</span>"
-            f"<span>{format_number(vmax, 1)} {html.escape(str(unit))}</span>"
-        )
-    note = SATURATION_NOTE if scale.get("saturated") else ""
+        span = f"{format_number(vmin, 1)} … {format_number(vmax, 1)}"
+    else:
+        span = ""
+    return (
+        '<div class="cockpit-card legend-inline">'
+        f'<span class="legend-inline-label">{html.escape(humanize(metric))} · {html.escape(str(unit))}</span>'
+        f'<div class="legend-bar" style="background: linear-gradient(90deg, {gradient})"></div>'
+        f'<span class="legend-inline-range">{html.escape(span)}</span>'
+        "</div>"
+    )
+
+
+def _legend_details(
+    scale: dict[str, Any],
+    mode: str,
+    provenance_text: str,
+    counts_text: str,
+) -> str:
+    """Full legend text (adapter caption, saturation, counts, provenance) for the expander."""
     caption = scale.get("caption")
     if caption:
-        # Backend caption is user-facing copy; drop the internal field path.
         caption = str(caption).replace("meta.stats ", "")
     if not caption and scale.get("fallback"):
-        caption = f"Provisional domain [{format_number(vmin, 1)}, {format_number(vmax, 1)}] {unit}."
-    meta_line = " · ".join(part for part in (caption, note, counts_text) if part)
-    return (
-        '<div class="cockpit-card legend legend-strip">'
-        '<div class="legend-head">'
-        f'<p class="kicker">{html.escape(humanize(metric))} · {html.escape(str(unit))}</p>'
-        f'<span class="legend-mode">{html.escape(SCALE_LABELS.get(mode, str(mode)))}</span>'
-        "</div>"
-        f'<div class="legend-bar" style="background: linear-gradient(90deg, {gradient})"></div>'
-        f'<div class="legend-ticks">{ticks}</div>'
-        + (f'<p class="legend-meta">{html.escape(str(meta_line))}</p>' if meta_line else "")
-        + (f'<p class="kpi-note">{html.escape(provenance_text)}</p>' if provenance_text else "")
-        + "</div>"
+        unit = scale.get("unit") or UNIT_NOT_DECLARED
+        caption = (
+            f"Provisional domain [{format_number(scale.get('min'), 1)}, "
+            f"{format_number(scale.get('max'), 1)}] {unit}."
+        )
+    parts = [f'<p class="legend-meta">{html.escape(str(caption))}</p>'] if caption else []
+    if scale.get("saturated"):
+        parts.append(f'<p class="legend-meta">{html.escape(SATURATION_NOTE)}</p>')
+    if counts_text:
+        parts.append(f'<p class="legend-meta">{html.escape(counts_text)}</p>')
+    parts.append(
+        f'<p class="kpi-note">{html.escape(str(SCALE_LABELS.get(mode, str(mode))))} · {html.escape(provenance_text)}</p>'
     )
+    return '<div class="legend-details">' + "".join(parts) + "</div>"
 
 
 def _provenance(meta: dict[str, Any] | None) -> str:
@@ -696,6 +704,8 @@ def render_map_tab(
     case_labels: dict[str, str] | None = None,
 ) -> None:
     case_id = filters.get("case_id")
+    # The scale control lives above the columns (presentation-only); validate the
+    # seeded value so a bad URL cannot pick an unknown mode.
     if st.session_state.get("scale_mode") not in SCALE_LABELS:
         st.session_state.scale_mode = "independent"
     mode = st.radio(
@@ -704,6 +714,7 @@ def render_map_tab(
         format_func=lambda key: SCALE_LABELS[key],
         horizontal=True,
         key="scale_mode",
+        label_visibility="collapsed",
     )
     active = {**filters, "scale_mode": mode}
     frame = _call(loaders, "get_map_layer_df", case_id, active)
@@ -740,14 +751,10 @@ def render_map_tab(
             _render_deck(frame, active, view, context_groups, case_id)
 
     with panel_col:
-        # The ramp, its saturation note and the provenance line belong to the reading
-        # context: at 1440x900 they must be visible, and under a 420 px map they fall
-        # below the fold. One place, one copy.
-        counts_text = f"{shown} of {total} cells" if isinstance(shown, int) and isinstance(total, int) else ""
-        st.markdown(
-            _legend(scale, mode, _provenance(meta), counts_text),
-            unsafe_allow_html=True,
-        )
+        # One compact ramp row keeps the hero series above the fold; the full
+        # adapter caption, saturation note, counts and provenance live in the
+        # lower expander ("Scale and provenance").
+        st.markdown(_legend_inline(scale, mode), unsafe_allow_html=True)
         with st.container(key="reading-slot"):
             selector_key = f"inspector_cell_{case_id}"
             # A previous run asked for "Clear selection"; the selectbox must be
@@ -797,6 +804,12 @@ def render_map_tab(
         st.markdown(f'<div class="null-note">{html.escape(caption)}</div>', unsafe_allow_html=True)
 
     with st.expander("Case comparison and context", expanded=False):
+        st.markdown('<p class="kicker">Scale and provenance</p>', unsafe_allow_html=True)
+        counts_text = f"{shown} of {total} cells" if isinstance(shown, int) and isinstance(total, int) else ""
+        st.markdown(
+            _legend_details(scale, mode, _provenance(meta), counts_text),
+            unsafe_allow_html=True,
+        )
         _render_comparison(_call(loaders, "get_scale_comparison", mode), mode, case_labels)
         context_legend = _context_legend(context_groups)
         if context_legend:
