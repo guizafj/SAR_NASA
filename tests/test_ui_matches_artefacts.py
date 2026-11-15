@@ -14,9 +14,12 @@ Layers checked per case:
    the number on the card must agree with the number the case published.
 2. The panels that echo an artefact: the tab-4 `meta.json` block (rendered by
    `src/ui/formatters.format_json_block`) and the tab-4 "case" stat cards, plus the tab-3 context
-   cards and feature table against the selected case's `context_layers.geojson`.
+   cards and feature table against the selected case's `context_layers.geojson`. Tab 4 labels a
+   stat card with `formatters.humanize(key)` and the table echoes the app's display translation
+   (`humanize`, `translate_feature_name`, `risk_label`), so the expected text is derived from those
+   formatters instead of copied out of the app.
 3. The acquisition span `(62)` in the mission bar and the map footer against `meta.dates` /
-   `meta.stats.n_dates`, and the cell-count caption against `meta.stats.n_cells`.
+   `meta.stats.n_dates`, and the `N of M cells` count in the map footer against `meta.stats.n_cells`.
 4. The null-result detection limit: shown only where `meta.stats` declares one.
 
 Assertions never use a literal copied from the app for the *expected number*: every expected value
@@ -25,15 +28,21 @@ from the frozen contract constant (`src.domain.contracts`) the loader formats wi
 DOM anchors, not expected values; `test_kpi_cards_are_labelled_as_the_bridge_publishes` re-derives
 them from `src.data.ui_bridge` so a relabelled card cannot silently make the number checks vacuous.
 
+Provenance is credited once per card group: `src/ui/map_view.py::_render_kpis`,
+`src/ui/kpi_cards.py::render_kpi_cards`, `src/ui/context_view.py::_render_table` and
+`src/ui/educational.py::_case_block` each print one `Provenance ID …` line for the group. The guard
+walks the rendered tree in order, pairs every KPI card group with the provenance line that follows
+it, and requires that line to name exactly the case's published `provenance_id`.
+
 Anti-vacuity
 ------------
-`test_mutated_meta_median_velocity_is_caught` / `test_mutated_grid_velocity_is_caught` copy one
-case into `tmp_path` (never the repo), corrupt the copy, and prove the parity helpers fail against
-the app fed that copy. Technique: the app resolves its data through `src.data.loaders`, so the
-loader is entered through a single seam — every hook in `src.data.ui_bridge.__all__` that accepts
-`processed_dir=` is re-bound for the duration of the run to forward the temporary root (the hooks
-are re-exported onto `src.data.loaders`, which is the module object `app.py::_loaders()` imports).
-No `src/**` file is edited and `data/**` is only ever read.
+`test_mutated_meta_median_velocity_is_caught` / `test_mutated_grid_velocity_is_caught` copy the
+published cases into `tmp_path` (never the repo), corrupt one, and prove the parity helpers fail
+against the app fed that copy. Technique: the app resolves its data through `src.data.loaders`, so
+the loader is entered through a single seam — every hook in `src.data.ui_bridge.__all__` that
+accepts `processed_dir=` is re-bound for the duration of the run to forward the temporary root (the
+hooks are re-exported onto `src.data.loaders`, which is the module object `app.py::_loaders()`
+imports). No `src/**` file is edited and `data/**` is only ever read.
 
 Known gaps this file cannot close without touching `src/**` (reported, not fixed):
 
@@ -41,8 +50,8 @@ Known gaps this file cannot close without touching `src/**` (reported, not fixed
   `stats.p95_velocity_mm_yr`, `stats.design_condition` and `stats.per_cell_series.*` are never
   formatted into a KPI card with a provenance badge; the only element that carries them is the
   whole-`meta.json` block in tab 4. A stale value would still be caught there, but no card-level
-  provenance exists. `median_ratio_R` and `n_cells` *are* tab-4 stat cards now (checked here,
-  without a provenance badge).
+  provenance exists. `median_ratio_R` and `n_cells` *are* tab-4 stat cards now (checked here); their
+  credit is the one `Provenance ID …` caption printed for the whole tab-4 stat-card group.
 """
 
 from __future__ import annotations
@@ -90,9 +99,20 @@ _CRITICAL_LABEL = "Critical cells"
 _CARD_RE = re.compile(r'<div class="cockpit-card">(.*?)</div>', re.S)
 _BANNER_RE = re.compile(r'<div class="demo-banner" role="status">(.*?)</div>', re.S)
 _NUMBER_RE = re.compile(r"^(?P<num>[+-]?\d+(?:\.\d+)?)(?:\s+(?P<unit>.*))?$")
-_SPAN_RE = re.compile(r"dates (?P<first>\d{4}-\d{2}-\d{2}) … (?P<last>\d{4}-\d{2}-\d{2}) \((?P<n>\d+)\)")
-_CAPTION_TOTAL_RE = re.compile(r"^(?P<shown>\d+) cells shown of (?P<total>\d+)$")
-_CONTEXT_SUMMARY_RE = re.compile(r"<p>(?P<n>\d+) features · (?P<layers>[^<]*)</p>")
+# `formatters.format_dates_span` output, capitalised at the start of the mission-bar run.
+_SPAN_RE = re.compile(
+    r"dates (?P<first>\d{4}-\d{2}-\d{2}) … (?P<last>\d{4}-\d{2}-\d{2}) \((?P<n>\d+)\)",
+    re.IGNORECASE,
+)
+# The map footer prints the cell count as `<shown> of <total> cells` (`map_view._legend_details`).
+_CELL_COUNT_RE = re.compile(r"(?P<shown>\d+) of (?P<total>\d+) cells")
+# Tab 3 prints `<shown> features shown of <total>` (`context_view.render_hazard_tab`).
+_CONTEXT_SUMMARY_RE = re.compile(
+    r"<p>(?P<shown>\d+) features shown of (?P<total>\d+)</p>"
+)
+# One credit per group: a bare caption, or the note line inside the group's own markup.
+_CAPTION_CREDIT_RE = re.compile(r"Provenance ID (?P<ids>\S+(?: · \S+)*)\s*$")
+_NOTE_CREDIT_RE = re.compile(r'<p class="kpi-note">Provenance ID (?P<ids>[^<]+?)</p>')
 #: DOM anchor: the phrase `src/ui/map_view.py::detection_caption` emits around the artefact value.
 _DETECTION_RE = re.compile(
     r"detection limit of (?P<num>[+-]?\d+(?:\.\d+)?)(?: (?P<unit>[^<\s]+))?"
@@ -107,13 +127,41 @@ _CONTEXT_TABLE_RE = re.compile(
     r"<tbody>(?P<body>.*?)</tbody></table>",
     re.S,
 )
-_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.S)
+#: The columns `src/ui/context_view.py` renders, in order before `_visible_frame` drops `name`.
+_CONTEXT_TABLE_FIELDS = (
+    "layer",
+    "class",
+    "name",
+    "source",
+    "nearest_cell_id",
+    "risk_level",
+    "distance_m",
+    "provenance_id",
+)
+# Rows may carry a status class (`context_view._render_table` marks critical/moderate features).
+_ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
 _CELL_RE = re.compile(r"<t[hd]>(.*?)</t[hd]>", re.S)
 _COMPARE_ROW = '<div class="compare-row">'
 _COMPARE_CASE_RE = re.compile(r'<span class="compare-case">(?P<label>.*?)</span>', re.S)
 _COMPARE_META_RE = re.compile(r'<span class="compare-meta">(?P<tail>.*?)</span>', re.S)
 
 CRITICAL_BAND = "critico"  # contracts.RISK_LEVELS critical member (frozen enum)
+
+#: The additive keys `src/data/ui_bridge.load_meta` is documented to surface from
+#: `meta.json::provenance` (plus the contract unit). Anything else at tab 4's top level is invented.
+_PROVENANCE_FIELD_KEYS = frozenset(
+    {
+        "provenance_id",
+        "source",
+        "method",
+        "license",
+        "reference",
+        "processing_date",
+        "product_id",
+        "retrieved_utc",
+    }
+)
+_ADDITIVE_META_KEYS = _PROVENANCE_FIELD_KEYS | {"unit", "provenance_fields"}
 
 
 # --------------------------------------------------------------------------------------
@@ -188,6 +236,104 @@ def _cards_labelled(at: AppTest, label: str) -> list[dict[str, str]]:
     return cards
 
 
+def _tab(at: AppTest, index: int) -> AppTest:
+    """One tab, so a check cannot be satisfied by a card rendered on another tab."""
+    tabs = at.tabs
+    assert len(tabs) > index, f"the app renders {len(tabs)} tabs, expected at least {index + 1}"
+    return tabs[index]
+
+
+def _ordered_elements(at: AppTest) -> list[tuple[str, str]]:
+    """Every Markdown/Caption element in render order.
+
+    `at.markdown` and `at.caption` are flat per-widget lists, so they cannot say which caption
+    follows which card group; the widget tree can.
+    """
+    elements: list[tuple[str, str]] = []
+
+    def walk(block: Any) -> None:
+        for child in getattr(block, "children", {}).values():
+            name = type(child).__name__
+            if name in ("Markdown", "Caption"):
+                elements.append((name.lower(), str(getattr(child, "value", ""))))
+            walk(child)
+
+    walk(at.main)
+    return elements
+
+
+def _card_labels(markup: str) -> list[str]:
+    return [
+        _field(block, "kicker")
+        for block in _CARD_RE.findall(markup)
+        if "kpi-value" in block
+    ]
+
+
+def _credit_ids(kind: str, value: str) -> list[str]:
+    """The `provenance_id`s a caption or a `<p class="kpi-note">` line credits."""
+    if kind == "caption":
+        match = _CAPTION_CREDIT_RE.search(value)
+        return _split_ids(match) if match else []
+    match = _NOTE_CREDIT_RE.search(value)
+    if match:
+        return _split_ids(match)
+    return _table_credit_ids(value)
+
+
+def _split_ids(match: re.Match[str]) -> list[str]:
+    return [part.strip() for part in match["ids"].split(" · ") if part.strip()]
+
+
+def _table_credit_ids(markup: str) -> list[str]:
+    """Credits carried per row by the context table's own `Provenance ID` column."""
+    if '<table class="cockpit-table"' not in markup:
+        return []
+    head = re.search(r"<thead><tr>(.*?)</tr></thead>", markup, re.S)
+    body = re.search(r"<tbody>(.*?)</tbody>", markup, re.S)
+    if not head or not body:
+        return []
+    header = [html.unescape(_TAG_RE.sub("", cell)) for cell in _CELL_RE.findall(head.group(1))]
+    column = formatters.humanize("provenance_id")
+    if column not in header:
+        return []
+    index = header.index(column)
+    ids = []
+    for raw in _ROW_RE.findall(body.group(1)):
+        cells = [html.unescape(_TAG_RE.sub("", cell)) for cell in _CELL_RE.findall(raw)]
+        if index < len(cells):
+            ids.append(cells[index])
+    return list(dict.fromkeys(ids))
+
+
+def _card_groups_with_credit(at: AppTest) -> list[tuple[list[str], list[str]]]:
+    """`(card labels, credited ids)` for every KPI card group, in render order.
+
+    A group is the run of KPI cards between two provenance lines; the app prints one line per
+    group instead of repeating a badge under every card.
+    """
+    groups: list[tuple[list[str], list[str]]] = []
+    labels: list[str] = []
+    for kind, value in _ordered_elements(at):
+        if kind == "markdown":
+            labels.extend(_card_labels(value))
+        ids = _credit_ids(kind, value)
+        if ids and labels:
+            groups.append((labels, ids))
+            labels = []
+    return groups
+
+
+def _compare_credit_ids(at: AppTest) -> list[str]:
+    """The `provenance_id`s the tab-1 comparison strip credits."""
+    for kind, value in _ordered_elements(at):
+        if kind == "markdown" and '<div class="cockpit-card compare-card">' in value:
+            ids = _credit_ids(kind, value)
+            assert ids, f"the comparison strip lost its provenance line: {value[-300:]!r}"
+            return ids
+    raise AssertionError("tab 1 no longer renders the comparison strip")
+
+
 def _span_occurrences(at: AppTest) -> list[re.Match[str]]:
     return list(_SPAN_RE.finditer(html.unescape(_markdown(at))))
 
@@ -235,6 +381,113 @@ def _context_table(at: AppTest) -> tuple[list[str], list[dict[str, str]]]:
         cells = [html.unescape(_TAG_RE.sub("", cell)) for cell in _CELL_RE.findall(raw)]
         rows.append(dict(zip(header, cells)))
     return header, rows
+
+
+def _feature_point(geometry: Any) -> tuple[float, float] | None:
+    """Representative `(lat, lon)` of a GeoJSON geometry.
+
+    Same documented rule as `src/data/ui_bridge.py::_feature_point`: the point itself, else the
+    mean of its vertices. Re-derived here so the proximity columns are checked against the
+    artefact, not against the app's own output.
+    """
+    if not isinstance(geometry, dict):
+        return None
+    kind = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if kind == "Point" and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        return float(coords[1]), float(coords[0])
+    pairs: list[tuple[float, float]] = []
+
+    def walk(node: Any) -> None:
+        if (
+            isinstance(node, (list, tuple))
+            and len(node) >= 2
+            and all(isinstance(value, (int, float)) for value in node[:2])
+        ):
+            pairs.append((float(node[0]), float(node[1])))
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+
+    walk(coords)
+    if not pairs:
+        return None
+    lon = sum(pair[0] for pair in pairs) / len(pairs)
+    lat = sum(pair[1] for pair in pairs) / len(pairs)
+    return lat, lon
+
+
+def _haversine_m(lat0: float, lon0: float, lat: float, lon: float) -> float:
+    phi0, phi = math.radians(lat0), math.radians(lat)
+    dphi, dlam = phi - phi0, math.radians(lon - lon0)
+    hav = math.sin(dphi / 2.0) ** 2 + math.cos(phi0) * math.cos(phi) * math.sin(dlam / 2.0) ** 2
+    return 2.0 * 6_371_000.0 * math.asin(math.sqrt(min(1.0, max(0.0, hav))))
+
+
+def _nearest_cell(
+    geometry: Any, grid: pd.DataFrame
+) -> tuple[str, str, float] | tuple[None, None, None]:
+    """`(cell_id, risk_level, distance_m)` of the nearest published grid cell."""
+    point = _feature_point(geometry)
+    if point is None:
+        return None, None, None
+    lat0, lon0 = point
+    best: tuple[float, str, str] | None = None
+    for cell, risk, lat, lon in zip(
+        grid["cell_id"], grid["risk_level"], grid["lat"], grid["lon"]
+    ):
+        distance = _haversine_m(lat0, lon0, float(lat), float(lon))
+        if best is None or distance < best[0]:
+            best = (distance, str(cell), str(risk))
+    assert best is not None, "the published grid is empty"
+    return best[1], best[2], round(best[0], 1)
+
+
+def _displayed_context_value(value: Any, *, field: str) -> str:
+    """One table cell exactly as `src/ui/context_view.py::_render_table` prints it."""
+    if field in ("layer", "class"):
+        text = formatters.humanize(value) if value not in (None, "") else ""
+    elif field == "name":
+        text = formatters.translate_feature_name(value)
+    elif field == "risk_level":
+        text = formatters.risk_label(value) if value not in (None, "") else ""
+    else:
+        text = "" if value is None else str(value).replace("\n", " ")
+    if text in ("", "None", "nan"):
+        return "—"
+    return text
+
+
+def _expected_context_rows(
+    raw_features: list[dict[str, Any]], grid: pd.DataFrame, header: list[str]
+) -> list[dict[str, str]]:
+    """What the table must read, from the artefact props and the published grid."""
+    field_for_header = {formatters.humanize(field): field for field in _CONTEXT_TABLE_FIELDS}
+    unknown = set(header) - set(field_for_header)
+    assert not unknown, f"tab 3 renders columns with no artefact field: {sorted(unknown)}"
+    rows = []
+    for feature in raw_features:
+        props = dict(feature.get("properties") or {})
+        cell, risk, distance = _nearest_cell(feature.get("geometry"), grid)
+        values = {
+            "layer": props.get("layer"),
+            "class": props.get("class"),
+            "name": props.get("name"),
+            "source": props.get("source"),
+            "provenance_id": props.get("provenance_id"),
+            "nearest_cell_id": cell,
+            "risk_level": risk,
+            "distance_m": distance,
+        }
+        rows.append(
+            {
+                head: _displayed_context_value(
+                    values[field_for_header[head]], field=field_for_header[head]
+                )
+                for head in header
+            }
+        )
+    return rows
 
 
 # --------------------------------------------------------------------------------------
@@ -332,8 +585,12 @@ def assert_grid_derived_cards_match_grid(
         decimals=_PCT_DECIMALS,
         what=f"{case_id}: {_COVERAGE_LABEL} card",
     )
-    assert f"coherence >= {floor:g}" in coverage_card["note"], (
-        f"{case_id}: the coverage note does not quote the published floor {floor}"
+    # The bridge ships `coherence >= <floor>` and `kpi_cards.render_kpi_cards` runs it through
+    # `formatters.format_note`, so the expected sentence is the formatter's output, not a copy.
+    expected_note = formatters.format_note(f"coherence >= {floor:g}")
+    assert expected_note in coverage_card["note"], (
+        f"{case_id}: the coverage note {coverage_card['note']!r} does not quote the published "
+        f"floor {floor} as {expected_note!r}"
     )
 
     velocities = grid["velocity_mm_yr"].to_numpy(dtype=float)
@@ -368,18 +625,51 @@ def _bridge_kpi_labels(case_id: str) -> set[str]:
 
 
 def assert_provenance_badge_is_the_artefact(at: AppTest, meta: dict[str, Any], case_id: str) -> None:
-    """Every KPI card credits the `provenance_id` its own `meta.json` publishes."""
+    """Every KPI card group credits the `provenance_id` its own `meta.json` publishes.
+
+    The merged cockpit prints one `Provenance ID …` line per group (map KPIs, grid KPIs, context
+    table, tab-4 stat cards) instead of repeating a badge under every card, so the check follows
+    the render order and pairs each group with the credit line that closes it.
+    """
     published = meta["provenance"]["provenance_id"]
-    cards = _cards(at)
-    assert cards
-    credited = [card for card in cards if card["source"]]
-    stale = {card["label"]: card["source"] for card in credited if card["source"] != published}
-    assert not stale, f"{case_id}: cards credit {stale} but meta.json publishes {published}"
-    # Anti-vacuity: dropping the badge from every card must not turn this into a no-op.
-    assert {card["label"] for card in credited} >= _bridge_kpi_labels(case_id), (
-        f"{case_id}: only {sorted({card['label'] for card in credited})} carry a provenance "
-        f"badge, but the bridge publishes {sorted(_bridge_kpi_labels(case_id))}"
+    groups = _card_groups_with_credit(at)
+    assert groups, f"{case_id}: no KPI card group is followed by a provenance line at all"
+    stale = {tuple(labels): ids for labels, ids in groups if ids != [published]}
+    assert not stale, (
+        f"{case_id}: card groups credit {stale} but meta.json publishes {published}"
     )
+    # Anti-vacuity: dropping the badge from every card must not turn this into a no-op.
+    credited = {label for labels, _ids in groups for label in labels}
+    assert credited >= _bridge_kpi_labels(case_id), (
+        f"{case_id}: only {sorted(credited)} are credited by a provenance line, but the bridge "
+        f"publishes {sorted(_bridge_kpi_labels(case_id))}"
+    )
+
+
+def _stat_value(stats: dict[str, Any], key: str) -> Any:
+    """The published stat behind a card key, resolving the nested `per_cell_series.enabled`."""
+    if "." in key:
+        outer, inner = key.split(".", 1)
+        series = stats.get(outer)
+        return series.get(inner) if isinstance(series, dict) else None
+    return stats.get(key)
+
+
+def _case_stat_cards(at: AppTest, stats: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Tab-4 stat cards keyed by the published stat they render.
+
+    `src/ui/educational.py::_stat_card` labels every card with `formatters.humanize(key)`, so the
+    key is recovered with the same documented formatter rather than a copied label literal.
+    """
+    key_for_label = {formatters.humanize(key): key for key in stats}
+    if isinstance(stats.get("per_cell_series"), dict) and "enabled" in stats["per_cell_series"]:
+        key_for_label[formatters.humanize("per_cell_series.enabled")] = "per_cell_series.enabled"
+    cards: dict[str, dict[str, str]] = {}
+    for card in _cards(at):
+        key = key_for_label.get(card["label"])
+        if key is not None:
+            cards[key] = card
+    return cards
 
 
 # --------------------------------------------------------------------------------------
@@ -432,17 +722,31 @@ def test_case_stat_cards_echo_the_published_stats(rendered: dict[str, Any]) -> N
     """Tab 4 prints the v1.1 stats no chart formats (`median_ratio_R`, `n_cells`, ...)."""
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
     stats = meta["stats"]
-    cards = {card["label"]: card for card in _cards(at) if card["label"] in stats}
+    cards = _case_stat_cards(_tab(at, 3), stats)
     assert {"median_ratio_R", "n_cells"} <= set(cards), (
         f"{case_id}: tab 4 no longer prints the published stats as cards; it rendered "
         f"{sorted(cards)}"
     )
     for label, card in cards.items():
-        artefact = stats[label]
-        if isinstance(artefact, str):
-            assert card["value"] == artefact, (
+        artefact = _stat_value(stats, label)
+        if isinstance(artefact, bool):
+            # `educational._shown` prints a boolean as a word, not as `True`/`False`.
+            expected_word = "emitted" if artefact else "not emitted"
+            assert card["value"] == expected_word, (
                 f"{case_id}: the {label} card shows {card['value']!r} but meta.json publishes "
-                f"{artefact!r}"
+                f"{artefact!r} ({expected_word!r})"
+            )
+        elif isinstance(artefact, str):
+            # `educational._case_block` prints `formatters.humanize` of the published value.
+            expected = formatters.humanize(artefact)
+            assert card["value"] == expected, (
+                f"{case_id}: the {label} card shows {card['value']!r} but meta.json publishes "
+                f"{artefact!r}, which displays as {expected!r}"
+            )
+        elif artefact is None:
+            assert card["value"] == formatters.NOT_DECLARED, (
+                f"{case_id}: the {label} card shows {card['value']!r} but meta.json publishes "
+                "no value"
             )
         else:
             # The card routes every value through `formatters.format_number` (2 dp, half-up) via
@@ -455,6 +759,9 @@ def test_case_stat_cards_echo_the_published_stats(rendered: dict[str, Any]) -> N
                 f"{case_id}: the {label} stat card shows {card['value']!r} but the artefact "
                 f"publishes {artefact!r}, which `format_number` displays as {expected!r}"
             )
+        if artefact in (None, ""):
+            # No published value, so no unit is printed either.
+            continue
         # The unit follows from the published key, not from the card's copy.
         if label.endswith("_mm_yr"):
             assert card["value"].endswith(f" {C.VELOCITY_UNIT}"), (
@@ -490,20 +797,19 @@ def test_acquisition_span_matches_meta_dates(rendered: dict[str, Any]) -> None:
 
 def test_cell_total_matches_meta_n_cells(rendered: dict[str, Any]) -> None:
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
-    captions = [str(node.value) for node in at.caption]
+    # `map_view._legend_details` prints `<shown> of <total> cells` in the map footer.
     totals = [
-        (int(m["shown"]), int(m["total"]))
-        for m in (_CAPTION_TOTAL_RE.match(value) for value in captions)
-        if m
+        (int(match["shown"]), int(match["total"]))
+        for match in _CELL_COUNT_RE.finditer(html.unescape(_markdown(at)))
     ]
-    assert len(totals) == 1, f"{case_id}: expected one cell-count caption, found {totals}"
+    assert len(totals) == 1, f"{case_id}: expected one cell-count line, found {totals}"
     shown, total = totals[0]
     assert total == meta["stats"]["n_cells"] == len(rendered["grid"]), (
         f"{case_id}: the app totals {total} cells, meta.stats.n_cells is "
         f"{meta['stats']['n_cells']} and the parquet has {len(rendered['grid'])}"
     )
     assert shown == total, (
-        f"{case_id}: the default filter strip hides cells ({shown} of {total}), so the KPI cards "
+        f"{case_id}: the default filter hides cells ({shown} of {total}), so the KPI cards "
         "would describe a subset the artefacts never publish"
     )
 
@@ -527,8 +833,11 @@ def test_cross_case_bar_peak_matches_the_grid(rendered: dict[str, Any]) -> None:
         decimals=_MM_DECIMALS,
         what=f"{case_id}: comparison-strip peak",
     )
-    assert meta["provenance"]["provenance_id"] in mine[0], (
-        f"{case_id}: the comparison row credits {mine[0]!r}, not the published provenance_id"
+    # The strip credits provenance once for the whole card, not once per row.
+    credits = _compare_credit_ids(at)
+    assert meta["provenance"]["provenance_id"] in credits, (
+        f"{case_id}: the comparison strip credits {credits}, not the published provenance_id "
+        f"{meta['provenance']['provenance_id']!r}"
     )
 
 
@@ -597,16 +906,36 @@ def test_meta_panel_echoes_the_published_artefact(rendered: dict[str, Any]) -> N
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
     panel = _meta_panel(at)
 
-    # Keys `load_meta` injects for display; both are the contract constant or a published value.
+    # Keys `load_meta` injects for display. They are exactly the additive telemetry set its
+    # docstring declares, and every one of them must carry the value meta.json publishes under
+    # `provenance` — the panel is allowed to surface those fields, not to invent any.
     loaded = loaders.load_meta(case_id)
     injected = set(loaded) - set(meta)
-    assert injected <= {"unit", "provenance_id"}, (
-        f"{case_id}: tab 4 invents keys {sorted(injected)}"
+    assert injected <= _ADDITIVE_META_KEYS, (
+        f"{case_id}: tab 4 invents keys {sorted(injected - _ADDITIVE_META_KEYS)}"
     )
+    provenance = meta.get("provenance") or {}
+    for key in injected - {"unit", "provenance_fields"}:
+        assert loaded[key] == provenance.get(key), (
+            f"{case_id}: tab 4 shows provenance.{key} as {loaded[key]!r} but meta.json "
+            f"publishes {provenance.get(key)!r}"
+        )
     if "unit" in injected:
         assert loaded["unit"] == C.UNIT
-    if "provenance_id" in injected:
-        assert loaded["provenance_id"] == meta["provenance"]["provenance_id"]
+    if "provenance_fields" in injected:
+        fields = loaded["provenance_fields"]
+        assert set(fields) == _PROVENANCE_FIELD_KEYS, (
+            f"{case_id}: provenance_fields carries {sorted(fields)}, expected "
+            f"{sorted(_PROVENANCE_FIELD_KEYS)}"
+        )
+        assert fields["provenance_id"] == provenance.get("provenance_id") == (
+            loaded.get("provenance_id")
+        )
+        for key in _PROVENANCE_FIELD_KEYS - {"provenance_id"}:
+            assert fields[key] == provenance.get(key), (
+                f"{case_id}: provenance_fields[{key}] is {fields[key]!r} but meta.json publishes "
+                f"{provenance.get(key)!r}"
+            )
 
     expected = {**meta, **{key: loaded[key] for key in injected}}
     stale = {
@@ -640,40 +969,37 @@ def test_context_panel_matches_the_selected_cases_artefact(rendered: dict[str, A
         layer = str(props.get("layer") or "")
         if layer:
             counts[layer] = counts.get(layer, 0) + 1
-    breakdown = ", ".join(f"{layer} {count}" for layer, count in sorted(counts.items()))
+    # `context_view.render_hazard_tab` prints `formatters.humanize(layer)` next to the count.
+    breakdown = ", ".join(
+        f"{formatters.humanize(layer)} {count}" for layer, count in sorted(counts.items())
+    )
 
-    (delivered,) = _cards_labelled(at, "Delivered features")
+    tab = _tab(at, 2)
+    (delivered,) = _cards_labelled(tab, "Delivered features")
     _assert_shows(
         delivered["value"], len(features), decimals=0, what=f"{case_id}: Delivered features"
     )
-    (layers_card,) = _cards_labelled(at, "Delivered layers")
+    (layers_card,) = _cards_labelled(tab, "Delivered layers")
     _assert_shows(
         layers_card["value"], len(counts), decimals=0, what=f"{case_id}: Delivered layers"
     )
-    (breakdown_card,) = _cards_labelled(at, "Layer counts")
+    (breakdown_card,) = _cards_labelled(tab, "Layer counts")
     assert breakdown_card["value"] == breakdown, (
         f"{case_id}: the layer breakdown reads {breakdown_card['value']!r} but "
         f"context_layers.geojson yields {breakdown!r}"
     )
 
-    summary = _CONTEXT_SUMMARY_RE.search(_markdown(at))
-    assert summary, f"{case_id}: tab 3 no longer prints the feature/layer summary line"
-    assert int(summary["n"]) == len(features), (
-        f"{case_id}: tab 3 claims {summary['n']} features but the artefact has {len(features)}"
-    )
-    assert summary["layers"] == ", ".join(sorted(counts)), (
-        f"{case_id}: tab 3 lists layers {summary['layers']!r} but the artefact has "
-        f"{sorted(counts)}"
+    summary = _CONTEXT_SUMMARY_RE.search(_markdown(tab))
+    assert summary, f"{case_id}: tab 3 no longer prints the feature summary line"
+    assert int(summary["shown"]) == int(summary["total"]) == len(features), (
+        f"{case_id}: tab 3 claims {summary['shown']} of {summary['total']} features but the "
+        f"artefact has {len(features)}"
     )
 
-    header, rows = _context_table(at)
-    expected_rows = [
-        {
-            field: ("" if props.get(field) is None else str(props.get(field)).replace("\n", " "))
-            for field in header
-        }
-        for props in features
-    ]
+    header, rows = _context_table(tab)
+    expected_rows = _expected_context_rows(
+        rendered["context"]["features"], rendered["grid"], header
+    )
     assert len(rows) == len(expected_rows), (
         f"{case_id}: tab 3 renders {len(rows)} rows but the artefact has {len(expected_rows)} "
         "features"
@@ -684,7 +1010,8 @@ def test_context_panel_matches_the_selected_cases_artefact(rendered: dict[str, A
     )
     # Selector-following: every credit is this case's, not the primary case's fallback.
     published = meta["provenance"]["provenance_id"]
-    credited = {row["provenance_id"] for row in rows if "provenance_id" in row}
+    credit_header = formatters.humanize("provenance_id")
+    credited = {row[credit_header] for row in rows if credit_header in row}
     assert credited == {published}, (
         f"{case_id}: tab 3 credits {sorted(credited)} but this case publishes {published!r} "
         "(the panel is not following the case selector)"
@@ -748,9 +1075,15 @@ def _corrupted_copy(
     corrupt_meta: Any = None,
     corrupt_grid: Any = None,
 ) -> Path:
-    """Copy one case into `root/<case>` (never the repo) and apply the corruption there."""
+    """Copy the published cases into `root` (never the repo) and corrupt `root/<case>`.
+
+    Every case is copied because the merged cockpit renders a three-case chart on tab 2; a root
+    holding only the corrupted case would fail to render for a reason unrelated to the mutation.
+    """
+    for source in sorted(PROCESSED.iterdir()):
+        if source.is_dir():
+            shutil.copytree(source, root / source.name)
     target = root / case_id
-    shutil.copytree(PROCESSED / case_id, target)
     if corrupt_grid is not None:
         grid = pd.read_parquet(target / "nisar_grid.parquet")
         corrupt_grid(grid)

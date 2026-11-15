@@ -4,7 +4,7 @@ Estado de `fradiaz` tras `91a1846`. No es texto científico. No copia cifras par
 
 La app no lee Parquet, CSV, GeoJSON ni `meta.json`. El único seam vivo es `src/data/ui_bridge.py`, reexportado por `src/data/loaders.py`. `src/ui/_stubs.py` solo entra si faltan esos hooks.
 
-`docs/backend-ui-contract.md` está desfasado: describe composición directa con `compute_kpis`, slider de fechas y selector de métrica, y cita el contrato v1.0. El código vigente es el contrato **v1.1** y los 18 hooks del bridge. No reimplementar ese documento en la UI.
+`docs/backend-ui-contract.md` **cubre el bridge y la API del dominio**: nombra el contrato **v1.1** con su huella, y el seam que la UI consume hoy son los 18 hooks del bridge (verificado: los 18 nombres siguen existiendo; los re-exports crecieron de 19 a 22). No reimplementar ese documento en la UI.
 
 ## Reglas de lectura
 
@@ -29,12 +29,12 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Visible | Hook | Campos usados | Hueco |
 |---|---|---|---|
 | Título fijo | ninguno | — | Correcto: no es un dato. |
-| Telemetría | `load_meta` | `sensor`, `product`, `unit`, `dates`, `coherence_threshold` | v1.1 guarda el suelo en `thresholds.coherence_min`. La cabecera lo omite. El slider sí lo lee. |
+| Telemetría | `load_meta` | `sensor`, `product`, `unit`, `dates`, `coherence_threshold` | v1.1 guarda el suelo en `thresholds.coherence_min`; si falta, `app.py` cae a `thresholds.coherence_min` y la cabecera lo imprime como `coherence floor`. El slider lee el mismo valor. |
 | Aviso mock | `load_meta` | `product`, `provenance.source` | Correcto. |
 | Caso | `load_study_cases` | `id`, `label` | Correcto. |
 | Uso del suelo | `load_land_use_options(case_id)` | valores presentes en la grilla | No explica que es una clase del artefacto, no un mapa de uso oficial. |
 | Coherencia | `load_meta` | `thresholds.coherence_min` | No modifica un valor fuera de `[0, 1]`. Correcto. |
-| Riesgo | `load_risk_levels(case_id)` | enum presente | La etiqueta es inglesa; el valor enviado no cambia. Falta decir que la banda sale de la velocidad. |
+| Riesgo | `load_risk_levels(case_id)` | enum presente | La etiqueta es inglesa; el valor enviado no cambia. El inspector ya lo dice: `Risk band: … (from |velocity|, not a separate measurement)` (`src/ui/map_view.py`). |
 | Extrusión / tema / escala | estado de UI | `extrude_3d`, `scale_mode` = `independent` \| `shared` | La escala no es un dato. El bridge acepta también las frases españolas antiguas. |
 | Estado en la URL | `st.query_params` (solo UI) | `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell` | Cumple «URL restores the exact state» del checklist: la primera carga acepta esos parámetros (valores inválidos se ignoran) y cada run reescribe la URL con el estado vivo. `land`/`risk` viajan con el valor del contrato, no con la etiqueta visible. |
 
@@ -58,9 +58,9 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 
 | Visible | Hook | Lectura correcta | Hueco |
 |---|---|---|---|
-| Cuatro tarjetas | `get_series_kpis` | Mediana de velocidad; % de celdas con `\|v\| ≥ 5 mm/year`; celdas con `risk_level == critico`; % con coherencia ≥ suelo del caso. | La nota aún cita `risk_level critico` y `celdas` ya no. El 5 mm/year es `NULL_RESULT_MM_YR`, no un umbral de la UI. |
-| Línea | `get_case_series` | Serie `aoi` en `mm`. | Si el filtro reduce la grilla, el bridge **reescala** los valores por el cociente de medianas de `delta_change` y no lo declara. La UI lo pinta como si fuera la serie publicada. |
-| Barras | `get_land_use_bars` | Mediana de `velocity_mm_yr` por `land_use` presente. | El eje dice `value`. No dice que es velocidad. |
+| Cinco tarjetas | `get_series_kpis` | Mediana de velocidad; % de celdas con `\|v\| ≥ 5 mm/year`; celdas con `risk_level == critico`; % con coherencia ≥ suelo del caso; mediana de amplitud estacional. | El 5 mm/year es `NULL_RESULT_MM_YR`, no un umbral de la UI. |
+| Línea | `get_case_series` | Serie `aoi` en `mm`. | `get_case_series` fija `scaled: false` y `scale_factor: 1.0` aunque el filtro reduzca la grilla: la serie `aoi` se pinta tal cual viene del artefacto, sin reescalar. |
+| Barras | `get_land_use_bars` | Mediana de `velocity_mm_yr` por `land_use` presente. | El eje se titula `Velocity (mm/year)` (`src/ui/charts.py`), así que la unidad y la magnitud son visibles. |
 
 `compute_kpis` también calcula área crítica, volumen y tendencia. Esos campos no salen del bridge. No mostrarlos: serían una cifra nueva sin aprobación de Rol 3.
 
@@ -71,15 +71,15 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Resumen | `load_context_layers` | `path`, `summary.n_features`, `summary.layers`. |
 | Tabla | mismo payload | `layer`, `class`, `name`, `source`, `provenance_id`. |
 
-Corrección de Rol 3 (`docs/requests.md`, 2026-11-15): el GeoJSON **sí** trae `name`, en 6 de las 12 features; son nombres sintéticos etiquetados como mock y llegan en español. La UI los cita tal cual, sin traducir, y pinta `—` donde la feature no tiene nombre. Las `class` incluyen valores que no están en `LAND_USE` (`metro-station`, `water-well`, `coastline`, `canal`, `reservoir`, `aoi`). Son clases de contexto, no el `land_use` de la grilla. Hay que separar esas dos listas en la lectura, no mezclarlas en un filtro.
+Corrección de Rol 3 (`docs/requests.md`, 2026-11-15): el GeoJSON **sí** trae `name`, en 6 de las 12 features; son nombres sintéticos etiquetados como mock y llegan en español. La UI los **traduce de forma determinista** (`translate_feature_name`, `src/ui/context_view.py`) sin tocar el GeoJSON —los hashes del artefacto no cambian— y pinta `—` donde la feature no tiene nombre. Las `class` incluyen valores que no están en `LAND_USE` (`metro-station`, `water-well`, `coastline`, `canal`, `reservoir`, `aoi`). Son clases de contexto, no el `land_use` de la grilla. Hay que separar esas dos listas en la lectura, no mezclarlas en un filtro.
 
 ### 4. Provenance and limits — `src/ui/educational.py`
 
 | Visible | Origen | Lectura | Hueco |
 |---|---|---|---|
 | **Real NISAR GUNW availability** | `load_availability` (lee `data/processed/_availability/{case}.json`) | Cita el registro de búsqueda de ASF: stacks reales catalogados (track, dirección, frame, nº de granulos, ventana), HTTP, fecha de la búsqueda y la advertencia de cobertura urbana. **No es una descarga**: el artefacto publicado sigue siendo `mock` y el bloque lo dice. | El hook es aditivo y lo añadió Rol 2 desde `fradiaz`; falta la firma de Rol 1 (fila en `docs/requests.md`) |
-| "No scientific text approved by Role 3." | literal de la UI | Cierto para un módulo educativo. | Contradice las tarjetas de abajo, que sí citan el artefacto y el README. |
-| Tres tarjetas | `meta.stats` | `dominant_regime`, `median_ratio_R`, `median_velocity_mm_yr`. | Ignora `n_cells`, `n_dates`, `p05`/`p95`, `median_seasonal_amp_mm`, `per_cell_series`, y el límite de Málaga. |
+| "Educational notes are not available for this case yet." | literal de la UI | Cierto para un módulo educativo. | Contradice las tarjetas de abajo, que sí citan el artefacto y el README. |
+| Cuatro tarjetas | `meta.stats` | `dominant_regime`, `median_ratio_R`, `median_velocity_mm_yr`, `median_seasonal_amp_mm`. | Ignora `n_cells`, `n_dates`, `p05`/`p95`, `per_cell_series`, y el límite de Málaga. |
 | `null_policy`, `limitations` | `meta` | Texto del artefacto. Citarlo, no parafrasearlo. | No se distingue "dato" de "limitación del generador mock". |
 | README §8 y §13 | `load_documented_limits` | Cita literal del README. | No es el `meta.json` del caso. Hay que etiquetarlo como documentación del repo, no como observación. |
 | Bloque `meta.json` | `load_meta` | JSON devuelto, sin claves que contengan `verif`. | Útil como registro. No sustituye una lectura guiada. |
