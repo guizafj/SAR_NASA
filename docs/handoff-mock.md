@@ -23,7 +23,7 @@ data/processed/_availability/{case}.json      # source-probe evidence; not a cas
 Cases: `mexico-city`, `jakarta`, `malaga`. Loaders are Rol 1's and they now exist:
 `src/data/loaders.py` (plus `ui_bridge.py` and `validation.py`) landed with the backend merge on
 2026-11-14 and is the authoritative implementation — **do not overwrite it**. `examples/reference_loader.py`
-is the same API kept as a standalone, dependency-free reference for readers of §2b; if you need a
+is the same API kept as a standalone reference with no UI dependencies for readers of §2b; if you need a
 copy for a scratch tree, copy it *somewhere else*, never onto `src/data/loaders.py`:
 
 ```bash

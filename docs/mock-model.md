@@ -40,24 +40,51 @@ must not be promoted into citations.
 
 The generator uses `seed = 7`, and each case draws from
 `np.random.default_rng(SeedSequence([seed, sha256(case_id)[:4]]))`, so one case's cell set can never
-perturb another's numbers. Draw order is fixed (noise → land-use bare patches → coherence jitter →
-water coherence). Regenerating into an empty directory reproduces all twelve files
+perturb another's numbers. Draw order is fixed (noise → the bare patches of the synthetic
+fallback, when that is the active branch → coherence jitter → water coherence). Regenerating into an empty directory reproduces all twelve files
 **byte-identically** (verified with `cmp`), because no wall clock enters the output
 (`PROCESSING_DATE` and `RETRIEVED_UTC` are constants), JSON is written with `sort_keys=True`, rows
 are sorted, floats are formatted `%.9f`, and every write is a temp file plus `os.replace`.
 
 ## Spatial layers and coherence
 
-The model's other layers, in precedence order. `rho` is the normalised **elliptical radius from the
-coverage-ellipse centre** (0 at the centre, 1 at the rim) — it is *not* measured from `peak_lonlat`
-(Jakarta's peak sits at `rho ≈ 1.02`, just outside the nodata domain). The arrows are a
-**first-match-wins** cascade, and the
-"corridor" is the synthetic industrial strip declared in `config/study_cases.yaml`:
+`rho` sigue siendo el **radio elíptico normalizado desde el centro de la elipse de cobertura** (0 en
+el centro, 1 en el borde) y *no* se mide desde `peak_lonlat` (el pico de Yakarta cae justo fuera del
+dominio nodata). Lo que cambió es qué decide: la elipse decide **qué celdas existen**, nunca qué son.
+La antigua cascada de anillos concéntricos sobrevive sólo dentro del fallback sintético declarado.
 
-- **land use**: fringe `bare` (`rho ≥ 0.80` and a draw < 0.35) → `urban-residential` (`rho < 0.80`)
-  → `urban-dense` (`rho < 0.38`) → `industrial` (within 3 km of the corridor axis **and**
-  `rho < 0.95`) → `infrastructure` (within 0.55 km) → and **water wins over everything** (lake
-  ellipse, coast side, river/canal within 0.30 km).
+- **land use**: el centroide de cada celda se une a los polígonos reales del extracto de
+  OpenStreetMap con `pipeline/enrich_context.py::join_land_use` — la misma función que usa la CLI —
+  y la precedencia `water > infrastructure > industrial > urban-dense > urban-residential >
+  vegetation > bare > unknown`, desempatando por área menor y después por digest de geometría, nunca
+  por orden de filas. Las etiquetas por celda se leen del pin commiteado
+  `config/context/<case>.json`, así que regenerar no necesita `data/raw/`. `water` es la única clase
+  que se *deriva*: una costa es una línea y una línea no contiene centroides, de modo que las celdas
+  del lado del mar de la costa real se etiquetan `water` a partir de esa geometría. Nada más se
+  extrapola: una celda cuyo centroide no cae en ningún polígono mapeado se publica `unknown`, y ese
+  recuento y su proporción viajan en `meta.limitations`. `urban-dense` no es un umbral de densidad
+  sino el tejido de servicio, comercial e institucional según la semántica del tag de OSM: se midió
+  un corte por fracción construida y se descartó porque la distribución es un continuo
+  (`docs/context-sources.md` §4). Los polígonos `land_use` del artefacto son la unión de las mismas
+  celdas que publica el grid (`pipeline/mock/artifacts.py::build_context`), así que la capa y la
+  columna no pueden discrepar; los polígonos crudos de OSM no se publican porque no caben en el
+  presupuesto de tamaño del artefacto (los tamaños medidos están en el docstring de esa función).
+- **water e infrastructure**: se publican desde las features reales del extracto, mapeadas a la
+  taxonomía congelada por `pipeline/enrich_context.py` y simplificadas antes de escribir
+  (`pipeline/mock/artifacts.py::_published_context_features`). La costa real es una de esas features,
+  y el agua sigue siendo contexto aunque nunca sobreviva como celda de desplazamiento.
+- **admin_boundary**: la feature `admin_boundary/aoi` es el anillo real de
+  `config/aoi/<case>.geojson`, no la elipse de cobertura. La elipse sigue decidiendo qué celdas
+  existen; ya no se publica como extensión del análisis.
+- **geografía sintética (fallback)**: sin extracto, la geografía vuelve a ser la inventada (lago
+  elíptico, costa en zigzag, río y corredor industrial, definidos en `pipeline/context.py`;
+  `pipeline/mock/geography.py` sólo reexporta esa API). Mientras esta rama está activa, *todas* las
+  features de contexto dicen `mock (synthetic …)` en su `source` y `meta.limitations` declara que la
+  geografía es inventada. Las dos ramas son mutuamente excluyentes — un único booleano en
+  `pipeline/context.py` elige una, y `meta.limitations` publica una sola de las dos frases — y la
+  compuerta de artefactos reconstruye el caso desde `meta.provenance.mock_seed`, así que una
+  geografía y un `meta.json` de ramas distintas no pasan juntos. Su único motivo de existir es que un
+  clon sin `data/raw/` pueda regenerar.
 - **coherence**: `0.80` base ± a land-use bonus (urban-dense +0.10, water −0.30, …), a −0.20 edge
   penalty for `rho → 1`, a small coastal penalty, and `N(0, 0.025)` jitter, clipped to [0.05, 0.95].
   Water is then forced to `0.35·(0.35 + 0.55·rand)`, i.e. **strictly below** `coherence_min`, so it
