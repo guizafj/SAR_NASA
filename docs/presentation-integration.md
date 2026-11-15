@@ -36,13 +36,14 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Coherencia | `load_meta` | `thresholds.coherence_min` | No modifica un valor fuera de `[0, 1]`. Correcto. |
 | Riesgo | `load_risk_levels(case_id)` | enum presente | La etiqueta es inglesa; el valor enviado no cambia. Falta decir que la banda sale de la velocidad. |
 | Extrusión / tema / escala | estado de UI | `extrude_3d`, `scale_mode` = `independent` \| `shared` | La escala no es un dato. El bridge acepta también las frases españolas antiguas. |
-| Estado en la URL | `st.query_params` (solo UI) | `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell` | Cumple «URL restores the exact state» del checklist: la primera carga acepta esos parámetros (valores inválidos se ignoran) y cada run reescribe la URL con el estado vivo. `land`/`risk` viajan con el valor del contrato, no con la etiqueta visible. |
+| Estado en la URL | `st.query_params` (solo UI) | `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell`, `tab`, `ramp` | Cumple «URL restores the exact state»: la primera carga valida y restaura caso, filtros, pestaña, rampa y celda; cada interacción reescribe la URL. `land`/`risk` viajan con el valor del contrato, no con la etiqueta visible. El popover Share junto al selector H3 muestra la URL con el control de copia nativo de `st.code`. |
 
 ### 1. Map — `src/ui/map_view.py`
 
 | Visible | Hook | Lectura correcta | Hueco |
 |---|---|---|---|
-| Hexágonos | `get_map_layer_df` | Color y altura ya vienen en `color` y `height`. Métrica fija del bridge: `velocity_mm_yr`. | La UI no elige métrica. No debe calcular color. |
+| Hexágonos | `get_map_layer_df` | La rampa original y la altura vienen en `color` y `height`. La rampa accesible opcional usa solo para presentación `velocity_mm_yr` y el dominio entregado por `get_color_scale`. La leyenda cambia junto al mapa. | La UI no calcula tasas ni magnitudes geoespaciales, ni cambia la métrica o el dominio. |
+| Selección H3 | `pydeck_chart(on_select="rerun", selection_mode="single-object")` + `get_cell_detail` | El click y el selector H3 alimentan el mismo inspector; `cell` se escribe en la URL. | Los artefactos actuales declaran `series_scope="aoi"`: el panel indica que muestra el agregado de área; no se inventa una serie por celda. |
 | Recuento | `get_layer_counts` | `shown` de `total` tras el filtro. | No dice que el total es la grilla publicada, no el AOI administrativo. |
 | KPIs del mapa | `get_map_kpis` | Mediana de velocidad (`mm/year`), mediana de `delta_change` (`mm`), coherencia mínima del subconjunto. | No dice que la coherencia mínima es la del subconjunto filtrado, no el umbral. |
 | Nulo | `get_signal_status` + `meta.stats` | Si `above_limit` es falso, mostrar el límite recibido. | Solo Málaga trae `detection_limit_mm_yr`. |

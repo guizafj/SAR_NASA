@@ -6,37 +6,43 @@ These bounds are a presentation placeholder, not a measurement.
 
 from __future__ import annotations
 
+from src.ui.theme import MAP_RAMPS
+
 FALLBACK_DOMAIN = (-8.0, 8.0)
 
-# Same stops the legend paints. Coral is the low end of the ramp only.
-STOPS: tuple[tuple[float, tuple[int, int, int, int]], ...] = (
-    (0.0, (244, 63, 94, 200)),
-    (0.5, (245, 158, 11, 200)),
-    (1.0, (6, 182, 212, 200)),
-)
+# Default and alternate ramps are owned by the theme token module.
+STOPS: tuple[tuple[float, tuple[int, int, int, int]], ...] = MAP_RAMPS["classic"]
 
 
 def _lerp(a: int, b: int, t: float) -> int:
     return int(round(a + (b - a) * t))
 
 
-def rgba_at(t: float) -> list[int]:
+def rgba_at(
+    t: float,
+    stops: tuple[tuple[float, tuple[int, int, int, int]], ...] = STOPS,
+) -> list[int]:
     """Sample the shared ramp. t is clipped to [0, 1] (saturation)."""
     clipped = min(1.0, max(0.0, float(t)))
-    for index, (stop, color) in enumerate(STOPS[1:], start=1):
-        left_t, left = STOPS[index - 1]
+    for index, (stop, color) in enumerate(stops[1:], start=1):
+        left_t, left = stops[index - 1]
         if clipped <= stop:
             span = stop - left_t
             local = 0.0 if span == 0 else (clipped - left_t) / span
             return [_lerp(left[channel], color[channel], local) for channel in range(4)]
-    red, green, blue, alpha = STOPS[-1][1]
+    red, green, blue, alpha = stops[-1][1]
     return [red, green, blue, alpha]
 
 
-def color_for(value: float, vmin: float, vmax: float) -> list[int]:
+def color_for(
+    value: float,
+    vmin: float,
+    vmax: float,
+    stops: tuple[tuple[float, tuple[int, int, int, int]], ...] = STOPS,
+) -> list[int]:
     if vmax == vmin:
-        return rgba_at(0.5)
-    return rgba_at((float(value) - vmin) / (vmax - vmin))
+        return rgba_at(0.5, stops)
+    return rgba_at((float(value) - vmin) / (vmax - vmin), stops)
 
 
 def values_saturate(values: list[float], vmin: float, vmax: float) -> bool:

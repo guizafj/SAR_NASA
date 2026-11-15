@@ -77,6 +77,25 @@ CASE_COLORS = {
     "dark": {"mexico-city": "#3987e5", "jakarta": "#d95926", "malaga": "#199e70"},
 }
 
+# Diverging velocity ramps, all stops at the same normalized positions.
+# `colorblind` uses a blue / neutral / vermilion sequence (not red vs green).
+MAP_RAMPS = {
+    "classic": (
+        (0.0, (244, 63, 94, 200)),
+        (0.5, (245, 158, 11, 200)),
+        (1.0, (6, 182, 212, 200)),
+    ),
+    "colorblind": (
+        (0.0, (0, 114, 178, 200)),
+        (0.5, (225, 225, 225, 200)),
+        (1.0, (213, 94, 0, 200)),
+    ),
+}
+MAP_RAMP_LABELS = {
+    "classic": "Original · contract ramp",
+    "colorblind": "Colorblind-friendly · blue / neutral / orange",
+}
+
 FONT_DISPLAY = '"Space Grotesk", "Segoe UI", system-ui, sans-serif'
 FONT_BODY = '"Inter", "Segoe UI", system-ui, sans-serif'
 FONT_MONO = '"JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace'
@@ -262,6 +281,21 @@ body,
   height: auto !important;
   max-height: none !important;
   max-width: none;
+}}
+
+.mission-bar .mission-title .case-pill {{
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: var(--space-3) !important;
+  padding: var(--space-1) var(--space-2) !important;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent) !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--type-xs) !important;
+  font-weight: 500 !important;
+  letter-spacing: 0;
+  line-height: 1.2;
 }}
 
 .mission-bar .telemetry {{
@@ -620,6 +654,47 @@ body,
   gap: 0.6rem;
   padding: 0.35rem 0.7rem;
   min-height: 0;
+}}
+
+@media (max-width: 640px) {{
+  [data-testid="stTabs"] [role="tablist"] {{
+    display: flex !important;
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    gap: 0.5rem !important;
+    padding-inline: 0 !important;
+  }}
+  [data-testid="stTabs"] [data-testid="stTabsScrollLeft"],
+  [data-testid="stTabs"] [data-testid="stTabsScrollRight"] {{
+    display: none !important;
+  }}
+  .legend-inline {{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }}
+  .legend-inline-label {{
+    grid-column: 1 / -1;
+    white-space: normal;
+  }}
+  .legend-inline .legend-bar {{
+    grid-column: 1 / -1;
+    width: 100%;
+    flex: none;
+    order: 0;
+  }}
+  .legend-inline-range {{
+    grid-column: 1;
+    margin-left: 0;
+    white-space: normal;
+  }}
+  .legend-flag {{
+    grid-column: 2;
+    justify-self: end;
+  }}
 }}
 
 .legend-inline .legend-bar {{
@@ -1075,6 +1150,49 @@ button[data-baseweb="tab"]:focus-visible {{
   flex: 1 1 10.5rem !important;
 }}
 
+.st-key-filter-actions [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
+.st-key-filter-actions [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {{
+  flex: 0 0 12rem !important;
+  min-width: 12rem !important;
+}}
+
+.st-key-filter-actions [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+.st-key-filter-actions [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
+  flex: 0 0 10rem !important;
+  min-width: 10rem !important;
+  margin-left: auto;
+}}
+
+.st-key-filter-actions [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:not(:first-child):not(:last-child),
+.st-key-filter-actions [data-testid="stHorizontalBlock"] > [data-testid="column"]:not(:first-child):not(:last-child) {{
+  flex: 1 1 8rem !important;
+  min-width: 8rem !important;
+}}
+
+.st-key-filters [data-testid="stHorizontalBlock"]:has([data-testid="stPopover"]) {{
+  margin-top: -4px;
+}}
+
+.st-key-filters [data-testid="stPopover"] > button,
+.st-key-filters .stButton > button {{
+  min-height: 28px !important;
+  padding: 2px 8px !important;
+  font-size: var(--type-xs) !important;
+  line-height: 1.2 !important;
+}}
+
+.st-key-filters button[aria-label^="Help for"] {{
+  color: var(--muted) !important;
+  background: transparent !important;
+}}
+
+.st-key-filters button[aria-label^="Help for"] svg,
+.st-key-filters button[aria-label^="Help for"] svg * {{
+  color: var(--muted) !important;
+  stroke: var(--muted) !important;
+  fill: none !important;
+}}
+
 /* Plan Fase 1: the map row is 2:1, not the flat equal split of the global rule. */
 .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
 .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {{
@@ -1086,6 +1204,10 @@ button[data-baseweb="tab"]:focus-visible {{
 .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
   flex: 1 1 0 !important;
   min-width: 0 !important;
+}}
+
+.st-key-map-grid {{
+  margin-top: -12px !important;
 }}
 
 .st-key-map-slot {{
@@ -1135,6 +1257,12 @@ button[data-baseweb="tab"]:focus-visible {{
 .st-key-map-slot canvas {{
   max-width: 100% !important;
   max-height: var(--map-height) !important;
+}}
+
+.st-key-map-slot canvas[role="region"]:focus-visible {{
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -4px !important;
+  border-radius: var(--radius);
 }}
 
 /* KPI cards in one row must share a height: stretch the column chain and let
@@ -1442,10 +1570,12 @@ input:focus-visible,
 
 def inject_css() -> None:
     """Inject cockpit CSS. Call once per run, after set_page_config."""
-    if st.session_state.get("ui_theme_mode") not in ("system", "light", "dark"):
-        st.session_state.ui_theme_mode = "system"
     compact = "\n".join(line for line in _CSS.splitlines() if line.strip())
     st.markdown(f"<style>\n{compact}\n</style>", unsafe_allow_html=True)
+
+
+def apply_theme_marker() -> None:
+    """Apply only the selected-scheme marker; safe to refresh inside a fragment."""
     chosen = st.session_state.get("ui_theme_mode")
     if chosen in ("light", "dark"):
         st.markdown(f'<div data-cockpit="{chosen}" hidden></div>', unsafe_allow_html=True)

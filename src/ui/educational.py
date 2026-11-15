@@ -9,7 +9,6 @@ from typing import Any, Mapping
 import streamlit as st
 
 from src.ui.formatters import (
-    DEMO_BANNER,
     NOT_DECLARED,
     format_json_block,
     format_number,
@@ -21,7 +20,18 @@ from src.ui.formatters import (
 def _public_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(meta, dict):
         return {}
-    return {key: value for key, value in meta.items() if "verif" not in key.lower()}
+    public = {
+        key: value
+        for key, value in meta.items()
+        if "verif" not in key.lower() and key != "provenance_id"
+    }
+    for provenance_key in ("provenance", "provenance_fields"):
+        provenance = public.get(provenance_key)
+        if isinstance(provenance, Mapping):
+            public[provenance_key] = {
+                key: value for key, value in provenance.items() if key != "provenance_id"
+            }
+    return public
 
 
 def _shown(value: Any) -> str:
@@ -361,11 +371,9 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     shown = _public_meta(meta)
     if not shown:
         meta_note = "The loader did not return meta.json."
-    elif shown.get("product") == "mock":
-        meta_note = f"Full record from disk. product is mock: {DEMO_BANNER}, not an observation."
     else:
-        meta_note = "Full record returned by the loader."
-    with st.expander("Full meta.json record", expanded=False):
+        meta_note = "The case identifier is shown above and omitted from the record below."
+    with st.expander("Other meta.json fields", expanded=False):
         st.caption(meta_note)
         st.markdown(
             format_json_block(shown, "meta.json contents"),
