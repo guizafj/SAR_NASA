@@ -11,13 +11,16 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - [ ] **Demo (URL or local run)** — `[owner to fill]` for the URL. The local run is **verified**:
       `./scripts/python.sh -m streamlit run app.py` serves the committed mock (`/_stcore/health` → 200,
       `/` → 200) with no NASA credentials. What is still missing is the deployed URL — `deploy/Dockerfile`
-      is in the tree but this machine has no `docker` binary, so the image build is unverified.
+      is in the tree but no docker daemon is reachable from this account (`docker info` → `permission
+      denied` on `/var/run/docker.sock`), so the image build is unverified.
       **Rol 2 fradiaz** for the URL, **Rol 1 pozo** for the deploy.
       If the app is not runnable when recording, the backup plan is [docs/demo-fallback.md](demo-fallback.md).
 - [ ] **Video** 20 s problem / 90 s demo / 30 s architecture+impact — script `docs/video-script.md`;
       recording `[owner to fill]`. **Rol 3 yuls**.
 - [ ] **Provenance evidence** — `meta.json` (`provenance`, `provenance_id`), `docs/data-source-decision.md`,
-      `data/processed/_availability/*.json`. **Rol 3 yuls** generates, **Rol 1 pozo** gates, **Rol 2** badges.
+      `data/processed/_availability/*.json`. Those probe reports carry `contract_version: "1.0"`: that is
+      the search-report schema, not `SCHEMA_VERSION` (`docs/data-contract-v1.md` §7.3).
+      **Rol 3 yuls** generates, **Rol 1 pozo** gates, **Rol 2** badges.
 - [ ] **Limitations statement** — `README.md §13`, per-case `meta.limitations`, Málaga's detection limit (**Rol 3 yuls** writes, **Rol 2 fradiaz** surfaces).
 
 ## 2. Hard gates (on the commit you submit, not a dirty tree)
@@ -31,7 +34,9 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       (`test_docs_commands`, `test_docs_links`, `test_readme_numbers`, `test_pipeline_readme_numbers`),
       so a committed document that breaks a guard fails the gate and is named by file:line: a green
       working tree is not enough, the *commit* must be green. `--fast` skips only the full pytest
-      suite; the clone gate runs in both modes.
+      suite; the clone gate runs in both modes. `--fast` still prints `VERDICT: READY`, with gate 2
+      recorded as `SKIP`, so a `--fast` run cannot tick this line however green it looks — only the
+      full run executes all seven gates.
       A `note: tree is dirty` or `note: committed artefacts differ from your tree` line means READY
       is **not** the clean-tree reproduction this section asks for.
 - [ ] `./scripts/python.sh -m pytest tests -q` → exit 0, no `F`/`E`. `pytest.ini` already adds `-q`,
@@ -44,14 +49,22 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - [ ] **Contract 1.1 carries Rol 1 + Rol 2 sign-off.** The contract's own rule (all three roles agree
       to a `SCHEMA_VERSION` bump) makes the 1.1 adoption that shipped on `main` a proposal until they
       agree: a green artefact gate is not approval (O-05, 2026-11-15). Say "merged", never "approved".
-- [ ] **The default branch is the submission branch.** `git rev-parse origin/HEAD origin/main` → one
-      commit, and `git show origin/main:data/processed/mexico-city/meta.json | grep schema_version` →
-      `"1.1"` with `n_dates: 62`. Point a judge at `main`; `yuls` is the frozen contract-1.0 line
+- [ ] **BLOCKED — the default branch is not the submission branch.** `git rev-parse origin/HEAD
+      origin/main` → one commit and `git show origin/main:data/processed/mexico-city/meta.json | grep
+      schema_version` → `"1.1"` with `n_dates: 62`, both true. But the same file carries the pre-window
+      `provenance_id` (`…cc912b7a`), not the `…14fc3e1f` this tree ships, its grid/series are the
+      pre-window ones, and its committed figures were rendered before the digest moved (the figure
+      regeneration is on this branch, not on `main`) — so "point a judge at `main`" is false today:
+      a judge there reads retired ids, including inside the figures.
+      `git log --oneline origin/main..HEAD` is not empty. Which branch is submitted, or whether `main`
+      is moved to it, is a branch decision and not this document's: re-measure both lines, then point
+      at the branch that actually ships these artefacts. `yuls` is the frozen contract-1.0 line
       (12 dates) and is already contained in `main` (`git merge-base --is-ancestor origin/yuls
       origin/main` → exit 0), so it is not an artefact branch anyone still needs to merge.
 - [ ] `git status --porcelain` empty, then clean-tree reproduction — a **clone**, not `git archive`:
-      `preflight.sh` gate 5 runs `git clone . $clone`, so an archive with no `.git` fails there and
-      takes three `test_preflight.py` tests with it:
+      `preflight.sh` gate 5 runs `git clone . $clone`, and in a tree with no `.git` the script does not
+      even reach gate 1: its dirty-tree probe (`git status --porcelain` under `pipefail`) exits 128
+      and prints nothing. That also takes three `test_preflight.py` tests with it:
       ```bash
       rm -rf /tmp/freeze && git clone -q . /tmp/freeze/repo
       ln -s "$PWD/.venv" /tmp/freeze/repo/.venv
@@ -74,17 +87,22 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 
 - [ ] `provenance` on every artefact and layer (README §2: the only unconditional item).
 - [ ] The null result **with its detection limit** — `detection_limit_mm_yr = 1.50` beside median
-      −1.36 mm/yr for Málaga; the bound is the result (`docs/data-contract-v1.md` §2.6).
-- [ ] The **mock disclaimer** while all three cases are `product=mock` — `scripts/demo_numbers.py`
-      prints `!! product == 'mock' for 3/3 case(s)`. On screen the persistent banner reads
-      `DEMONSTRATION DATA` (`DATOS DE DEMOSTRACIÓN` in the older Spanish build) and the footer names
-      `product=mock`; the banner itself does not spell `MOCK`, so do not claim it does.
+      −1.36 mm/yr for Málaga; the bound is the result (`docs/data-contract-v1.md` §2, row 6 — the
+      `stats` row, which is what the old `§2.6` meant).
+- [ ] The **mock disclaimer** while all three cases are `product=mock` —
+      `./scripts/python.sh scripts/demo_numbers.py` prints `!! product == 'mock' for 3/3 case(s)`.
+      On screen the persistent banner reads `DEMONSTRATION DATA` (`DEMO_BANNER` in
+      `src/ui/formatters.py`), and the header telemetry line and the Provenance card name
+      `product mock`; the banner itself does not spell `MOCK`, so do not claim it does.
 - [ ] The **coverage caveat**: intersecting ≠ covering; < 50 % of AOI H3 cells ⇒ no city-wide claim.
 
 ## 4. Cut order if short on time (README §2, in order)
 
 1. [ ] Change-event pins — no events artefact in contract v1.1; post-MVP item 2.
-2. [ ] Third city — keep `mexico-city` primary + `malaga` control (`config/study_cases.yaml`, one line).
+2. [ ] Third city — keep `mexico-city` primary + `malaga` control. The `primary:` switch in
+       `config/study_cases.yaml` is one line; **dropping Jakarta is not**: remove its block there *and*
+       in `pipeline/ingest/aois.json` (`tests/test_config_consistency.py` requires the two files to
+       declare the same cases) and delete `data/processed/jakarta/`, or the app still lists it.
 3. [ ] Everything except Málaga via EGMS — EGMS is Málaga-only, **manual portal download**
        (`egms.land.copernicus.eu`), because Mexico City and Jakarta are non-EU and ineligible
        (`docs/data-source-decision.md` §Options, README §5). This cut deletes the three-city thesis — say it.
@@ -114,13 +132,16 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 ## 7. Known unverified — say these before a judge finds them
 
 - [ ] **No real granule has ever been processed.** All three cases are `product=mock`, the real path is
-      tested only on synthetic granules (README §11), and download exits 3 without `EARTHDATA_USER` /
-      `EARTHDATA_PASS` + ASF approval (`docs/data-source-decision.md` §Still open).
+      tested only on synthetic granules (README §11, §13 limitation 10), and download exits 3 without
+      `EARTHDATA_USER` / `EARTHDATA_PASS` + ASF approval (`docs/data-source-decision.md` §Still open).
 - [ ] **NISAR urban coverage is unknown.** GUNW is provisional and cryosphere-derived; SME2 excludes
       urban areas, so city-wide displacement is unproven (README §5, §12, §13 limitation 4).
 - [ ] **LOS sign convention is unvalidated.** `docs/nisar-gunw-layout.md` is verified against
-      documentation, "not yet against a real 2026 granule"; `meta.provenance.method` keeps the
-      "NOT yet validated against GNSS" sentence until runbook §7 flips a real median negative.
+      documentation, "not yet against a real 2026 granule". `meta.provenance.method` carries the
+      "NOT yet validated against GNSS" hedge on a **real** run, until runbook §7 flips a real median
+      negative; the three published `product=mock` artefacts say the stronger "Synthetic field, no
+      observation" instead, because a mock applies no LOS convention — so quote the hedge as a
+      property of the real path, never as something the committed `meta.json` says today.
 - [ ] **Season was not separable** over the old 4.5-month window, which is why `seasonal_amp_mm` was
       withheld (`meta.limitations` pre-1.1). Contract **v1.1** publishes the fitted amplitude, ratio and
       regime because the window now spans 2 years, where the same identifiability gates pass
