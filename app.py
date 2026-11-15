@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 from typing import Any
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import streamlit as st
 
@@ -12,13 +13,14 @@ from src.ui.context_view import render_hazard_tab
 from src.ui.educational import render_physics_tab
 from src.ui.formatters import DEMO_BANNER, SCALE_LABELS, choice_label, format_dates_span
 from src.ui.map_view import render_map_tab
-from src.ui.theme import inject_css
+from src.ui.theme import MAP_RAMP_LABELS, apply_theme_marker, inject_css
 
 TAB_MAP = "1. Map"
 TAB_SERIES = "2. Series and KPIs"
 TAB_HAZARD = "3. Hazard and infrastructure"
 TAB_PHYSICS = "4. Provenance and limits"
 TITLE = "Dancing with the SARs: NISAR Interferometry Cockpit"
+TAB_OPTIONS = (TAB_MAP, TAB_SERIES, TAB_HAZARD, TAB_PHYSICS)
 
 # Header telemetry may use only these keys. Missing keys are omitted.
 _TELEMETRY_KEYS = ("sensor", "product", "unit", "dates", "coherence_threshold")
@@ -177,6 +179,8 @@ def _seed_state_from_query(case_ids: list[str], coherence_floor: float | None) -
         st.session_state.ui_theme_mode = qp["theme"]
     if "scale_mode" not in st.session_state and qp.get("scale") in _SCALE_MODES:
         st.session_state.scale_mode = qp["scale"]
+    if "map_color_ramp" not in st.session_state and qp.get("ramp") in MAP_RAMP_LABELS:
+        st.session_state.map_color_ramp = qp["ramp"]
     if "selected_cell_id" not in st.session_state and qp.get("cell"):
         st.session_state.selected_cell_id = qp.get("cell")
     if "filter_coherence_min" not in st.session_state:
@@ -192,7 +196,24 @@ def _seed_state_from_query(case_ids: list[str], coherence_floor: float | None) -
             st.session_state.filter_coherence_min = value
 
 
-def _sync_query_params(filters: dict[str, Any]) -> None:
+def _active_tab(default: str = TAB_MAP) -> str:
+    state = st.session_state.get("cockpit-tabs")
+    active = state.get("open") if isinstance(state, dict) else state
+    if active in TAB_OPTIONS:
+        return str(active)
+    requested = st.query_params.get("tab")
+    return str(requested) if requested in TAB_OPTIONS else default
+
+
+def _on_tab_change() -> None:
+    """Write the newly selected tab before the normal rerun renders URL state."""
+    state = st.session_state.get("cockpit-tabs")
+    active = state.get("open") if isinstance(state, dict) else state
+    if active in TAB_OPTIONS:
+        st.query_params["tab"] = str(active)
+
+
+def _sync_query_params(filters: dict[str, Any], tab: str = TAB_MAP) -> None:
     """Mirror the live state into the URL so a copied link restores it."""
     qp = st.query_params
     qp["case"] = str(filters["case_id"])
@@ -208,9 +229,51 @@ def _sync_query_params(filters: dict[str, Any]) -> None:
     coherence = filters.get("coherence_min")
     if isinstance(coherence, (int, float)) and not isinstance(coherence, bool):
         qp["coh"] = f"{float(coherence):g}"
+    elif "coh" in qp:
+        del qp["coh"]
     qp["extrude"] = "1" if filters["extrude_3d"] else "0"
     qp["theme"] = str(st.session_state.get("ui_theme_mode", "system"))
     qp["scale"] = str(st.session_state.get("scale_mode", "independent"))
+    qp["ramp"] = str(st.session_state.get("map_color_ramp", "classic"))
+    qp["tab"] = tab if tab in TAB_OPTIONS else TAB_MAP
+
+
+def _view_url(
+    filters: dict[str, Any] | None = None,
+    tab: str | None = None,
+) -> str:
+    """Current absolute URL, with a relative query-string fallback for test contexts."""
+    params = dict(st.query_params.items())
+    if isinstance(filters, dict):
+        params["case"] = str(filters["case_id"])
+        for key, value in (
+            ("land", filters.get("land_use")),
+            ("risk", filters.get("risk_level")),
+            ("cell", st.session_state.get("selected_cell_id")),
+        ):
+            if value:
+                params[key] = str(value)
+            else:
+                params.pop(key, None)
+        coherence = filters.get("coherence_min")
+        if isinstance(coherence, (int, float)) and not isinstance(coherence, bool):
+            params["coh"] = f"{float(coherence):g}"
+        else:
+            params.pop("coh", None)
+        params["extrude"] = "1" if filters.get("extrude_3d") else "0"
+    params["theme"] = str(st.session_state.get("ui_theme_mode", "system"))
+    params["scale"] = str(st.session_state.get("scale_mode", "independent"))
+    params["ramp"] = str(st.session_state.get("map_color_ramp", "classic"))
+    params["tab"] = tab if tab in TAB_OPTIONS else TAB_MAP
+    try:
+        current = st.context.url
+    except Exception:
+        current = None
+    if isinstance(current, str) and current:
+        parsed = urlsplit(current)
+        return urlunsplit(parsed._replace(query=urlencode(params)))
+    query = urlencode(params)
+    return f"?{query}" if query else ""
 
 
 def _case_options(loaders: Any, name: str, case_id: str) -> tuple[str, ...]:
@@ -402,15 +465,24 @@ def render_filters(
     return result
 
 
+@st.fragment
 def _render_map(
     filters: dict[str, Any],
     loaders: Any,
     meta: dict[str, Any] | None,
     case_labels: dict[str, str],
 ) -> None:
-    render_map_tab(filters, loaders, meta, case_labels)
+    render_map_tab(
+        filters,
+        loaders,
+        meta,
+        case_labels,
+        share_url=lambda: _view_url(filters, _active_tab()),
+    )
+    _sync_query_params(filters, _active_tab())
 
 
+@st.fragment
 def render_app() -> None:
     loaders = _loaders()
     cases = list(loaders.load_study_cases())
@@ -432,6 +504,9 @@ def render_app() -> None:
         case_ids,
         coherence_default(meta if isinstance(meta, dict) else None),
     )
+    if st.session_state.get("ui_theme_mode") not in _THEME_MODES:
+        st.session_state.ui_theme_mode = "system"
+    apply_theme_marker()
     land_uses = _case_options(loaders, "load_land_use_options", st.session_state.filter_case_id)
     risk_levels = _case_options(loaders, "load_risk_levels", st.session_state.filter_case_id)
     # Drop stale filter values when options shrink (stub no longer lists absent classes).
@@ -473,8 +548,13 @@ def render_app() -> None:
         counts if isinstance(counts, dict) else None,
     )
 
+    requested_tab = st.query_params.get("tab")
+    default_tab = requested_tab if requested_tab in TAB_OPTIONS else TAB_MAP
     map_tab, series_tab, hazard_tab, physics_tab = st.tabs(
-        [TAB_MAP, TAB_SERIES, TAB_HAZARD, TAB_PHYSICS]
+        TAB_OPTIONS,
+        default=default_tab,
+        key="cockpit-tabs",
+        on_change=_on_tab_change,
     )
     with map_tab:
         _render_map(filters, loaders, meta if isinstance(meta, dict) else None, labels)
@@ -485,7 +565,7 @@ def render_app() -> None:
     with physics_tab:
         render_physics_tab(loaders, meta if isinstance(meta, dict) else None)
     # Written last so a cell picked by the map in this run lands in the URL too.
-    _sync_query_params(filters)
+    _sync_query_params(filters, _active_tab(default_tab))
 
 
 st.set_page_config(

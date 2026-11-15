@@ -92,7 +92,7 @@ MAP_RAMPS = {
     ),
 }
 MAP_RAMP_LABELS = {
-    "classic": "Classic · coral / amber / cyan",
+    "classic": "Original · contract ramp",
     "colorblind": "Colorblind-friendly · blue / neutral / orange",
 }
 
@@ -1192,6 +1192,10 @@ button[data-baseweb="tab"]:focus-visible {{
   min-width: 0 !important;
 }}
 
+.st-key-map-grid {{
+  margin-top: -12px !important;
+}}
+
 .st-key-map-slot {{
   position: relative;
   z-index: 0;
@@ -1546,10 +1550,12 @@ input:focus-visible,
 
 def inject_css() -> None:
     """Inject cockpit CSS. Call once per run, after set_page_config."""
-    if st.session_state.get("ui_theme_mode") not in ("system", "light", "dark"):
-        st.session_state.ui_theme_mode = "system"
     compact = "\n".join(line for line in _CSS.splitlines() if line.strip())
     st.markdown(f"<style>\n{compact}\n</style>", unsafe_allow_html=True)
+
+
+def apply_theme_marker() -> None:
+    """Apply only the selected-scheme marker; safe to refresh inside a fragment."""
     chosen = st.session_state.get("ui_theme_mode")
     if chosen in ("light", "dark"):
         st.markdown(f'<div data-cockpit="{chosen}" hidden></div>', unsafe_allow_html=True)

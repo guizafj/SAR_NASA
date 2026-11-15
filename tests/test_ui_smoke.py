@@ -109,6 +109,51 @@ def test_unknown_url_values_are_ignored_and_replaced() -> None:
     assert "cell" not in app.query_params
 
 
+def test_active_tab_and_map_ramp_round_trip_in_query_params() -> None:
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["tab"] = "3. Hazard and infrastructure"
+    app.query_params["ramp"] = "colorblind"
+    app.run()
+
+    assert app.session_state["cockpit-tabs"] == "3. Hazard and infrastructure"
+    assert app.session_state["map_color_ramp"] == "colorblind"
+    assert app.query_params["tab"] == "3. Hazard and infrastructure"
+    assert app.query_params["ramp"] == "colorblind"
+    from urllib.parse import parse_qs, urlsplit
+
+    share_link = next(item.value for item in app.code if "tab=" in item.value)
+    share_query = parse_qs(urlsplit(share_link).query or share_link.lstrip("?"))
+    assert share_query["case"] == ["mexico-city"]
+    assert share_query["tab"] == ["3. Hazard and infrastructure"]
+    assert share_query["ramp"] == ["colorblind"]
+    assert not app.exception
+
+    invalid = AppTest.from_file(APP, default_timeout=90)
+    invalid.query_params["tab"] = "unknown"
+    invalid.query_params["ramp"] = "rainbow"
+    invalid.run()
+    assert invalid.session_state["cockpit-tabs"] == "1. Map"
+    assert invalid.session_state["map_color_ramp"] == "classic"
+    assert invalid.query_params["tab"] == "1. Map"
+    assert invalid.query_params["ramp"] == "classic"
+    assert not invalid.exception
+
+
+def test_explicit_theme_query_and_theme_selector_update_all_components() -> None:
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["theme"] = "light"
+    app.run()
+    assert app.session_state["ui_theme_mode"] == "light"
+    assert 'data-cockpit="light"' in "\n".join(item.value for item in app.markdown)
+
+    theme = next(item for item in app.selectbox if item.label == "Theme")
+    theme.set_value("dark").run()
+    assert app.session_state["ui_theme_mode"] == "dark"
+    assert app.query_params["theme"] == "dark"
+    assert 'data-cockpit="dark"' in "\n".join(item.value for item in app.markdown)
+    assert not app.exception
+
+
 def test_tab4_reader_plus_technical_equals_loader_total() -> None:
     from src.data import loaders
     from src.ui.educational import split_caveat, split_technical
@@ -164,6 +209,7 @@ def test_every_figure_declares_a_unit_on_the_y_axis() -> None:
     assert figures["line"].layout.hovermode == "x unified"
     assert figures["three-cities"].layout.hovermode == "x unified"
     assert figures["bars"].layout.hovermode in (None, "closest")
+    assert figures["line"].layout.xaxis.rangeslider.visible is True
 
     # The fitted seasonal term is drawn, never invented when absent.
     assert any(trace.name == "Seasonal fit" for trace in figures["line"].data)
@@ -261,6 +307,48 @@ def test_clear_selection_resets_cell_and_url() -> None:
     assert "cell" not in app.query_params
 
 
+def test_h3_selector_updates_the_shareable_cell_state() -> None:
+    app = AppTest.from_file(APP, default_timeout=90).run()
+    selector = next(item for item in app.selectbox if item.label == "H3 cell")
+    cell_id = selector.options[1]
+    selector.set_value(cell_id).run()
+
+    assert app.session_state["selected_cell_id"] == cell_id
+    assert app.query_params["cell"] == cell_id
+    from urllib.parse import parse_qs, urlsplit
+
+    share_link = next(item.value for item in app.code if "cell=" in item.value)
+    share_query = parse_qs(urlsplit(share_link).query or share_link.lstrip("?"))
+    assert share_query["cell"] == [cell_id]
+    assert not app.exception
+
+
+def test_series_tab_explains_when_selected_cell_has_no_own_series() -> None:
+    from src.data import loaders
+
+    cell_id = str(loaders.get_map_layer_df(CASE_IDS[0], {})["cell_id"].iloc[0])
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["cell"] = cell_id
+    app.query_params["tab"] = "2. Series and KPIs"
+    app.run()
+
+    blob = _tab_text(app)
+    assert f"Selected H3 cell {cell_id} has no per-cell series" in blob
+    assert "showing the whole-area aggregate" in blob
+    assert app.session_state["selected_cell_id"] == cell_id
+    assert not app.exception
+
+
+def test_pydeck_selection_event_extracts_the_selected_h3_id() -> None:
+    from types import SimpleNamespace
+
+    from src.ui.map_view import LAYER_ID, _selected_cell
+
+    state = SimpleNamespace(selection={"objects": {LAYER_ID: [{"cell_id": "8928308280fffff"}]}})
+    assert _selected_cell(state) == "8928308280fffff"
+    assert _selected_cell(SimpleNamespace(selection={"objects": {LAYER_ID: []}})) is None
+
+
 def test_number_format_is_half_up_and_trimmed() -> None:
     from src.ui.formatters import format_number
 
@@ -325,6 +413,25 @@ def test_export_buttons_exist_for_grid_context_and_cell() -> None:
     assert "Export filtered cells (CSV)" in labels
     assert "Export context (CSV)" in labels
     assert "Export selected cell (JSON)" in labels
+    assert "Export selected cell series (CSV)" not in labels
+
+
+def test_selected_cell_series_csv_serializes_only_delivered_rows() -> None:
+    from src.ui.map_view import _series_csv
+
+    rows = [
+        {
+            "case_id": "demo-case",
+            "cell_id": "8928308280fffff",
+            "date": "2026-01-01",
+            "value": -1.25,
+            "unit": "mm",
+            "provenance_id": "demo-case+mock+20260101+abcdef01",
+        }
+    ]
+    csv = _series_csv(rows)
+    assert csv.splitlines()[0] == "case_id,cell_id,date,value,unit,provenance_id"
+    assert csv.splitlines()[1].endswith(",-1.25,mm,demo-case+mock+20260101+abcdef01")
 
 
 def test_context_tab_cross_references_nearest_cell_risk() -> None:
@@ -398,6 +505,46 @@ def test_map_tab_shows_provenance_and_kpis_exactly_once() -> None:
     assert "Unit mm" not in blob
     assert "Dates 2024-11-10" not in blob
     assert "Source mock" in blob
+
+
+def _render_map_tab_with_cell_selected() -> None:
+    import streamlit as st
+
+    from src.data import loaders
+    from src.ui.map_view import render_map_tab
+
+    case_id = "malaga"
+    st.session_state.ui_theme_mode = "system"
+    st.session_state.selected_cell_id = str(loaders.get_map_layer_df(case_id, {}).iloc[0]["cell_id"])
+    render_map_tab(
+        {
+            "case_id": case_id,
+            "land_use": None,
+            "coherence_min": 0.35,
+            "risk_level": None,
+            "extrude_3d": False,
+            "scale_mode": "independent",
+        },
+        loaders,
+        loaders.load_meta(case_id),
+        {case_id: "Málaga, ES"},
+    )
+
+
+def test_selected_map_cell_keeps_one_source_and_one_value_for_each_readout() -> None:
+    from src.data import loaders
+
+    app = AppTest.from_function(_render_map_tab_with_cell_selected, default_timeout=90).run()
+    assert not app.exception
+    blob = _tab_text(app)
+    source_id = loaders.load_meta("malaga")["provenance"]["provenance_id"]
+    assert blob.count(source_id) == 1
+    assert blob.count("Provenance ID") == 1
+    stats = next(node.value for node in app.markdown if "reading-stats" in node.value)
+    inspector = next(node.value for node in app.markdown if 'class="cockpit-card inspector"' in node.value)
+    for label in ("Velocity", "Coherence", "Ratio R"):
+        assert stats.count(f'class="stat-label">{label}</span>') == 1
+        assert f"{label}:" not in inspector
 
 
 def _render_series_tab_only() -> None:

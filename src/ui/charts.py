@@ -93,6 +93,7 @@ def line_figure(series: list[dict[str, Any]], *, height: int = CHART_HEIGHT) -> 
         showlegend=_has_seasonal(series),
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
     )
+    figure.update_xaxes(rangeslider={"visible": True, "thickness": 0.08})
     return figure
 
 
@@ -269,6 +270,38 @@ def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any
     # The persistent demo banner lives in app.py; do not duplicate it per tab.
     case_id = filters.get("case_id")
     render_kpi_cards(_call(loaders, "get_series_kpis", case_id, filters))
-    _line(_call(loaders, "get_case_series", case_id, filters))
+    area_series = _call(loaders, "get_case_series", case_id, filters)
+    selected_cell = st.session_state.get("selected_cell_id")
+    detail = (
+        _call(loaders, "get_cell_detail", str(case_id), str(selected_cell))
+        if selected_cell and case_id
+        else None
+    )
+    cell_series = detail.get("series") if isinstance(detail, dict) else None
+    cell_scope = detail.get("series_scope") if isinstance(detail, dict) else None
+    if isinstance(cell_series, list) and cell_series and cell_scope == "cell":
+        st.toggle(
+            "Compare selected cell with whole-area aggregate",
+            key=f"compare-cell-series-{case_id}",
+            help="Show both series in separate panels, each with its own labelled axis.",
+        )
+        if st.session_state.get(f"compare-cell-series-{case_id}") and area_series:
+            cell_col, area_col = st.columns(2)
+            with cell_col:
+                st.caption(f"Selected H3 cell {selected_cell}")
+                _line(cell_series)
+            with area_col:
+                st.caption("Whole-area aggregate")
+                _line(area_series)
+        else:
+            st.caption(f"Selected H3 cell {selected_cell}")
+            _line(cell_series)
+    else:
+        _line(area_series)
+        if selected_cell and isinstance(detail, dict) and cell_scope == "aoi":
+            st.caption(
+                f"Selected H3 cell {selected_cell} has no per-cell series; "
+                "showing the whole-area aggregate."
+            )
     _three_cities(loaders)
     _bars(_call(loaders, "get_land_use_bars", case_id, filters), meta)
