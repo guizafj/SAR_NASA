@@ -39,6 +39,21 @@ No pedimos un hook nuevo de procedencia: la UI ya lee `load_meta`.
 **Impacto en contrato de datos:** ninguno. Son campos aditivos del bridge.  
 **Aprobación:** Rol 1. Rol 2 cambia el caption cuando `scaled` llegue.
 
+## Rol 1 (`src/data/ui_bridge.py`) — caveat del README cortado
+
+**De:** Rol 2 (fradiaz)  
+**Para:** Rol 1 (pozo)  
+**Contexto:** pestaña 4, bloque "Known caveat".
+
+`load_documented_limits` busca la primera línea que contiene `validate against GNSS` y devuelve solo esa línea. El resultado es una frase suelta ("SNAP — validate against GNSS before publishing numbers.") que se lee fuera de contexto y pierde la condición que la acompaña.
+
+Pedimos que devuelva el párrafo completo: desde la línea que contiene la frase hasta la primera línea en blanco posterior, uniendo las líneas con un espacio. Sin recortar el sentido ni añadir texto.
+
+La UI no puede reconstruirlo: solo recibe el string ya extraído y no lee el README.
+
+**Impacto en contrato de datos:** ninguno (solo el valor de un hook de presentación).  
+**Aprobación:** Rol 1. Rol 2 comprueba que el bloque "Known caveat" se lee completo.
+
 ## Rol 3 — texto y contexto que el cockpit no puede inventar
 
 **De:** Rol 2 (fradiaz)  
