@@ -111,7 +111,15 @@ Reglas validadas por `validate_grid()`:
 - `regime` fuera de `REGIMES` es error: la lista de valores permitidos no se amplía por comodidad
   (un `"recoverable"` inventado rompe la UI en silencio, así que se rechaza en el pipeline);
 - `seasonal_amp_mm` no admite valores no finitos (`inf`/`NaN`), igual que `velocity_mm_yr`, y
-  `ratio_R` solo admite el `null` de «no ajustado»: `inf` es error en ambos casos.
+  `ratio_R` solo admite el `null` de «no ajustado»: `inf` es error en ambos casos;
+- `ratio_R` **debe coincidir** con `|velocity_mm_yr| / seasonal_amp_mm` donde la amplitud se ajustó
+  (tolerancia relativa 5e-3 para absorber el redondeo): un cociente tecleado o un centinela se
+  rechaza. En las tres ciudades publicadas la deriva medida es exactamente 0.0;
+- `ratio_R > MAX_PUBLISHABLE_RATIO_R` (`1e9`) es error. Esa magnitud no describe un régimen: significa
+  que la amplitud es indistinguible del cero numérico (una serie exactamente lineal ajusta ~1e-14 mm
+  y publicaría ~1e15). Es una guarda contra el artefacto numérico, **no** un umbral científico de
+  detectabilidad — el máximo real es 276.76, y una serie sin estacionalidad ajusta el suelo de ruido
+  (~0.2 mm con 1 mm/época), no 0. En ese caso se publica amplitud 0 con `ratio_R` nulo.
 
 Ejemplo de fila:
 
