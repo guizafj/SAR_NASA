@@ -1648,7 +1648,7 @@ def rehearse(workdir: Path, root: Path) -> dict[str, Any]:
                     if convention_flags[flag]
                 )
                 + ". The runbook text is stale; the rehearsal deliberately kept the default "
-                "(away-from-sensor/platform) so the sign check still exercises the documented "
+                "(toward-sensor/platform) so the sign check still exercises the documented "
                 "Step 5 command."
             )
         if stale_override_claim and (

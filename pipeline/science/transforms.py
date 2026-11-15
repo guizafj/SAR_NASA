@@ -148,6 +148,13 @@ def project_to_los(
     Inputs broadcast against each other; units are mm (or mm/yr: the projection is linear, so a
     velocity projects exactly like a displacement). See :func:`los_to_vertical` for the sign
     convention and the inverse.
+
+    **Sign of the result: toward-sensor-positive.** ``u_up = cosθ > 0``, so with no horizontal
+    motion a positive (upward) vertical motion gives a positive ``d_LOS``: the axis ``u`` points
+    from the target toward the satellite, uplift is positive and subsidence negative. That is the
+    convention `pipeline/process_case.py` labels ``toward-sensor``, and it is the default there
+    (O-08: the label was renamed to match this arithmetic, the arithmetic was not flipped). The
+    ``away-from-sensor`` label is the same numbers negated.
     """
     theta, alpha = _geometry_radians(incidence_deg, heading_deg)
     u = _unit_vectors(theta, alpha)
@@ -184,7 +191,10 @@ def los_to_vertical(
 
     **Sign convention.** Units mm, up/east/north positive, ``u = [cosθ, −sinθ·cosα, −sinθ·sinα]``
     from README §6 with ``heading_deg`` passed through verbatim: this module applies **no**
-    sensor-specific remapping. That is deliberate, because the products disagree:
+    sensor-specific remapping. Positive ``d_LOS`` under this frozen ``u`` is motion **toward** the
+    sensor (``u_up = cosθ > 0``), which is why `pipeline/process_case.py` labels the phase
+    conversion that reproduces it ``toward-sensor`` and makes that the default. The products still
+    disagree, which is why the label is an input there, not a constant:
 
     * ISCE2/GUNW ``heading`` is the platform heading; MintPy's ``incidenceAngle``/``heading``
       grids and SNAP's metadata use different azimuth origins, and the sign of "LOS positive" is

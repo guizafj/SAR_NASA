@@ -394,6 +394,17 @@ take 8 granules (~19 GB) and stay above `MIN_FIT_POINTS = 4`. Note the recommend
 **Guard answered 2026-11-14 (D-17).** The cap is enforceable before any transfer now: `--probe-sizes`
 reads the real `Content-Length` and an over-budget plan exits 5 with nothing fetched. What remains
 open is the spend — ~30 GB for 12 epochs or ~19 GB for 8 — not the mechanism.
+**Answered 2026-11-14 — spend the first ~2.34 GB, not 28.** `download --max-granules N` truncates the
+plan `--stack` already selected to its **first N granules by reference date** (a contiguous prefix that
+still starts where the chain starts — never an even sample, never a hole in the middle), so
+`--stack recommended --max-granules 1 --probe-sizes --max-gb 3` fetches exactly one granule to verify
+the HDF5 reader before the remaining 28 GB. The limit gates `--probe-sizes`/`--max-gb` on the *truncated*
+plan (30 GB no longer refuses one granule), while the mixed-geometry verdict is still taken on the full
+selection so truncation cannot smuggle a mixed plan through; below `MIN_FIT_POINTS = 4` epochs the plan
+prints an INSPECTION-ONLY warning and is still allowed, and `provenance.json` records `max_granules`,
+`n_selected`, `n_planned`, `granules_truncated` and `planned_granule_ids` so nobody reads it as 12
+fetched. What stays open is only the spend for the *full* chain, decided after the one file is read.
+Guarded by `tests/test_download_stack.py` (`test_max_granules_*`).
 
 ### O-02 — Copyright holder for `LICENSE`
 MIT needs a name; a collective handle grants a licence weakly.

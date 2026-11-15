@@ -683,6 +683,207 @@ def test_download_reports_a_source_without_any_granule_records(
 
 
 # ---------------------------------------------------------------------------------------------
+# download --max-granules: truncate the plan the stack selection already made
+# ---------------------------------------------------------------------------------------------
+#
+# The operator's first real fetch is ONE granule, to verify the HDF5 reader before spending the
+# 28 GB of the full chain. `--max-gb` refuses a plan, it cannot narrow one, so the limit lives in
+# its own flag. The truncation must keep the *start* of the chain (chronological prefix, never an
+# even sample and never a hole in the middle), and it must not weaken the guards: the geometry
+# verdict still refuses a mixed selection, while --max-gb/--probe-sizes are measured on what will
+# actually be fetched.
+
+
+def test_max_granules_keeps_the_first_granule_of_the_selected_chain(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    payload = series("079", "D", 34)  # 34 pairs; the download chain is the most recent 12
+    availability = write_report(tmp_path, monkeypatch, payload)
+    chain = load_source(availability)["recommended_stack"]["granule_ids"]
+    assert len(chain) == M.STACK_GRANULE_LIMIT == 12
+    raw = tmp_path / "raw"
+
+    rc = M.main(download_argv(availability, raw, "--max-granules", "1"))
+    out = capsys.readouterr().out
+
+    assert rc == M.RC_OK
+    assert planned_ids(out) == {chain[0]}
+    assert "plan: 1 granule(s)" in out  # the effective count, not the stack's
+    references = [M.parse_granule(granule_id_).reference_start for granule_id_ in chain]
+    assert references == sorted(references), "the selected chain must already be chronological"
+    assert M.parse_granule(chain[0]).reference_start == min(references)  # the chain's start
+    assert not raw.exists()
+
+
+def test_max_granules_keeps_a_contiguous_prefix_and_stays_fittable(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    payload = series("079", "D", 34)
+    availability = write_report(tmp_path, monkeypatch, payload)
+    chain = load_source(availability)["recommended_stack"]["granule_ids"]
+    raw = tmp_path / "raw"
+
+    rc = M.main(download_argv(availability, raw, "--max-granules", "6"))
+    out = capsys.readouterr().out
+
+    assert rc == M.RC_OK
+    # a prefix of the selected chain: same order, no hole in the middle, no even sampling
+    assert planned_ids(out) == set(chain[:6])
+    assert local_chain_epochs(chain[:6]) == len(chain[:6]) + 1 == 7
+    assert 7 >= M.MIN_FIT_POINTS
+    assert "INSPECTION ONLY" not in out  # 7 epochs can still be fitted
+    assert not raw.exists()
+
+
+def test_max_granules_budget_is_checked_against_the_truncated_plan(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    # 12 granules at 3 GB each = 36 GB: over a 30 GB budget as a whole, fine as one granule.
+    payload = series("079", "D", 12, size_mb=3000.0)
+    availability = write_report(tmp_path, monkeypatch, payload)
+    raw = tmp_path / "raw"
+
+    rc = M.main(download_argv(availability, raw, "--max-gb", "30", "--probe-sizes"))
+    captured = capsys.readouterr()
+
+    assert rc == M.RC_BUDGET_GUARD
+    assert "exceeds --max-gb 30" in captured.err
+    assert not raw.exists()
+
+    rc = M.main(
+        download_argv(
+            availability, raw, "--max-gb", "30", "--probe-sizes", "--max-granules", "1"
+        )
+    )
+    out = capsys.readouterr().out
+
+    assert rc == M.RC_OK, "the budget must be measured on the truncated plan, not the selection"
+    assert len(planned_ids(out)) == 1
+    assert "budget: --max-gb 30 checked against the whole 3.00 GB plan" in out
+    assert not raw.exists()
+
+
+def test_max_granules_reports_the_truncation_in_the_plan(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    payload = series("079", "D", 12)
+    availability = write_report(tmp_path, monkeypatch, payload)
+    raw = tmp_path / "raw"
+
+    rc = M.main(download_argv(availability, raw, "--max-granules", "1"))
+    out = capsys.readouterr().out
+
+    assert rc == M.RC_OK
+    assert "--max-granules 1 applied: 1 of 12 planned" in out
+
+    # no truncation, no claim: the line only appears when it actually happened
+    capsys.readouterr()
+    rc = M.main(download_argv(availability, raw, "--max-gb", "10", "--max-granules", "12"))
+    out = capsys.readouterr().out
+    assert rc == M.RC_OK
+    assert "--max-granules 12 applied" not in out
+    assert len(planned_ids(out)) == 12
+
+
+def test_max_granules_zero_is_a_usage_error_that_writes_nothing(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    availability = write_report(tmp_path, monkeypatch, series("079", "D", 12))
+    raw = tmp_path / "raw"
+
+    rc = M.main(download_argv(availability, raw, "--max-granules", "0"))
+    captured = capsys.readouterr()
+
+    assert rc == M.RC_USAGE
+    assert "--max-granules must be >= 1" in captured.err
+    assert "0 would plan" in captured.err
+    assert "Download plan" not in captured.out  # refused before any planning output
+    assert not raw.exists()
+
+
+def test_max_granules_cannot_bypass_the_mixed_geometry_guard(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    payload = series("079", "D", 8) + series("078", "D", 4) + series("012", "A", 3)
+    availability = write_report(tmp_path, monkeypatch, payload)
+    raw = tmp_path / "raw"
+
+    # `--stack all` selects a mixed plan; a limit that hides two of the three tracks must not turn
+    # that into a fetchable plan.
+    rc = M.main(download_argv(availability, raw, "--stack", "all", "--max-granules", "1"))
+    captured = capsys.readouterr()
+
+    assert rc == M.RC_PRODUCT_GUARD
+    assert "mixes acquisition geometries" in captured.out
+    assert "truncating a mixed selection does not make it fetchable" in captured.out
+    assert "track 078" in captured.out and "track 012" in captured.out
+    assert not raw.exists()
+
+
+def test_max_granules_one_warns_that_epochs_are_below_min_fit_points(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    availability = write_report(tmp_path, monkeypatch, series("079", "D", 12))
+    raw = tmp_path / "raw"
+
+    rc = M.main(download_argv(availability, raw, "--max-granules", "1"))
+    out = capsys.readouterr().out
+
+    # one GUNW pair is two acquisition days: far below what a trend fit needs
+    assert rc == M.RC_OK, "N=1 is an explicit inspection request, never a refusal"
+    assert "WARNING: this truncated plan yields 2 epoch(s)" in out
+    assert f"below MIN_FIT_POINTS={M.MIN_FIT_POINTS}" in out
+    assert "INSPECTION ONLY" in out
+    assert "process_case" in out
+    assert "Drop --max-granules" in out
+    assert len(planned_ids(out)) == 1
+    assert not raw.exists()
+
+
+def test_provenance_records_the_truncated_plan_not_the_selection(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    payload = series("079", "D", 12)
+    availability = write_report(tmp_path, monkeypatch, payload)
+    chain = load_source(availability)["recommended_stack"]["granule_ids"]
+    raw = tmp_path / "raw"
+    dest_dir = raw / CITY / SOURCE
+    dest_dir.mkdir(parents=True)
+    (dest_dir / f"{chain[0]}.h5").write_bytes(b"canned-granule")  # already complete: no network
+
+    monkeypatch.setenv("EARTHDATA_USER", "tester")
+    monkeypatch.setenv("EARTHDATA_PASS", "secret")
+    monkeypatch.setattr(M, "build_earthdata_session", lambda *_args, **_kwargs: object())
+
+    rc = M.main(
+        [
+            "download",
+            "--city",
+            CITY,
+            "--source",
+            SOURCE,
+            "--availability",
+            str(availability),
+            "--raw",
+            str(raw),
+            "--max-granules",
+            "1",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == M.RC_OK
+    provenance = json.loads((dest_dir / "provenance.json").read_text())
+    assert provenance["max_granules"] == 1
+    assert provenance["n_selected"] == len(chain) == 12
+    assert provenance["n_planned"] == 1
+    assert provenance["granules_truncated"] is True
+    assert provenance["planned_granule_ids"] == [chain[0]]
+    assert [record["granule_id"] for record in provenance["files"]] == [chain[0]]
+    assert "12 of 12" in provenance["stack"]  # the selection is still described honestly
+
+
+# ---------------------------------------------------------------------------------------------
 # End to end: search writes the report, download follows the recommendation
 # ---------------------------------------------------------------------------------------------
 

@@ -330,11 +330,14 @@ azimuth conventions give identical numbers here — and "purely vertical" is an 
 measurement.
 
 **Sign and heading conventions are recorded, not validated.** `--los-sign` (default
-`away-from-sensor`) and `--heading-convention` (default `platform`) are written into `provenance`,
-and `provenance.method` keeps its "NOT yet validated against GNSS" hedge; passing the flags restates
-the convention, it does not check it. **O-08 is also open:** the default away-positive label
-conflicts with `project_to_los` assigning positive LOS to positive vertical motion when horizontals
-are zero. Reconcile that definition and validate against GNSS before publishing real numbers.
+`toward-sensor`: `d_LOS = -λ/4π·φ` with a **positive** value meaning the ground moved toward the
+sensor, i.e. uplift, because up is positive and `u_up = cos θ > 0` — the same direction
+`project_to_los` computes; `away-from-sensor` is the `+λ/4π` flip) and `--heading-convention` (default
+`platform`) are written into `provenance`, and `provenance.method` keeps its "NOT yet validated
+against GNSS" hedge; passing the flags restates the convention, it does not check it. **O-08 is
+closed by renaming, not by re-deriving:** the default factor is still -1.0, so no published number
+moved — only the label (and the prose derived from it) now matches the projection. Validate the
+convention against GNSS before publishing real numbers.
 **Axis/sign conventions differ between ISCE2, MintPy and SNAP.**
 
 **Time-series model** (drives the trend/seasonal split) — *harmonic part implemented, step part
@@ -699,13 +702,14 @@ are project-level statements that no single artefact carries.
     connected multi-date stack could be refused as "mixes relative orbits" and two orbits could be
     merged under one frame label. Nothing published was affected either way: the mock path never
     parses a granule name, and its provenance digest hashes `case|product|seed`.
-12. **The LOS sign label contradicts the projection arithmetic (O-08).** `project_to_los` builds
-    `u = [cosθ, −sinθcosα, −sinθsinα]`, so with zero horizontals **uplift gives positive LOS**
-    (toward-sensor-positive) and subsidence negative, while the phase conversion's default is
-    labelled `away-from-sensor` and that label is what lands in `meta.provenance.method`. The two
-    must be reconciled, and the result validated against GNSS, before any real-path velocity is
-    interpreted or published. The mock synthesises millimetres directly, so no published number is
-    affected.
+12. **The LOS sign label contradicted the projection arithmetic (O-08, closed by renaming).**
+    `project_to_los` builds `u = [cosθ, −sinθcosα, −sinθsinα]`, so with zero horizontals **uplift
+    gives positive LOS** (toward-sensor-positive) and subsidence negative. The phase conversion's
+    default factor has always been -1.0 — exactly that arithmetic — but it was labelled
+    `away-from-sensor`, and that label landed in `meta.provenance.method`. The label and its prose
+    now say `toward-sensor`, the default factor stays -1.0, and **no published number changed**
+    (the mock synthesises millimetres directly, so none was ever at risk). What remains open is
+    validation, not naming: the convention is still unvalidated against GNSS (`--validated-against`).
 
 ---
 

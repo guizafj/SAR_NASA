@@ -1080,6 +1080,45 @@ def build_download_plan(
     return plan
 
 
+def _chronological_key(item: dict) -> tuple[int, str, str]:
+    """Sort key for a plan item: reference acquisition date, then granule name.
+
+    The reference date is what `process_case._chain` orders by, so it is what "the first N
+    granules" means. A granule whose name does not parse carries no date: it sorts last instead
+    of claiming to be the oldest (it is refused by the identity guard anyway, and a refusal must
+    never be the only thing the operator gets to inspect).
+    """
+    reference = item["decision"].parsed.reference_start or ""
+    return (0 if reference else 1, reference, item["granule_id"])
+
+
+def truncate_plan(plan: list[dict], max_granules: int | None) -> list[dict]:
+    """Keep the FIRST `max_granules` items in reference-date order. `None` = no limit.
+
+    Which granules survive is decided chronologically, so the retained set is the *start* of the
+    chain (a contiguous run that still begins where the selected chain begins) — never an even
+    sample and never a hole in the middle. The survivors keep the order `select_stack_granules`
+    produced, so the plan itself is never reordered. Caller validates `max_granules >= 1`; a
+    limit at or above the plan size changes nothing.
+    """
+    if max_granules is None or len(plan) <= max_granules:
+        return plan
+    ordered = sorted(range(len(plan)), key=lambda index: _chronological_key(plan[index]))
+    keep = set(ordered[:max_granules])
+    return [item for index, item in enumerate(plan) if index in keep]
+
+
+def plan_epochs(plan: list[dict]) -> int:
+    """Distinct acquisition days the plan carries — what a trend fit would actually see.
+
+    Same accounting as `_run_epochs` (a granule is a *pair*, so its reference and secondary days
+    both count), so `MIN_FIT_POINTS` is compared against the number `process_case` would derive.
+    """
+    return _run_epochs(
+        [(item["granule_id"], item["decision"].parsed) for item in plan]
+    )
+
+
 def plan_geometries(plan: list[dict]) -> set[tuple[str | None, str | None]]:
     """Distinct `(track, direction)` among the accepted items: the mixed-geometry guard.
 
@@ -1499,11 +1538,30 @@ def _fmt_gb(mb: float) -> str:
 
 
 def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list[dict],
-                max_gb: float) -> None:
+                max_gb: float, n_selected: int | None = None,
+                max_granules: int | None = None) -> None:
     print(f"Download plan for {city} / {source}")
     print(f"  Stack selection: {label}")
     for note in notes:
         print(f"  note: {note}")
+
+    truncated = (
+        max_granules is not None and n_selected is not None and len(plan) < n_selected
+    )
+    if truncated:
+        print(
+            f"  --max-granules {max_granules} applied: {len(plan)} of {n_selected} planned "
+            f"(the FIRST {len(plan)} granule(s) by reference date, so the retained chain still "
+            "starts where the selected chain starts)"
+        )
+        epochs = plan_epochs(plan)
+        if epochs < MIN_FIT_POINTS:
+            print(
+                f"  WARNING: this truncated plan yields {epochs} epoch(s), below "
+                f"MIN_FIT_POINTS={MIN_FIT_POINTS} — it CANNOT produce a fitted case. Fetching it "
+                "is for INSPECTION ONLY (e.g. verify the HDF5 reader); `process_case` refuses "
+                "it. Drop --max-granules to plan the full chain."
+            )
 
     unknown = [item for item in plan if item["size_mb"] is None]
     known_mb = sum((item["size_mb"] or 0) for item in plan)
@@ -1568,6 +1626,16 @@ def _print_plan(city: str, source: str, label: str, notes: list[str], plan: list
 
 
 def cmd_download(args: argparse.Namespace) -> int:
+    if args.max_granules is not None and args.max_granules < 1:
+        # Validated here rather than in argparse so the message says what the flag *means*: a
+        # limit of 0 is not "no limit", it is a request to fetch nothing, which is a usage error.
+        print(
+            f"--max-granules must be >= 1 (got {args.max_granules}): it keeps the first N granules "
+            "of the selected plan in reference-date order, so 0 would plan (and fetch) nothing. "
+            "Omit the flag to plan the whole selection.",
+            file=sys.stderr,
+        )
+        return RC_USAGE
     cfg = json.loads(AOIS.read_text())
     if args.city not in cfg["cities"]:
         print(f"unknown city {args.city}; known: {', '.join(cfg['cities'])}", file=sys.stderr)
@@ -1590,22 +1658,41 @@ def cmd_download(args: argparse.Namespace) -> int:
 
     raw_dir = pathlib.Path(args.raw) / args.city / args.source
     max_bytes = int(args.max_gb * 1e9)
-    plan = build_download_plan(records, args.source, args.allow_product or [], raw_dir)
-    if not plan:
+    selected_plan = build_download_plan(records, args.source, args.allow_product or [], raw_dir)
+    if not selected_plan:
         print(
             f"source {args.source} has no plannable granule records; re-run `search`",
             file=sys.stderr,
         )
         return RC_USAGE
 
-    geometries = plan_geometries(plan)
+    # `--max-granules` narrows the plan the stack selection already made; it never changes stack
+    # selection. Everything below (sizes probe, geometry, budget, fetch, provenance) then works on
+    # the truncated plan, so a 30 GB budget cannot refuse a one-granule plan.
+    n_selected = len(selected_plan)
+    plan = truncate_plan(selected_plan, args.max_granules)
+    truncated = len(plan) < n_selected
+
+    # The geometry verdict is taken on the SELECTED plan: a truncated plan is a subset, so any
+    # mixed truncated plan is mixed here too, while `--max-granules 1` can never be used to slip
+    # a mixed selection past the guard. The budget and the size probe use the truncated plan.
+    geometries = plan_geometries(selected_plan)
     plan_is_mixed = len(geometries) > 1 and not args.allow_mixed_geometry
     if args.probe_sizes and not plan_is_mixed:
         # After the product/geometry verdicts (never HEAD a granule that will be refused) and
         # before the budget verdict (so the guard can refuse on a real size, not on 0).
         probe_plan_sizes(plan)
 
-    _print_plan(args.city, args.source, label, notes, plan, args.max_gb)
+    _print_plan(
+        args.city,
+        args.source,
+        label,
+        notes,
+        plan,
+        args.max_gb,
+        n_selected=n_selected,
+        max_granules=args.max_granules,
+    )
 
     rejected = [item for item in plan if not item["decision"].accepted]
     if rejected:
@@ -1629,7 +1716,7 @@ def cmd_download(args: argparse.Namespace) -> int:
             frames = sorted(
                 {
                     str(item["decision"].parsed.frame)
-                    for item in plan
+                    for item in selected_plan
                     if item["decision"].accepted
                     and (
                         item["decision"].parsed.track,
@@ -1646,6 +1733,11 @@ def cmd_download(args: argparse.Namespace) -> int:
             "`--stack recommended` or `--stack <track>` (planned from a legacy report? "
             "re-run `search`)"
         )
+        if truncated:
+            print(
+                f"  --max-granules {args.max_granules} is applied after this verdict: truncating "
+                "a mixed selection does not make it fetchable"
+            )
         return RC_PRODUCT_GUARD
 
     # Refuse on a KNOWN size only: an unknown size is never a refusal (NISAR GUNW always starts
@@ -1742,6 +1834,14 @@ def cmd_download(args: argparse.Namespace) -> int:
                 "max_gb": args.max_gb,
                 "size_probe": args.probe_sizes,
                 "stack": label,
+                # What was actually planned, so a reader never assumes the whole stack was
+                # fetched: `n_selected` is the stack selection, `n_planned` what survived
+                # --max-granules, and `planned_granule_ids` names them.
+                "max_granules": args.max_granules,
+                "n_selected": n_selected,
+                "n_planned": len(plan),
+                "granules_truncated": truncated,
+                "planned_granule_ids": [item["granule_id"] for item in plan],
                 "retrieved_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "earthdata_user": user,
                 "files": records_out,
@@ -1807,6 +1907,17 @@ def main(argv: list[str] | None = None) -> int:
         default=2.0,
         help="budget in GB: refuses a plan whose KNOWN size exceeds it, before any transfer; an "
         "unknown size never refuses (add --probe-sizes to make the preflight real)",
+    )
+    p_dl.add_argument(
+        "--max-granules",
+        type=int,
+        default=None,
+        metavar="N",
+        help="fetch at most N granules of the plan `--stack` selected, keeping the FIRST N by "
+        "reference date (the chain still starts at its start, never an even sample); use it to "
+        "fetch one granule and verify the HDF5 reader before spending the full budget. The "
+        "mixed-geometry guard and provenance still apply, and --max-gb/--probe-sizes are "
+        "measured against the truncated plan. N < 1 is a usage error",
     )
     p_dl.add_argument(
         "--probe-sizes",

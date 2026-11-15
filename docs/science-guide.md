@@ -46,7 +46,7 @@ being silently different:
 
 | Convention | This project | The failure it prevents |
 |---|---|---|
-| sign | **up / east / north positive**; subsidence is negative; the physical LOS label is unresolved (O-08) | a flipped sign reads as uplift |
+| sign | **up / east / north positive**; subsidence is negative; positive LOS is **toward** the sensor, i.e. uplift (label renamed to match the arithmetic, O-08) | a flipped sign reads as uplift |
 | units | displacement and `val_t*`/`delta_change` in **mm**, rates in **mm/yr**, volume in **m³/yr** | mm vs mm/yr confusion (why `delta_change` and `velocity_mm_yr` are separate fields) |
 | angles | incidence θ from **nadir**, heading α **degrees clockwise from north** | conventions differ between ISCE2, MintPy and SNAP |
 | time | years on a **365.25-day** year; dates ISO `YYYY-MM-DD` in UTC | a 365-day year biases every rate by 0.07 % |
@@ -128,16 +128,18 @@ revisit interval (§2.4).
 Path length is counted twice (out and back), and one full cycle of phase is 2π:
 
 ```
-d_LOS = -λ / (4π) · φ_unwrapped        [m],  sign convention to be validated (see §2.6)
+d_LOS = -λ / (4π) · φ_unwrapped        [m],  default convention: positive = toward the sensor (see §2.6)
 λ_L   ≈ 0.2384 m                        NISAR L-band, ~1.2575 GHz
 ```
 
-> **The minus sign is the shipped default, not a law of nature.** The CLI labels that default
-> `away-from-sensor`, but `project_to_los` assigns a positive scalar to positive vertical motion
-> when horizontals are zero. Those statements do not share one consistent physical LOS direction.
-> **O-08 therefore blocks real publication**: reconcile phase conversion, projection, labels, and
-> independent physical tests instead of treating the CLI string as validation. The selected sign
-> still enters `meta.provenance`, and a flipped sign inverts every published number.
+> **The minus sign is the shipped default, not a law of nature.** It is labelled `toward-sensor`,
+> and that label now matches the geometry: `project_to_los` puts `u_up = cos θ > 0` in front of the
+> vertical, so a positive `d_LOS` is motion toward the sensor, which is uplift here (subsidence is
+> negative). **O-08 was closed by renaming the label, not by changing the arithmetic**: the factor
+> is still -1.0 and every default number is unchanged. `--los-sign away-from-sensor` is the +1.0
+> flip and inverts every published vertical value. The selected sign is recorded in
+> `meta.provenance`, and the convention stays unvalidated until `--validated-against` names a
+> GNSS/levelling series or a published rate.
 
 Every *L-band* phase-to-millimetre figure in **this document** derives from that one constant. The
 pipeline itself does not hard-code it: `process_case` takes `wavelength_m` from the granule, else
@@ -166,9 +168,11 @@ output = (float(sign) * wavelength * 1000.0 / (4.0 * np.pi)) * phase
 output[~np.isfinite(phase)] = np.nan   # NaN/inf is invalid input, never displacement
 ```
 
-`sign` defaults to `-1.0` under the CLI's `away-from-sensor` label, but O-08 records that this
-physical label conflicts with the projection. The numerical examples below are algebraic round
-trips, not validation of that label. The NaN mask is applied *after* the arithmetic on purpose —
+`sign` defaults to `-1.0`, which the CLI labels `toward-sensor`: positive `d_LOS` is motion toward
+the sensor, so uplift is positive and subsidence negative — the same direction `project_to_los`
+computes for a pure vertical field (`u_up = cos θ > 0`). `--los-sign away-from-sensor` applies
+`+λ/4π·φ` and flips every vertical sign. The numerical examples below are algebraic round trips,
+not validation of that label. The NaN mask is applied *after* the arithmetic on purpose —
 `inf * 0` must not become a physical-looking `0 mm`.
 
 **Why this scale matters for the demo.** Mexico City's mock configured peak, −420 mm/yr, moves
@@ -282,15 +286,19 @@ sensitivity is `sinθ·|cosα| ≈ 0.62`) — it does **not** cancel. Hence:
   `process_case._probe_granule_metadata`; if the only value available is a per-pixel grid, that is a
   `GeometryRequiredError` — averaging θ would silently redefine `cos θ`, which scales every
   millimetre of everything downstream.
-- **The sign/azimuth convention is recorded, not validated.** `--los-sign {away-from-sensor,
-  toward-sensor}` (default `away-from-sensor`, i.e. `d_LOS = -λ/4π·φ`) and `--heading-convention
+- **The sign/azimuth convention is recorded, not validated.** `--los-sign {toward-sensor,
+  away-from-sensor}` (default `toward-sensor`, i.e. `d_LOS = -λ/4π·φ`: positive = toward the sensor =
+  uplift; `away-from-sensor` is the +λ/4π flip) and `--heading-convention
   {platform, look}` change arithmetic *and* enter `provenance`; `meta.provenance.method` carries the
   sentence *"NOT yet validated against GNSS"* until **any of the four convention flags** is passed
   (`--los-sign`, `--heading-convention`, `--method-note`, `--validated-against` — even a plain method
   note removes it). The flags record the convention; they do not validate it. `--validated-against`
   records a GNSS/levelling **or published-rate** check, and the runbook gates publication on that
   hedge being gone. Mock artefacts never carry it: their method says *"Synthetic field, no
-  observation"*.
+  observation"*. **O-08 is why the default is named `toward-sensor`:** the label had said
+  `away-from-sensor` while the factor -1.0 fed to `project_to_los`-compatible geometry made uplift
+  positive. Renaming fixed the contradiction; a test suite asserts the signs from the physics
+  (`tests/test_process_case_convention.py` §9, `tests/test_science_transforms.py`).
 - **The convention is invisible under today's defaults** — the `u_east`-only caveat of §2.1: `u_up =
   cos θ` does not depend on heading, and the horizontal terms vanish when `v_east = v_north = 0`, so
   platform-vs-look heading produces identical numbers on the shipped path. Only a supplied horizontals
@@ -332,6 +340,11 @@ configured peak rate, −420 mm/yr, in one 12-day pair, at θ = 39°, α = 192°
 | fraction of a fringe | **0.09** | `φ / 2π` |
 | annualised **vertical** rate | −420 mm/yr | `−13.80 × 365.25/12` |
 | risk band | `critico` | `\|v\| ≥ 25 mm/yr` |
+
+Every LOS value is negative because the ground subsided: under the default `toward-sensor` label a
+positive `d_LOS` is uplift, so downward motion is negative and the phase brings the sign back
+(`φ = +0.565 rad` with `d_LOS = -10.72 mm`). That is the direction of the frozen `u` in §2.6
+(`u_up = cos 39° = 0.777 > 0`), not a separate assumption.
 
 The same nine hundredths of a fringe motivates the unwrapping warning: one cycle slip is 2π =
 153.4 mm vertical (§2.3), eleven times this example pair's motion. It demonstrates the potential

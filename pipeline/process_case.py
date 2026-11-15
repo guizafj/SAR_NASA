@@ -40,12 +40,15 @@ docs/nisar-gunw-layout.md §4, NOT yet validated against GNSS" must be **gone** 
 `meta.provenance.method` before any number is shown. The two convention flags change arithmetic as
 well as prose; the two prose flags only record what the operator checked.
 
-* `--los-sign away-from-sensor` (the compatibility label and today's behaviour) keeps
-  `d_LOS = -lambda/(4*pi)*phi`; `--los-sign toward-sensor` uses `+lambda/(4*pi)*phi` and flips every
-  vertical sign. **O-08 is open:** this away-positive label conflicts with `project_to_los`, which
-  assigns positive LOS to positive vertical motion when horizontals are zero. The labels and formulas
-  must be reconciled before real output is physically interpreted or published; synthetic round trips
-  do not settle the physical convention.
+* `--los-sign toward-sensor` (the default, and the arithmetic this module has always applied) keeps
+  `d_LOS = -lambda/(4*pi)*phi`: the LOS axis points from the target toward the satellite, so a
+  positive value means the ground moved toward the sensor — uplift (up is positive here) is positive
+  and subsidence negative, which is exactly what `project_to_los` computes for a pure vertical field
+  because `u_up = cos(theta) > 0`. `--los-sign away-from-sensor` uses `+lambda/(4*pi)*phi` and flips
+  every vertical sign. **O-08 was resolved by renaming, not by re-deriving:** the factor -1.0 this
+  module has always applied *is* toward-sensor-positive, so the label and the arithmetic now agree
+  and no published number moved. The synthetic round-trip tests still do not validate the physical
+  convention — only GNSS/levelling or a published rate does that (`--validated-against`).
 * `--heading-convention platform` (today's behaviour) passes the granule heading through verbatim as
   the azimuth `alpha` of the frozen unit vector
   `u = [cos(theta), -sin(theta)*cos(alpha), -sin(theta)*sin(alpha)]`.
@@ -166,22 +169,25 @@ ASSUMED_V_NORTH_MM = 0.0
 
 #: LOS sign conventions accepted by `--los-sign`, mapped to the `sign` factor of
 #: `nisar_gunw.phase_to_los_displacement_mm` (`d_LOS = sign*lambda/(4*pi)*phi`). The first entry is
-#: the physical default **and** the arithmetic this module has always applied: the LOS axis points
-#: from the target toward the satellite, so positive means "the ground moved away from the sensor"
-#: and subsidence (downward, up positive here) is negative.
-LOS_SIGN_FACTORS: dict[str, float] = {"away-from-sensor": -1.0, "toward-sensor": 1.0}
-DEFAULT_LOS_SIGN = "away-from-sensor"
+#: the default **and** the arithmetic this module has always applied (factor -1.0, unchanged by the
+#: O-08 rename): the frozen unit vector points from the target toward the satellite (`u_up =
+#: cos(theta) > 0`), so positive LOS is motion toward the sensor — uplift is positive, subsidence
+#: negative. The label was renamed to say that; the numbers did not move.
+LOS_SIGN_FACTORS: dict[str, float] = {"toward-sensor": -1.0, "away-from-sensor": 1.0}
+DEFAULT_LOS_SIGN = "toward-sensor"
 
 #: What each sign means in words, reused by the flag help and by `meta.provenance.method` so the
-#: operator and the artefact cannot drift apart.
+#: operator and the artefact cannot drift apart. Both sentences describe the same `u` that
+#: `transforms.project_to_los` builds; only the reported direction of the LOS axis differs.
 LOS_SIGN_MEANINGS: dict[str, str] = {
-    "away-from-sensor": (
-        "positive d_LOS means the ground moved away from the sensor along the line of sight, so "
-        "subsidence (downward motion; up is positive in this pipeline) is negative"
-    ),
     "toward-sensor": (
         "positive d_LOS means the ground moved toward the sensor along the line of sight, so "
-        "subsidence is positive and uplift negative — the opposite reading to away-from-sensor"
+        "uplift (upward motion; up is positive in this pipeline) is positive and subsidence "
+        "negative"
+    ),
+    "away-from-sensor": (
+        "positive d_LOS means the ground moved away from the sensor along the line of sight, so "
+        "subsidence is positive and uplift negative — the opposite reading to toward-sensor"
     ),
 }
 
@@ -362,7 +368,7 @@ class ConventionRecord:
 
     @property
     def phase_factor(self) -> str:
-        """`-lambda/(4*pi)*phi` for the default, `+lambda/(4*pi)*phi` for ``toward-sensor``."""
+        """`-lambda/(4*pi)*phi` for the default, `+lambda/(4*pi)*phi` for ``away-from-sensor``."""
         prefix = "-" if self.sign < 0.0 else "+"
         return f"{prefix}lambda/(4*pi)*phi"
 
@@ -482,8 +488,9 @@ def _resolve_convention(
                 tuple(LOS_SIGN_FACTORS),
                 "--los-sign",
                 what=(
-                    "away-from-sensor keeps d_LOS = -lambda/(4*pi)*phi (positive = motion away "
-                    "from the satellite, subsidence negative); toward-sensor flips it"
+                    "toward-sensor keeps d_LOS = -lambda/(4*pi)*phi (positive = motion toward "
+                    "the satellite, uplift positive and subsidence negative); away-from-sensor "
+                    "flips it"
                 ),
             )
         ),
@@ -1159,8 +1166,9 @@ def process_case(
     and ``--validated-against``; :func:`_resolve_convention` validates them and the module
     docstring explains the arithmetic. Both text inputs are repeatable (runbook §7 records every
     check); with all four left as ``None``/empty the run behaves exactly
-    as before: ``d_LOS = -lambda/(4*pi)*phi``, the platform heading passed through verbatim, and the
-    "NOT yet validated against GNSS" hedge kept in ``meta.provenance.method``.
+    as before: ``d_LOS = -lambda/(4*pi)*phi`` (the toward-sensor-positive convention, labelled
+    ``toward-sensor``), the platform heading passed through verbatim, and the "NOT yet validated
+    against GNSS" hedge kept in ``meta.provenance.method``.
 
     **These flags are inputs, so they reach the provenance id.** A run with a different
     ``los_sign``/``heading_convention`` is a different physical claim about the same bytes and gets
@@ -1861,7 +1869,7 @@ def _provenance_id(
     numbers, so the same granules processed under two conventions are two different physical claims
     and must not share an id: :meth:`ConventionRecord.id_token` is appended to the digested string
     when (and only when) the effective convention differs from the default one. A differently
-    stated *default* (``--los-sign away-from-sensor``) is the same claim and keeps the same id, and
+    stated *default* (``--los-sign toward-sensor``) is the same claim and keeps the same id, and
     so do the prose flags (``--method-note``, ``--validated-against``), because they name no number.
     ``horizontals_token`` behaves the same way for the trusted horizontal assumptions: empty when
     they are exactly zero (the historical run), a digest of the grids otherwise.
@@ -2360,17 +2368,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--los-sign",
         choices=list(LOS_SIGN_FACTORS),
         default=None,
-        metavar="{away-from-sensor,toward-sensor}",
+        metavar="{toward-sensor,away-from-sensor}",
         help=(
             "LOS sign convention passed to phase_to_los_displacement_mm(sign=...). "
-            "away-from-sensor (the physical default, and what every earlier run used) is "
-            "d_LOS = -lambda/(4*pi)*phi: positive means the ground moved AWAY from the sensor along "
-            "the line of sight, so subsidence is negative (up is positive here). toward-sensor uses "
-            "+lambda/(4*pi)*phi: positive means motion TOWARD the sensor, so subsidence becomes "
+            "toward-sensor (the default, and the arithmetic every earlier run applied) is "
+            "d_LOS = -lambda/(4*pi)*phi: positive means the ground moved TOWARD the sensor along "
+            "the line of sight, which is uplift here (up is positive), so subsidence is negative. "
+            "That agrees with project_to_los, whose u_up = cos(theta) > 0. away-from-sensor uses "
+            "+lambda/(4*pi)*phi: positive means motion AWAY from the sensor, so subsidence becomes "
             "positive and uplift negative. A 2*pi phase slip and a flipped sign both invert "
             "subsidence, so state which you chose; the choice is written to provenance.method and "
-            "provenance.geometry_convention.los_sign. Omitting the flag keeps today's text, including "
-            "the 'NOT yet validated against GNSS' hedge"
+            "provenance.geometry_convention.los_sign. Omitting the flag keeps today's numbers and "
+            "text, including the 'NOT yet validated against GNSS' hedge"
         ),
     )
     parser.add_argument(

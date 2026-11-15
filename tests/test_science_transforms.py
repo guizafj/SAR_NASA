@@ -90,6 +90,54 @@ def test_incidence_outside_the_valid_domain_is_rejected() -> None:
         T.los_to_vertical(1.0, INCIDENCE, float("inf"))
 
 
+# -- O-08: the projection's sign is a physical statement, not a bookkeeping choice ---------------
+
+
+def test_uplift_projects_to_positive_los_and_subsidence_to_negative() -> None:
+    """O-08's close criterion at the arithmetic layer: uplift ⇒ positive LOS.
+
+    `u_up = cos(theta) = 0.777 > 0`, so the frozen projection is **toward-sensor-positive**: a pure
+    upward motion (up is positive in this project) gives a positive `d_LOS`, and subsidence
+    (downward) a negative one. `pipeline/process_case.py` labels the phase conversion that
+    reproduces this `--los-sign toward-sensor`, and that label is the default. This is what the
+    previous `away-from-sensor` label contradicted.
+    """
+    u_up = float(T.los_unit_vector(INCIDENCE, HEADING)[0])
+    assert u_up == pytest.approx(np.cos(np.radians(INCIDENCE)))
+    vertical = np.array([+10.0, +2.5, -10.0])
+    np.testing.assert_allclose(
+        T.project_to_los(vertical, INCIDENCE, HEADING), vertical * u_up, rtol=0.0, atol=0.0
+    )
+    assert T.project_to_los(+10.0, INCIDENCE, HEADING) > 0.0  # uplift is positive LOS
+    assert T.project_to_los(-10.0, INCIDENCE, HEADING) < 0.0  # subsidence is negative
+    assert T.project_to_los(0.0, INCIDENCE, HEADING) == 0.0
+
+
+def test_known_horizontal_motion_keeps_the_sign_the_unit_vector_declares() -> None:
+    """A known horizontal motion must project with the sign of its own unit-vector component.
+
+    At theta = 39 deg, alpha = 168 deg: `u = [0.777, +0.616, -0.131]`, so pure +east points partly
+    *toward* the satellite (positive LOS) and pure +north partly *away* (negative LOS). Asserting
+    both directions matters: "horizontals move LOS" alone would pass under either sign convention.
+    """
+    u = T.los_unit_vector(INCIDENCE, HEADING)
+    east_los = float(T.project_to_los(0.0, INCIDENCE, HEADING, v_east=10.0))
+    north_los = float(T.project_to_los(0.0, INCIDENCE, HEADING, v_north=10.0))
+    assert u[1] > 0.0 > u[2]  # the declared signs at this azimuth
+    assert east_los == pytest.approx(10.0 * u[1], abs=1e-12)
+    assert north_los == pytest.approx(10.0 * u[2], abs=1e-12)
+    assert east_los > 0.0 > north_los
+    # Motion straight along +u is the extreme case: the ground moves exactly toward the sensor.
+    along = 10.0 * np.asarray(u)
+    assert float(
+        T.project_to_los(along[0], INCIDENCE, HEADING, v_east=along[1], v_north=along[2])
+    ) == pytest.approx(10.0, abs=1e-12)
+    # ... and the same motion with every component negated (along -u) is away from it.
+    assert float(
+        T.project_to_los(-along[0], INCIDENCE, HEADING, v_east=-along[1], v_north=-along[2])
+    ) == pytest.approx(-10.0, abs=1e-12)
+
+
 # ---------------------------------------------------------------------------------------------
 # 2. Harmonic fit (README §6, step P6)
 # ---------------------------------------------------------------------------------------------
