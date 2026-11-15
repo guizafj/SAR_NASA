@@ -1,16 +1,16 @@
 # Registro de presentación e integración de capas
 
-Estado de `fradiaz` tras integrar `main` en `feat/contract-1.1`. No es texto científico. No copia cifras para mostrarlas en la UI. Describe qué se pinta, de qué hook sale y cómo debe leerse.
+Estado de `fradiaz` tras `91a1846`. No es texto científico. No copia cifras para mostrarlas en la UI. Describe qué se pinta, de qué hook sale y cómo debe leerse.
 
 La app no lee Parquet, CSV, GeoJSON ni `meta.json`. El único seam vivo es `src/data/ui_bridge.py`, reexportado por `src/data/loaders.py`. `src/ui/_stubs.py` solo entra si faltan esos hooks.
 
-`docs/backend-ui-contract.md` cubre el bridge y la API del dominio; su composición directa desde `app.py` (slider de fechas, selector de métrica) no es la que el cockpit ejecuta. Nombra el contrato **v1.1** con el fingerprint, y el seam que la UI consume hoy son los 18 hooks del bridge. No reimplementar ese documento en la UI.
+`docs/backend-ui-contract.md` está desfasado: describe composición directa con `compute_kpis`, slider de fechas y selector de métrica, y cita el contrato v1.0. El código vigente es el contrato **v1.1** y los 18 hooks del bridge. No reimplementar ese documento en la UI.
 
 ## Reglas de lectura
 
 | Regla | Dónde está | Qué debe hacer la UI |
 |---|---|---|
-| Positivo = hacia arriba | `AGENTS.md`, `RISK_THRESHOLDS_MM_YR` | Decirlo junto a velocidad y desplazamiento. No recalcular el signo. |
+| Positivo = hacia el sensor | `docs/requests.md` (respuesta Rol 3, punto 5), `README.md`, `pipeline` `--los-sign` | Decirlo junto a velocidad y desplazamiento, con la salvedad de que es convención registrada y no validada contra GNSS. En la geometría del mock coincide con uplift porque `u_up = cos θ > 0`. No recalcular el signo. |
 | `product == "mock"` | artefacto | Aviso permanente **DEMONSTRATION DATA**. No es una observación. |
 | Málaga es control | `meta.stats.detection_limit_mm_yr` solo en `malaga` | Un nulo es límite de detección, no un fallo. No calcular el límite. |
 | `risk_level` | derivado de `\|velocity_mm_yr\|` | Banda, no una medición aparte. Umbrales del contrato: `< 5` estable, `< 25` moderado, si no critico. El filtro envía el valor del contrato; la etiqueta visible puede ser Stable / Moderate / Critical. |
@@ -29,13 +29,14 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Visible | Hook | Campos usados | Hueco |
 |---|---|---|---|
 | Título fijo | ninguno | — | Correcto: no es un dato. |
-| Telemetría | `load_meta` | `sensor`, `product`, `unit`, `dates`, `coherence_threshold`; si esa clave falta, `thresholds.coherence_min` | Correcto: v1.1 guarda el suelo en `thresholds.coherence_min`, la cabecera lo imprime como `coherence floor` y el slider lo usa como mínimo. |
+| Telemetría | `load_meta` | `sensor`, `product`, `unit`, `dates`, `coherence_threshold` | v1.1 guarda el suelo en `thresholds.coherence_min`. La cabecera lo omite. El slider sí lo lee. |
 | Aviso mock | `load_meta` | `product`, `provenance.source` | Correcto. |
 | Caso | `load_study_cases` | `id`, `label` | Correcto. |
 | Uso del suelo | `load_land_use_options(case_id)` | valores presentes en la grilla | No explica que es una clase del artefacto, no un mapa de uso oficial. |
 | Coherencia | `load_meta` | `thresholds.coherence_min` | No modifica un valor fuera de `[0, 1]`. Correcto. |
-| Riesgo | `load_risk_levels(case_id)` | enum presente | La etiqueta es inglesa; el valor enviado no cambia. El inspector ya dice que la banda sale de `\|velocity\|`; el filtro no lo repite. |
+| Riesgo | `load_risk_levels(case_id)` | enum presente | La etiqueta es inglesa; el valor enviado no cambia. Falta decir que la banda sale de la velocidad. |
 | Extrusión / tema / escala | estado de UI | `extrude_3d`, `scale_mode` = `independent` \| `shared` | La escala no es un dato. El bridge acepta también las frases españolas antiguas. |
+| Estado en la URL | `st.query_params` (solo UI) | `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell` | Cumple «URL restores the exact state» del checklist: la primera carga acepta esos parámetros (valores inválidos se ignoran) y cada run reescribe la URL con el estado vivo. `land`/`risk` viajan con el valor del contrato, no con la etiqueta visible. |
 
 ### 1. Map — `src/ui/map_view.py`
 
@@ -43,13 +44,13 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 |---|---|---|---|
 | Hexágonos | `get_map_layer_df` | Color y altura ya vienen en `color` y `height`. Métrica fija del bridge: `velocity_mm_yr`. | La UI no elige métrica. No debe calcular color. |
 | Recuento | `get_layer_counts` | `shown` de `total` tras el filtro. | No dice que el total es la grilla publicada, no el AOI administrativo. |
-| KPIs del mapa | `get_map_kpis` | Cuatro tarjetas: mediana de velocidad (`mm/year`), mediana de `delta_change` (`mm`), coherencia mínima del subconjunto y mediana de `seasonal_amp_mm` (`mm`). | No dice que la coherencia mínima es la del subconjunto filtrado, no el umbral. |
+| KPIs del mapa | `get_map_kpis` | Mediana de velocidad (`mm/year`), mediana de `delta_change` (`mm`), coherencia mínima del subconjunto. | No dice que la coherencia mínima es la del subconjunto filtrado, no el umbral. |
 | Nulo | `get_signal_status` + `meta.stats` | Si `above_limit` es falso, mostrar el límite recibido. | Solo Málaga trae `detection_limit_mm_yr`. |
 | Leyenda | `get_color_scale` | `min`, `max`, `unit`, `metric`, `caption`, `stops`, `saturated`. | El caption del adapter ya explica escala compartida o local. Hay que tratarlo como texto del backend, no reescribirlo. |
-| Comparación | `get_scale_comparison` | Pico de `\|velocity_mm_yr\|` y `share`. La UI resuelve el slug con `case_labels` y cae al `id` solo si falta la etiqueta. | El bridge declara `mixed_units` en `false`, así que el aviso de sensores distintos no llega a mostrarse. |
-| Mapa base + contexto | `get_view_state`, `load_context_layers` | Cámara desde `bbox`. El GeoJSON se dibuja entero y no seleccionable; `_context_groups` lo agrupa por `layer` (`admin_boundary`, `land_use`, `water`, `infrastructure`) y pinta un `GeoJsonLayer` por grupo con el rol de color de `_CONTEXT_ROLE`, más la leyenda `Context strokes`. | Correcto: el color es presentación y no clasifica riesgo; la leyenda lo dice. |
-| Inspector | `get_cell_detail` | Atributos de la celda en tres grupos: deformación (`val_t1`, `val_t2`, `delta_change`, `velocity_mm_yr`), calidad (`coherence`, `regime`, `ratio_R`, `seasonal_amp_mm`) y procedencia (`lat`, `lon`, `source`, `provenance_id`). Serie `cell` o, si no hay filas, agregado `aoi`. | Correcto: `risk_level` se anuncia como banda derivada de `\|velocity\|`, `regime` como secular frente a estacional y `ratio_R` como `abs(trend) / seasonal amplitude`; con armónico no ajustado dice `not fitted`. |
-| Procedencia | `load_meta` | `source`, `unit`, `sensor`, `product`, `provenance_id`, `dates`. | La tarjeta ignora `provenance.method`, `license`, `reference` y `processing_date`; la pestaña 4 los muestra tal cual en el bloque `meta.json`. |
+| Comparación | `get_scale_comparison` | Pico de `\|velocity_mm_yr\|` y `share`. | Muestra el slug, no el `label` del caso. No avisa de sensores distintos salvo `mixed_units`. |
+| Mapa base + contexto | `get_view_state`, `load_context_layers` | Cámara desde `bbox`. El GeoJSON se dibuja entero, no seleccionable, un solo color. | No distingue `layer` (`admin_boundary`, `land_use`, `water`, `infrastructure`). |
+| Inspector | `get_cell_detail` | Atributos de la celda. Serie `cell` o, si no hay filas, agregado `aoi`. | No pinta `lat`, `lon`, `val_t1`, `val_t2` aunque el hook los entrega. No explica `risk_level`, `regime` ni `ratio_R`. |
+| Procedencia | `load_meta` | `source`, `unit`, `sensor`, `product`, `provenance_id`, `dates`. | Ignora `provenance.method`, `license`, `reference`, `processing_date`. |
 
 `build_provenance_badge`, `extract_series_view` y el slider de fechas existen en `src/domain/` y no están cableados al cockpit. No añadirlos en la UI hasta que el bridge los publique.
 
@@ -57,9 +58,9 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 
 | Visible | Hook | Lectura correcta | Hueco |
 |---|---|---|---|
-| Cinco tarjetas | `get_series_kpis` | Mediana de velocidad; % de celdas con `\|v\| ≥ 5 mm/year`; celdas en banda `critico` (unidad `cells`); % con coherencia ≥ suelo del caso; mediana de `seasonal_amp_mm` (`mm`). | Correcto: la nota de celdas críticas va en inglés y la unidad es `cells`. El 5 mm/year es `NULL_RESULT_MM_YR`, no un umbral de la UI. |
-| Línea | `get_case_series` | Serie `aoi` publicada en `mm`. El hook ignora el filtro y devuelve `scaled: false` con `scale_factor: 1.0`. | Correcto: al no reescalar, la serie no se lee como el subconjunto filtrado; el caption añade el factor solo si `scaled` fuera verdadero. |
-| Barras | `get_land_use_bars` | Mediana de `velocity_mm_yr` por `land_use` presente. | Correcto: el eje se titula `velocity (mm/year)` y cae a `value (<unit>)` para otra unidad. |
+| Cuatro tarjetas | `get_series_kpis` | Mediana de velocidad; % de celdas con `\|v\| ≥ 5 mm/year`; celdas con `risk_level == critico`; % con coherencia ≥ suelo del caso. | La nota aún cita `risk_level critico` y `celdas` ya no. El 5 mm/year es `NULL_RESULT_MM_YR`, no un umbral de la UI. |
+| Línea | `get_case_series` | Serie `aoi` en `mm`. | Si el filtro reduce la grilla, el bridge **reescala** los valores por el cociente de medianas de `delta_change` y no lo declara. La UI lo pinta como si fuera la serie publicada. |
+| Barras | `get_land_use_bars` | Mediana de `velocity_mm_yr` por `land_use` presente. | El eje dice `value`. No dice que es velocidad. |
 
 `compute_kpis` también calcula área crítica, volumen y tendencia. Esos campos no salen del bridge. No mostrarlos: serían una cifra nueva sin aprobación de Rol 3.
 
@@ -70,14 +71,15 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Resumen | `load_context_layers` | `path`, `summary.n_features`, `summary.layers`. |
 | Tabla | mismo payload | `layer`, `class`, `name`, `source`, `provenance_id`. |
 
-En los tres artefactos actuales ninguna feature de `land_use` trae `name`, y todas las de `infrastructure`, `water` y `admin_boundary` sí. La tabla los muestra tal cual los entrega el artefacto y solo quita la columna si todas las filas vienen vacías. Las `class` incluyen valores que no están en `LAND_USE` (`metro-station`, `water-well`, `coastline`, `canal`, `reservoir`, `aoi`). Son clases de contexto, no el `land_use` de la grilla. Hay que separar esas dos listas en la lectura, no mezclarlas en un filtro.
+Corrección de Rol 3 (`docs/requests.md`, 2026-11-15): el GeoJSON **sí** trae `name`, en 6 de las 12 features; son nombres sintéticos etiquetados como mock y llegan en español. La UI los cita tal cual, sin traducir, y pinta `—` donde la feature no tiene nombre. Las `class` incluyen valores que no están en `LAND_USE` (`metro-station`, `water-well`, `coastline`, `canal`, `reservoir`, `aoi`). Son clases de contexto, no el `land_use` de la grilla. Hay que separar esas dos listas en la lectura, no mezclarlas en un filtro.
 
 ### 4. Provenance and limits — `src/ui/educational.py`
 
 | Visible | Origen | Lectura | Hueco |
 |---|---|---|---|
-| Módulo educativo | — | Ausente: no hay texto científico aprobado por Rol 3, y la pestaña no finge uno. | Correcto mientras el pedido siga abierto en `docs/requests.md`; la frase "Educational notes are not available for this case yet." solo aparece si el loader no devuelve meta ni README. |
-| Tarjetas del caso | `meta.stats` | Una tarjeta por campo presente: `dominant_regime`, `median_ratio_R`, `median_velocity_mm_yr`, `median_seasonal_amp_mm`, `detection_limit_mm_yr` (solo Málaga), `n_cells` y `per_cell_series.enabled`. | Ignora `n_dates`, `p05`/`p95` y `annual_coverage`. |
+| **Real NISAR GUNW availability** | `load_availability` (lee `data/processed/_availability/{case}.json`) | Cita el registro de búsqueda de ASF: stacks reales catalogados (track, dirección, frame, nº de granulos, ventana), HTTP, fecha de la búsqueda y la advertencia de cobertura urbana. **No es una descarga**: el artefacto publicado sigue siendo `mock` y el bloque lo dice. | El hook es aditivo y lo añadió Rol 2 desde `fradiaz`; falta la firma de Rol 1 (fila en `docs/requests.md`) |
+| "No scientific text approved by Role 3." | literal de la UI | Cierto para un módulo educativo. | Contradice las tarjetas de abajo, que sí citan el artefacto y el README. |
+| Tres tarjetas | `meta.stats` | `dominant_regime`, `median_ratio_R`, `median_velocity_mm_yr`. | Ignora `n_cells`, `n_dates`, `p05`/`p95`, `median_seasonal_amp_mm`, `per_cell_series`, y el límite de Málaga. |
 | `null_policy`, `limitations` | `meta` | Texto del artefacto. Citarlo, no parafrasearlo. | No se distingue "dato" de "limitación del generador mock". |
 | README §8 y §13 | `load_documented_limits` | Cita literal del README. | No es el `meta.json` del caso. Hay que etiquetarlo como documentación del repo, no como observación. |
 | Bloque `meta.json` | `load_meta` | JSON devuelto, sin claves que contengan `verif`. | Útil como registro. No sustituye una lectura guiada. |
@@ -87,11 +89,49 @@ En los tres artefactos actuales ninguna feature de `land_use` trae `name`, y tod
 - Slider de fechas y cambio de métrica del mapa. El dominio los prevé; el bridge no los expone al cockpit.
 - Volumen `m3/year` y área crítica. Existen en `compute_kpis` y no tienen texto aprobado.
 - PMTiles y `docs/route-contract.md`. Post-MVP.
-- Traducir valores de contrato más allá de la etiqueta visible (`RISK_LABELS` para `estable`, `moderado` y `critico`, y los roles de cromática). El valor enviado no cambia.
+- Traducir valores de contrato (`critico`, `inelastic`, slugs de `land_use`). Solo etiquetas de cromática.
 
 ## Estado
 
 Fase 1 aplicada en la UI. Tras integrar `main`, Rol 1 ya declara `scaled` / `scale_factor`, extrusión `False` por defecto y el caveat completo; la pestaña 2 consume el aviso solo cuando `scaled` es verdadero. El contrato v1.1 añade la descomposición ajustada (`trend_mm_yr`, `seasonal_mm`, `median_seasonal_amp_mm`) y `ratio_R` nulo cuando no se ajustó armónico: el inspector muestra "not fitted" en ese caso, nunca un número inventado. El pedido de texto a Rol 3 sigue abierto en `docs/requests.md`.
+
+## Texto revisado (2026-11-15)
+
+Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentación, sin tocar datos:
+
+| Antes | Ahora | Origen |
+|---|---|---|
+| `provenance_id` repetido bajo cada tarjeta y en cada línea del inspector | una sola línea de fuente por grupo | el mismo id para todas las cifras del caso |
+| `dominant_regime`, `median_ratio_R`, `n_cells`, `per_cell_series.enabled` | Dominant regime, Median ratio R, Cells, Per-cell series | claves de `meta.stats` |
+| `per_cell_series.enabled: False` | `not emitted` | booleano de `meta.stats` |
+| `ratio_R: 276.76` | `Ratio R: 276.76` + definición del contrato | `get_cell_detail` |
+| `velocity_mm_yr`, `val_t1`, `val_t2` | Velocity, Displacement at first/last date | `get_cell_detail` |
+| leyenda con línea de rango duplicada y `velocity_mm_yr` | caption del adapter + `Velocity · mm/year` | `get_color_scale` |
+| barras con `provenance_id` por fila | una línea con los ids de los tres casos | `get_scale_comparison` |
+| tabla `layer/class/name/source/provenance_id` | Layer, Class, Feature name, Source, Provenance ID; `—` para vacío; id una vez | `load_context_layers` |
+| `meta.json` crudo siempre visible | dentro de "Full meta.json record" | `load_meta` |
+| asteriscos y backticks visibles | énfasis y `code` convertidos; marcadores truncados eliminados | `load_documented_limits` |
+| tarjetas KPI con `-62.065` y `41.3767` | dos decimales como máximo | todos los hooks numéricos |
+| gráfica de serie AOI sin componente estacional ni pendiente | traza `Seasonal component` (`seasonal_mm`) + `Linear trend` (`trend_mm_yr`) en caption | `get_case_series` (contrato v1.1) |
+| eje X de barras con `land_use` y slugs crudos | `Land use` y etiquetas legibles (`Urban dense`, …) | `get_land_use_bars` |
+| tarjetas de pestañas 3 y 4 sin `Provenance ID` | `Provenance ID` bajo las tarjetas de resumen y `Dominant regime` humanizado | `load_context_layers`, `load_meta` |
+| `?cell=` borrado en el primer arranque | `selected_cell_id` se conserva si pertenece al caso activo y se limpia si es inválida o cambia el caso | `st.query_params` + `get_cell_detail` |
+| serie del AOI y KPIs de rejilla en el mismo grupo, y procedencia repetida en tarjeta aparte | serie rotulada "Whole-area aggregate series"; los KPIs llevan "Grid statistics for the current filter"; una sola línea de procedencia (la de la franja) | `get_case_series`, `get_map_kpis`, `load_meta` |
+| inspector con 11 líneas apiladas a ancho completo | grid de 2 columnas (`.detail-head` a ancho completo) y mono de 0.62 rem: 475 → 288 px | `get_cell_detail` |
+| leyenda dentro del panel derecho | rampa de una fila bajo el mapa (junto a la exportación), visible en móvil tras el lienzo | `get_color_scale` |
+| leyenda de la pestaña 1 en tarjeta alta (caption, saturación, conteo y procedencia) empujando la serie fuera del pliegue | rampa de una fila (30 px) con métrica+unidad y rango; el resto del texto pasa a "Scale and provenance" dentro del expander inferior; el radio de escala pierde la etiqueta visible | `get_color_scale`, `load_meta` |
+
+Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.
+
+El parser de `load_documented_limits` une ahora las líneas de continuación de cada ítem numerado del README, así que el punto 5 y los ítems 9–13 se leen completos. La UI solo recibe el texto; no lo reconstruye.
+
+## Rol 3 respondió (2026-11-15, `3d6b858`)
+
+`docs/requests.md` trae la respuesta de Rol 3 medida sobre el árbol. Efectos en esta UI:
+
+- **Punto 4 cerrado por el código:** `mexico-city` publica `seasonal_amp_mm` y `ratio_R` en las 11 694 celdas y su limitación afirma que la ventana de dos años sí identifica el término estacional. No hay campo que suprimir ni marcar: el inspector los muestra con unidad y fuente, como hace hoy.
+- **Punto 5 con corrección de lectura:** positivo no es «hacia arriba» sin más, es **hacia el sensor** (por defecto `toward-sensor`), que coincide con uplift en la geometría del mock. La línea de signo del inspector cita ahora esa formulación y añade que la convención está registrada, no validada contra GNSS. No se da por cerrada.
+- **Puntos 1–3 cubiertos desde las fuentes canónicas del repo:** `load_documented_limits` extrae `case_roles` (`role`, `expected_regime`, `published_rate_mm_yr` de `config/study_cases.yaml`) y `science_section_1` (el párrafo §1 de `docs/science-guide.md`), mientras `src/ui/formatters.py` aporta `CONTEXT_LAYER_GLOSSARY` (`docs/data-contract-v1.md` §6 y §7.4) y `translate_feature_name()` para mostrar en inglés los nombres sintéticos del GeoJSON sin alterar `data/processed/`.
 
 ## Plan
 
@@ -104,8 +144,6 @@ Hecho en este archivo. Es la lista de huecos. No cambia el contrato.
 ### Fase 1 — Lectura de lo que ya llega (Rol 2)
 
 Archivos: `app.py`, `src/ui/map_view.py`, `src/ui/charts.py`, `src/ui/educational.py`, `src/ui/context_view.py`.
-
-Aplicado: los diez puntos están en el código de esta rama; la lista se conserva como registro de lo que había que leer.
 
 1. Cabecera: si no hay `coherence_threshold`, mostrar `thresholds.coherence_min` con la etiqueta "coherence floor". No inventar el número.
 2. Inspector: pintar `lat`, `lon`, `val_t1`, `val_t2` con unidad. Una línea fija: positive = up. Una línea: `risk_level` es banda derivada de `|velocity|`, no una medición distinta.
@@ -123,8 +161,6 @@ Validación: `pytest` de UI y bridge. Los tres casos en local. Málaga sigue mos
 ### Fase 2 — Peticiones al Rol 1, antes de pintar más
 
 Añadir a `docs/requests.md` solo esto:
-
-Los tres puntos están resueltos y copiados a `docs/requests.md`; se conservan como registro.
 
 1. `get_case_series` debe devolver `scaled: bool` y `scale_factor` cuando reescala la serie `aoi`. La UI no debe inferir el factor.
 2. `get_series_kpis`: la nota de celdas críticas en inglés, citando el valor `critico` tal cual. Unidad `cells`, no `celdas`.

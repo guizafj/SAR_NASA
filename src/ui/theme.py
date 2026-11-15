@@ -46,6 +46,14 @@ MUTED = "#94A3B8"
 FOCUS = DARK["focus"]
 RADIUS = "4px"
 
+#: Categorical identity slots for the three cities, fixed order, validated with
+#: `dataviz/scripts/validate_palette.py` on both cockpit surfaces (light: one WARN
+#: at 2.82:1 for Málaga, hence the mandatory direct label). Never cycled.
+CASE_COLORS = {
+    "light": {"mexico-city": "#2a78d6", "jakarta": "#eb6834", "malaga": "#1baf7a"},
+    "dark": {"mexico-city": "#3987e5", "jakarta": "#d95926", "malaga": "#199e70"},
+}
+
 FONT_DISPLAY = '"Space Grotesk", "Segoe UI", system-ui, sans-serif'
 FONT_BODY = '"Inter", "Segoe UI", system-ui, sans-serif'
 FONT_MONO = '"JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace'
@@ -78,6 +86,13 @@ def active_palette() -> dict[str, str]:
     if reported_scheme() == "light":
         return LIGHT
     return DARK
+
+
+def case_color(case_id: str) -> str:
+    """Identity color for a case (fixed slot, never by rank or filter order)."""
+    scheme = "light" if reported_scheme() == "light" else "dark"
+    palette = CASE_COLORS[scheme]
+    return palette.get(str(case_id), active_palette()["muted"])
 
 
 def style_figure(
@@ -120,10 +135,10 @@ _CSS = f"""
 
 :root {{
   --radius: {RADIUS};
-  --card-pad-y: 0.85rem;
+  --card-pad-y: 0.6rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
-  --map-height: clamp(380px, calc(100vh - 470px), 640px);
+  --map-height: clamp(415px, calc(100vh - 485px), 700px);
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
@@ -188,13 +203,24 @@ body,
 .mission-bar {{
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.22rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.85rem 1.1rem;
+  padding: 0.32rem 1.1rem 0.4rem;
   margin: 0;
   box-sizing: border-box;
+}}
+
+/* Streamlit's element container carries margin-bottom: -1rem; with that native
+   pull the banner started 4 px inside the header box. Neutralise it for the two
+   chrome blocks and keep a clean 7 px separation. */
+/* Streamlit's markdown container carries margin-bottom: -1rem natively; that is
+   what pulled the banner 4 px inside the header box. Neutralise it on the two
+   chrome blocks and keep a clean ~8 px separation. */
+[data-testid="stMarkdownContainer"]:has(> .mission-bar),
+[data-testid="stMarkdownContainer"]:has(> .demo-banner) {{
+  margin-bottom: -4px !important;
 }}
 
 .mission-bar .mission-title,
@@ -233,7 +259,7 @@ body,
 
 .demo-banner {{
   margin: 0;
-  padding: 0.55rem 1.1rem;
+  padding: 0.32rem 1.1rem;
   border: 1px solid var(--alert);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--alert) 12%, var(--surface));
@@ -321,27 +347,23 @@ body,
   word-break: break-word;
 }}
 
-.cockpit-card .kpi-source {{
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  line-height: 1.4;
-  color: var(--muted) !important;
-  margin: 0;
-  margin-top: auto;
-  padding-top: 0.15rem;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  white-space: normal;
-  min-width: 0;
-  max-width: 100%;
-}}
-
 .cockpit-card .kpi-note {{
   font-family: var(--font-body);
   font-size: 0.76rem;
   line-height: 1.4;
   color: var(--muted) !important;
   margin: 0;
+}}
+
+.cockpit-card p code,
+.cockpit-card li code {{
+  background: var(--bg);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
 }}
 
 .cockpit-card .detail-head {{
@@ -368,6 +390,28 @@ body,
   border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   word-break: break-word;
   overflow-wrap: anywhere;
+}}
+
+.cockpit-card.inspector {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 0.2rem 0.75rem;
+  align-content: start;
+}}
+
+.cockpit-card.inspector .detail-line {{
+  font-size: 0.62rem;
+  line-height: 1.3;
+  padding: 0.1rem 0;
+}}
+
+.cockpit-card.inspector .detail-head {{
+  grid-column: 1 / -1;
+  margin-top: 0.35rem;
+}}
+
+.cockpit-card.inspector .detail-head:first-child {{
+  margin-top: 0;
 }}
 
 .cockpit-card .detail-line:last-child {{
@@ -432,7 +476,6 @@ body,
   font-size: 0.76rem;
   line-height: 1.55;
   overflow-x: auto;
-  max-height: 28rem;
   box-sizing: border-box;
   opacity: 1 !important;
 }}
@@ -520,14 +563,137 @@ body,
   border-bottom: 0;
 }}
 
+.cockpit-table tbody tr.row-alert > td {{
+  background: color-mix(in srgb, var(--coral) 12%, transparent) !important;
+}}
+
+.cockpit-table tbody tr.row-alert > td:first-child {{
+  border-left: 3px solid var(--coral) !important;
+  font-weight: 500;
+}}
+
+.cockpit-table tbody tr.row-warn > td {{
+  background: color-mix(in srgb, var(--alert) 10%, transparent) !important;
+}}
+
+.cockpit-table tbody tr.row-warn > td:first-child {{
+  border-left: 3px solid var(--alert) !important;
+}}
+
 .cockpit-table tbody tr:hover td {{
   background: color-mix(in srgb, var(--accent) 8%, var(--surface)) !important;
   color: var(--text) !important;
   -webkit-text-fill-color: var(--text) !important;
 }}
 
-.legend {{
-  gap: 0.5rem;
+/* Compact strip under the map (plan Fase 1): ramp + ticks + mode + provenance. */
+/* Compact ramp row for the reading panel: label, gradient, range, scale mode. */
+.legend-inline {{
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.7rem;
+  min-height: 0;
+}}
+
+.legend-inline .legend-bar {{
+  flex: 1 1 auto;
+  min-width: 70px;
+  height: 8px;
+  margin: 0;
+}}
+
+.legend-inline-label,
+.legend-inline-range {{
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.03em;
+  color: var(--muted) !important;
+  white-space: nowrap;
+  min-width: 0;
+}}
+
+.legend-inline-label {{
+  text-transform: uppercase;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+  flex: 0 0 auto;
+}}
+
+.legend-flag {{
+  color: var(--alert) !important;
+}}
+
+.legend-details {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}}
+
+.legend-details .legend-meta,
+.legend-details .kpi-note {{
+  margin: 0;
+}}
+
+.legend-meta {{
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  color: var(--muted) !important;
+  line-height: 1.45;
+}}
+
+/* Reading panel (right column). */
+.reading-head .reading-title {{
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text) !important;
+  word-break: break-all;
+}}
+
+.reading-stats {{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  padding: 0.6rem var(--card-pad-x);
+}}
+
+.reading-stat {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}}
+
+.reading-stat .stat-value {{
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text) !important;
+  white-space: nowrap;
+}}
+
+.reading-stat .stat-unit {{
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted) !important;
+}}
+
+.reading-stat .stat-label {{
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--muted) !important;
+  text-transform: none;
 }}
 
 .legend-bar {{
@@ -536,22 +702,6 @@ body,
   border-radius: var(--radius);
   border: 1px solid var(--border);
   box-sizing: border-box;
-}}
-
-.legend-ticks {{
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  font-weight: 500;
-  color: var(--text) !important;
-}}
-
-.legend-ticks span {{
-  color: var(--text) !important;
 }}
 
 .null-note {{
@@ -670,8 +820,8 @@ ul[data-baseweb="menu"] li {{
 /* Toggle: the off track needs to read against the dark surface. */
 [data-testid="stToggle"] [role="switch"],
 [data-testid="stToggle"] [data-baseweb="checkbox"] [role="switch"] {{
-  background-color: var(--border) !important;
-  border: 1px solid var(--border) !important;
+  background-color: color-mix(in srgb, var(--muted) 42%, var(--surface)) !important;
+  border: 1px solid var(--muted) !important;
   opacity: 1 !important;
 }}
 
@@ -863,23 +1013,10 @@ button[data-baseweb="tab"]:focus-visible {{
 /* Keep chrome above the map. Deck.gl canvases are position:absolute. */
 .mission-bar,
 .demo-banner,
-.st-key-filter-strip,
+.st-key-filters,
 [data-testid="stTabs"] [data-baseweb="tab-list"] {{
   position: relative;
   z-index: 6;
-}}
-
-.st-key-filter-strip {{
-  background: var(--surface) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--radius) !important;
-  padding: 0.85rem 1.05rem !important;
-  box-sizing: border-box;
-}}
-
-.st-key-filter-strip > div {{
-  border: 0 !important;
-  padding: 0 !important;
 }}
 
 /* Responsive flex grid across all column blocks */
@@ -900,14 +1037,27 @@ button[data-baseweb="tab"]:focus-visible {{
   box-sizing: border-box;
 }}
 
-.st-key-filter-strip [data-testid="stHorizontalBlock"] {{
+.st-key-filters [data-testid="stHorizontalBlock"] {{
   align-items: center !important;
 }}
 
-.st-key-filter-strip [data-testid="stColumn"],
-.st-key-filter-strip [data-testid="column"] {{
+.st-key-filters [data-testid="stColumn"],
+.st-key-filters [data-testid="column"] {{
   min-width: 10.5rem !important;
   flex: 1 1 10.5rem !important;
+}}
+
+/* Plan Fase 1: the map row is 2:1, not the flat equal split of the global rule. */
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {{
+  flex: 2 1 0 !important;
+  min-width: 0 !important;
+}}
+
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
 }}
 
 .st-key-map-slot {{
@@ -917,7 +1067,9 @@ button[data-baseweb="tab"]:focus-visible {{
   width: 100%;
   max-width: 100%;
   height: var(--map-height) !important;
+  min-height: var(--map-height) !important;
   max-height: var(--map-height) !important;
+  flex: 0 0 auto !important;
   overflow: hidden !important;
   padding: 0 !important;
   background: var(--surface);
@@ -957,42 +1109,42 @@ button[data-baseweb="tab"]:focus-visible {{
   max-height: var(--map-height) !important;
 }}
 
-.st-key-inspector-slot {{
-  position: relative;
-  z-index: 2;
-  min-width: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--card-pad-y) var(--card-pad-x);
-  box-sizing: border-box;
-  overflow-x: hidden;
+/* KPI cards in one row must share a height: stretch the column chain and let
+   the card grow, so a two-line note no longer leaves a ragged bottom. */
+[data-testid="stHorizontalBlock"]:has(.kpi-value) {{
+  align-items: stretch !important;
 }}
 
-.st-key-inspector-slot .cockpit-card {{
-  border: 0;
-  padding: 0;
-  background: transparent;
-}}
-
-.st-key-inspector-slot .cockpit-card.is-empty {{
-  min-height: 7rem;
-  justify-content: center;
-}}
-
-.st-key-inspector-slot [data-testid="stPlotlyChart"] {{
-  padding: 0.35rem !important;
-  background: var(--bg) !important;
-}}
-
-.st-key-map-meta {{
-  position: relative;
-  z-index: 2;
+[data-testid="stHorizontalBlock"]:has(.kpi-value) > [data-testid="stColumn"],
+[data-testid="stHorizontalBlock"]:has(.kpi-value) > [data-testid="stColumn"] > div,
+[data-testid="stHorizontalBlock"]:has(.kpi-value) > [data-testid="stColumn"] [data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"]:has(.kpi-value) > [data-testid="stColumn"] [data-testid="stElementContainer"],
+[data-testid="stHorizontalBlock"]:has(.kpi-value) > [data-testid="stColumn"] [data-testid="stMarkdown"],
+[data-testid="stHorizontalBlock"]:has(.kpi-value) > [data-testid="stColumn"] [data-testid="stMarkdown"] > div,
+[data-testid="stHorizontalBlock"]:has(.kpi-value) > [data-testid="stColumn"] [data-testid="stMarkdownContainer"] {{
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  margin-top: 0.15rem;
-  overflow: visible;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+}}
+
+[data-testid="stHorizontalBlock"]:has(.kpi-value) [data-testid="stMarkdownContainer"] {{
+  margin-bottom: 0 !important;
+}}
+
+/* Six-up rows (the case stats) are single-line notes: a shorter equal card keeps
+   tab 4 under 1.5 screens without breaking the 5/3-up rows. */
+[data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"]:nth-child(6)) .cockpit-card:has(.kpi-value) {{
+  min-height: 96px;
+}}
+
+.cockpit-card:has(.kpi-value) {{
+  flex: 1 1 auto;
+  /* Above the tallest note in the three tabs (2-line notes reach 112 px, the
+     layer-count list 121 px), so every card in a row ends at the same edge. */
+  min-height: 124px;
+  justify-content: space-between;
 }}
 
 .compare-card {{
@@ -1062,10 +1214,28 @@ button[data-baseweb="tab"]:focus-visible {{
 
 /* Tablet landscape / small laptop */
 @media (max-width: 1180px) {{
-  .st-key-filter-strip [data-testid="stColumn"],
-  .st-key-filter-strip [data-testid="column"] {{
+  .st-key-filters [data-testid="stColumn"],
+  .st-key-filters [data-testid="column"] {{
     flex: 1 1 calc(33.333% - 0.75rem) !important;
     min-width: 11.5rem !important;
+  }}
+}}
+
+/* Phone: the header must not eat the first screen */
+@media (max-width: 768px) {{
+  .mission-bar {{
+    padding: 0.1rem 0 0.45rem;
+    gap: 0.25rem;
+  }}
+  .mission-bar .mission-title,
+  .mission-bar .mission-title span {{
+    font-size: clamp(1.05rem, 4.2vw, 1.25rem) !important;
+    line-height: 1.2 !important;
+  }}
+  .mission-bar .telemetry,
+  .telemetry {{
+    font-size: 0.7rem;
+    line-height: 1.3;
   }}
 }}
 
@@ -1080,8 +1250,15 @@ button[data-baseweb="tab"]:focus-visible {{
     min-width: 100% !important;
     width: 100% !important;
   }}
-  .st-key-inspector-slot .cockpit-card.is-empty {{
-    min-height: 7rem;
+  /* The 2:1 map row must stack too. The 2:1 rule wins on specificity because of
+     :first-child, so the stacking override needs the same pseudo-classes. */
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    width: 100% !important;
   }}
   .compare-row {{
     grid-template-columns: minmax(6rem, auto) 1fr;
@@ -1106,19 +1283,51 @@ button[data-baseweb="tab"]:focus-visible {{
   }}
   [data-testid="stColumn"],
   [data-testid="column"],
-  .st-key-filter-strip [data-testid="stColumn"],
-  .st-key-filter-strip [data-testid="column"] {{
+  .st-key-filters [data-testid="stColumn"],
+  .st-key-filters [data-testid="column"] {{
     flex: 1 1 100% !important;
     min-width: 100% !important;
     width: 100% !important;
   }}
-  .mission-bar,
-  .st-key-filter-strip {{
+  .mission-bar {{
     padding: 0.75rem 0.85rem !important;
   }}
   .compare-row {{
     grid-template-columns: 1fr;
     gap: 0.25rem;
+  }}
+}}
+
+/* Keyboard focus must be visible on every control (plan Fase 3). */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+[role="tab"]:focus-visible,
+[role="switch"]:focus-visible,
+[data-baseweb="select"] [role="combobox"]:focus-visible {{
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}}
+
+/* One animation only: the hero figure fades in when the selection changes. */
+@keyframes cockpit-plot-in {{
+  from {{ opacity: 0.35; }}
+  to {{ opacity: 1; }}
+}}
+
+.js-plotly-plot {{
+  animation: cockpit-plot-in 180ms ease-out both;
+}}
+
+@media (prefers-reduced-motion: reduce) {{
+  *,
+  *::before,
+  *::after {{
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }}
 }}
 """

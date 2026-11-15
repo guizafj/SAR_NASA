@@ -130,3 +130,72 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert len(limits["section_13"]) == 13
     assert limits["section_13"][4].endswith("detection, not thresholding.")
     assert all(item.count("**") % 2 == 0 for item in limits["section_13"])
+
+
+def test_load_availability_cites_the_asf_record_without_downloading() -> None:
+    from src.data import loaders
+
+    info = loaders.load_availability("mexico-city")
+    assert info is not None
+    assert info["available"] is True
+    assert info["http_status"] == 200
+    assert isinstance(info["stacks"], list) and info["stacks"]
+    stack = next((s for s in info["stacks"] if s["recommended"]), info["stacks"][0])
+    assert stack["track"]
+    assert stack["n_granules"] and stack["n_granules"] > 0
+    assert isinstance(stack["date_range"], list) and len(stack["date_range"]) == 2
+    assert info["coverage_note"]
+    assert loaders.load_availability("atlantis") is None
+
+
+def test_filtered_export_csv_drops_visual_columns() -> None:
+    from src.data import loaders
+
+    csv = loaders.get_filtered_export_csv("mexico-city", {})
+    header = csv.splitlines()[0].split(",")
+    assert "cell_id" in header and "velocity_mm_yr" in header
+    assert "color" not in header and "height" not in header
+    rows = csv.strip().splitlines()
+    grid = loaders.get_map_layer_df("mexico-city", {})
+    assert len(rows) == len(grid) + 1  # header + one line per filtered cell
+    assert "provenance_id" in header
+
+
+def test_context_exposure_joins_nearest_cell_without_claiming_risk() -> None:
+    from src.data import loaders
+    from src.domain import contracts as C
+
+    exposure = loaders.get_context_exposure("mexico-city", {})
+    assert exposure is not None
+    features = exposure["features"]
+    assert features and len(features) == exposure["summary"]["n_features"]
+    for row in features:
+        assert row["nearest_cell_id"]
+        assert row["risk_level"] in C.RISK_LEVELS
+        assert row["land_use"]
+        assert isinstance(row["distance_m"], float) and row["distance_m"] >= 0.0
+    total_by_risk = sum(exposure["summary"]["by_risk"].values())
+    assert total_by_risk == len(features)
+
+
+def test_cell_export_carries_attributes_and_series() -> None:
+    from src.data import loaders
+
+    cell = str(loaders.get_map_layer_df("jakarta", {})["cell_id"].iloc[0])
+    export = loaders.get_cell_export("jakarta", cell)
+    assert export is not None
+    assert export["cell_id"] == cell
+    assert export["series"] and export["series_scope"] in ("cell", "aoi")
+    assert "velocity_mm_yr" in export and "provenance_id" in export
+
+
+def test_documented_limits_expose_three_physics_bullets() -> None:
+    from src.data import loaders
+
+    physics = loaders.load_documented_limits()["physics"]
+    titles = [item["title"].lower() for item in physics]
+    assert len(physics) == 3
+    assert any("roughness" in title for title in titles)
+    assert any("dielectric" in title for title in titles)
+    assert any("band" in title for title in titles)
+    assert all(item["text"].strip() for item in physics)

@@ -537,10 +537,81 @@ def load_context_layers() -> dict[str, Any] | None:
     return {"path": str(_CONTEXT), "summary": {"delivered": True}}
 
 
+_SCIENCE_GUIDE = Path(__file__).resolve().parents[2] / "docs" / "science-guide.md"
+
+
+_PHYSICS_HEADING = "### Scattering physics: surface roughness, dielectric constant, L-band vs C-band"
+
+
+def _physics_bullets(text: str) -> list[dict[str, str]]:
+    """Same three scattering bullets the bridge reads from README.md."""
+    start = text.find(_PHYSICS_HEADING)
+    if start == -1:
+        return []
+    body = text[start + len(_PHYSICS_HEADING) :]
+    stop = body.find("\n## ")
+    if stop != -1:
+        body = body[:stop]
+    items: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    bullet = re.compile(r"^-\s+\*\*(.+?)\*\*\s*(.*)$")
+    for line in body.splitlines():
+        stripped = line.strip()
+        match = bullet.match(stripped)
+        if match:
+            if current is not None:
+                items.append(current)
+            current = {"title": match.group(1).rstrip("."), "text": match.group(2).strip()}
+        elif current is not None and stripped:
+            current["text"] = f"{current['text']} {stripped}".strip()
+    if current is not None:
+        items.append(current)
+    return items
+
+
+def get_filtered_export_csv(case_id: str | None = None, filters: dict | None = None) -> str:
+    """No artefacts without the processed tree; the export button stays disabled."""
+    return ""
+
+
+def get_cell_export(case_id: str, cell_id: str) -> dict | None:
+    return None
+
+
+def get_context_exposure(case_id: str | None = None, filters: dict | None = None) -> dict | None:
+    return None
+
+
+def load_availability(case_id: str | None = None) -> dict[str, Any] | None:
+    """No ASF search record without the processed tree; the UI shows the absence."""
+    return None
+
+
 def load_documented_limits() -> dict[str, Any]:
-    """# TODO(rol3): replace with approved educational copy. Quotes README only."""
+    """Quotes README.md, docs/science-guide.md §1 and config/study_cases.yaml verbatim."""
+    science_summary = None
+    if _SCIENCE_GUIDE.is_file():
+        stext = _SCIENCE_GUIDE.read_text(encoding="utf-8")
+        marker = "## 1. The physics in one paragraph"
+        sidx = stext.find(marker)
+        if sidx != -1:
+            body = stext[sidx + len(marker) :]
+            for stop in ("\n![", "\n---", "\n## "):
+                cut = body.find(stop)
+                if cut != -1:
+                    body = body[:cut]
+            slines = [line.strip() for line in body.splitlines() if line.strip()]
+            if slines:
+                science_summary = " ".join(slines)
+
     if not _README.is_file():
-        return {"section_8_caveat": None, "section_13": []}
+        return {
+            "section_8_caveat": None,
+            "section_13": [],
+            "science_section_1": science_summary,
+            "case_roles": {},
+            "physics": _physics_bullets(_README.read_text(encoding="utf-8")),
+        }
     text = _README.read_text(encoding="utf-8")
     caveat = None
     paragraphs = [
@@ -580,4 +651,10 @@ def load_documented_limits() -> dict[str, Any]:
                     current_parts.append(stripped)
         if current_parts:
             items.append(" ".join(current_parts))
-    return {"section_8_caveat": caveat, "section_13": items}
+    return {
+        "section_8_caveat": caveat,
+        "section_13": items,
+        "science_section_1": science_summary,
+        "case_roles": {},
+        "physics": _physics_bullets(text),
+    }
