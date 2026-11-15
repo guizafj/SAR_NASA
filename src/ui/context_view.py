@@ -71,7 +71,7 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         st.markdown(
             '<div class="cockpit-card is-empty">'
             '<p class="kicker">Context</p>'
-            '<p class="empty-prompt">No context_layers.geojson. Role 3 has not delivered it.</p>'
+            '<p class="empty-prompt">No context layers are available for this case.</p>'
             "</div>",
             unsafe_allow_html=True,
         )

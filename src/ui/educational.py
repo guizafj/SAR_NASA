@@ -93,7 +93,7 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
         st.markdown(
             '<div class="cockpit-card is-empty">'
             '<p class="kicker">Education</p>'
-            '<p class="empty-prompt">No scientific text approved by Role 3.</p>'
+            '<p class="empty-prompt">Educational notes are not available for this case yet.</p>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -114,22 +114,24 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     caveat_body = (
         f"<p>{html.escape(str(caveat))}</p>"
         if caveat
-        else "<p>README §8 does not provide a citable limitation.</p>"
+        else "<p>No documented caveat for this case.</p>"
     )
     items = limits.get("section_13") if isinstance(limits, dict) else None
     items_body = (
         "".join(f"<p>- {html.escape(str(item))}</p>" for item in items)
         if items
-        else "<p>README §13 is not available.</p>"
+        else "<p>No documented limitations for this case.</p>"
     )
     st.markdown(
         '<div class="cockpit-card">'
-        '<p class="kicker">Repository documentation</p>'
-        '<p class="kpi-note">README text, not a case observation.</p>'
-        '<p class="kicker">README §8</p>'
+        '<p class="kicker">Known caveat</p>'
         f"{caveat_body}"
-        '<p class="kicker">README §13</p>'
-        '<p class="kpi-note">The numbered limitation list is in README §13, not in §8.</p>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="cockpit-card">'
+        '<p class="kicker">Known limitations</p>'
         f"{items_body}"
         "</div>",
         unsafe_allow_html=True,

@@ -18,7 +18,6 @@ TAB_MAP = "1. Map"
 TAB_SERIES = "2. Series and KPIs"
 TAB_HAZARD = "3. Hazard and infrastructure"
 TAB_PHYSICS = "4. SAR physics and provenance"
-PENDING = "Implemented in feat/ui-charts"
 TITLE = "Dancing with the SARs: NISAR Interferometry Cockpit"
 
 # Header telemetry may use only these keys. Missing keys are omitted.
@@ -216,17 +215,6 @@ def _render_map(
     case_labels: dict[str, str],
 ) -> None:
     render_map_tab(filters, loaders, meta, case_labels)
-
-
-def render_pending(note: str, filters: dict[str, Any]) -> None:
-    del filters
-    st.markdown(
-        '<div class="cockpit-card is-empty">'
-        '<p class="kicker">Pending</p>'
-        f'<p class="empty-prompt">{html.escape(note)}</p>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
 
 
 def render_app() -> None:
