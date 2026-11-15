@@ -497,8 +497,7 @@ def validate_grid(
                     # indistinguishable from numerical zero (an exactly-linear series fits
                     # ~1e-14 mm and would otherwise publish ~1e15). Fail closed instead of
                     # shipping the sentinel the contract's prose forbids.
-                    ratio_num = pd.to_numeric(values, errors="coerce")
-                    absurd = ratio_num.notna() & (ratio_num > MAX_PUBLISHABLE_RATIO_R)
+                    absurd = values.dropna().astype("float64") > MAX_PUBLISHABLE_RATIO_R
                     if absurd.any():
                         problems.append(
                             f"grid: ratio_R exceeds {MAX_PUBLISHABLE_RATIO_R:g} on "
