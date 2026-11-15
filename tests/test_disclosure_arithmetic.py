@@ -64,10 +64,31 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROCESSED = ROOT / "data" / "processed"
 CONTEXT_PINS = ROOT / "config" / "context"
 
-#: Cases whose artefacts are actually on disk. Parametrising only over published cases keeps this
-#: module usable on a tree where `data/processed/` has not been generated yet; if nothing is
-#: published the module collects zero tests (pytest exits 5), which is louder than a green pass.
+#: Cases whose artefacts are actually on disk. Parametrising only over published cases keeps the
+#: per-case comparisons from erroring on a tree where `data/processed/` has not been generated yet.
+#: What an empty list does *not* do is shout: an earlier version of this comment claimed the module
+#: then "collects zero tests (pytest exits 5), which is louder than a green pass". That is false — an
+#: empty `parametrize` is collected as **one skip per function**, so a tree missing every artefact
+#: reports six quiet `s` markers and the module never says a word. `test_every_contract_case_is_
+#: published_here` below is the fail-closed half this repository actually needs: all three cases are
+#: committed, so their absence is a defect to report, not a condition to skip.
 PUBLISHED: tuple[str, ...] = tuple(case for case in C.CASE_IDS if (PROCESSED / case).is_dir())
+
+
+def test_every_contract_case_is_published_here() -> None:
+    """Every case the contract declares must have artefacts in this repository, or say so.
+
+    Deliberately *not* parametrised over ``PUBLISHED``: that is the whole point. A guard that
+    discovers its own inputs cannot notice its inputs disappearing, and this module exists because a
+    green suite once coexisted with a disclosure whose arithmetic no longer matched the grid.
+    """
+    missing = [case for case in C.CASE_IDS if case not in PUBLISHED]
+    assert not missing, (
+        f"data/processed/ carries no artefacts for {missing}; every per-case check in this module "
+        f"would skip and the file would report green. Regenerate with `pipeline/generate_mock.py` "
+        f"or restore the committed artefacts."
+    )
+    assert PUBLISHED, "no published case at all — this suite has nothing to check and must not pass"
 
 #: The OSM-branch sentence, anchored on stable phrases rather than the whole prose so a rewording
 #: does not break the guard — but with the three numbers and the licence captured, because those are
