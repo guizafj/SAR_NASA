@@ -47,6 +47,8 @@ def _case_block(meta: dict[str, Any]) -> None:
             cards.append(("median_ratio_R", stats.get("median_ratio_R"), None))
         if "median_velocity_mm_yr" in stats:
             cards.append(("median_velocity_mm_yr", stats.get("median_velocity_mm_yr"), "mm/year"))
+        if "median_seasonal_amp_mm" in stats:
+            cards.append(("median_seasonal_amp_mm", stats.get("median_seasonal_amp_mm"), "mm"))
         if "detection_limit_mm_yr" in stats:
             cards.append(("detection_limit_mm_yr", stats.get("detection_limit_mm_yr"), "mm/year"))
         if isinstance(stats.get("n_cells"), int) and not isinstance(stats.get("n_cells"), bool):

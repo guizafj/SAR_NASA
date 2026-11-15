@@ -4,9 +4,9 @@
 
 | Rol | Petición | Estado |
 |---|---|---|
-| Rol 1 (pozo) | `get_map_layer_df`: extrusión por defecto en `False` | abierta |
-| Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | abierta |
-| Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | abierta |
+| Rol 1 (pozo) | `get_map_layer_df`: extrusión por defecto en `False` | resuelta en `main` (`7f0b455`), integrada en `fradiaz` |
+| Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
+| Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | caveat resuelto en `main` (`7f0b455`); el ítem 5 sigue cortado: continúa abierta la parte de líneas de continuación |
 | Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | abierta |
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
@@ -40,7 +40,7 @@ La UI ya aplana `height` en modo flat como red de seguridad; alinear el default 
 - `scaled: bool`
 - `scale_factor: float` (1.0 cuando no hay reescala)
 
-Hasta esa respuesta la pestaña 2 titula la curva como `AOI series` y no afirma que sea el subconjunto filtrado.
+Resuelto en `main`: el hook devuelve `scaled` y `scale_factor` en cada fila. La pestaña 2 añade el aviso solo cuando `scaled` es verdadero.
 
 En `get_series_kpis`, la nota de celdas críticas sigue citando `risk_level critico`. Pedimos la nota en inglés, sin traducir el valor de contrato. La unidad visible debe ser `cells`, no `celdas`.
 

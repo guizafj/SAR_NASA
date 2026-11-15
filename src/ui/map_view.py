@@ -274,6 +274,13 @@ def _render_inspector(
     provenance_id = detail.get("provenance_id")
     source_id = provenance_id if isinstance(provenance_id, str) else None
     unit_text = unit if isinstance(unit, str) else None
+    seasonal = detail.get("seasonal_amp_mm")
+    ratio = detail.get("ratio_R")
+    if ratio is None and isinstance(seasonal, (int, float)) and not isinstance(seasonal, bool) and seasonal == 0:
+        # Contract: ratio_R is null exactly when no harmonic was fitted (|trend|/0).
+        ratio_line = "ratio_R: not fitted (no seasonal harmonic)"
+    else:
+        ratio_line = _figure_line("ratio_R", ratio, None, source_id, dimensionless=True)
     groups: list[tuple[str, list[str]]] = [
         (
             "Deformation",
@@ -296,7 +303,7 @@ def _render_inspector(
                 _figure_line("coherence", detail.get("coherence"), None, source_id, dimensionless=True),
                 "risk_level: derived band from |velocity|, not a separate measurement",
                 f"regime: {detail.get('regime') or NOT_DECLARED} · secular versus seasonal",
-                _figure_line("ratio_R", detail.get("ratio_R"), None, source_id, dimensionless=True),
+                ratio_line,
                 "ratio_R: abs(trend) / seasonal amplitude",
                 _figure_line(
                     "seasonal_amp_mm",

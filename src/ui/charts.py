@@ -44,9 +44,14 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         ),
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
+    scaled = any(row.get("scaled") for row in series)
+    factor = next((row.get("scale_factor") for row in series if row.get("scaled")), None)
+    scale_text = ""
+    if scaled:
+        factor_text = f" ×{factor:g}" if isinstance(factor, (int, float)) else ""
+        scale_text = f" · scaled{factor_text} to the filtered subset"
     st.caption(
-        f"AOI series · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}. "
-        "Not declared as the filtered subset."
+        f"AOI series · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}{scale_text}"
     )
 
 

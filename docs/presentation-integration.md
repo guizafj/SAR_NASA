@@ -91,7 +91,7 @@ En los tres artefactos actuales no hay `name`. La columna sale vacía. Las `clas
 
 ## Estado
 
-Fase 1 aplicada en la UI. La serie de la pestaña 2 no se afirma como subconjunto filtrado hasta que Rol 1 declare `scaled`. La petición a Rol 1 y el pedido de texto a Rol 3 están en `docs/requests.md`.
+Fase 1 aplicada en la UI. Tras integrar `main`, Rol 1 ya declara `scaled` / `scale_factor`, extrusión `False` por defecto y el caveat completo; la pestaña 2 consume el aviso solo cuando `scaled` es verdadero. El contrato v1.1 añade la descomposición ajustada (`trend_mm_yr`, `seasonal_mm`, `median_seasonal_amp_mm`) y `ratio_R` nulo cuando no se ajustó armónico: el inspector muestra "not fitted" en ese caso, nunca un número inventado. El pedido de texto a Rol 3 sigue abierto en `docs/requests.md`.
 
 ## Plan
 
