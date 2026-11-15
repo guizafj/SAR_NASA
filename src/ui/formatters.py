@@ -6,6 +6,31 @@ import html
 import json
 from typing import Any, Sequence
 
+NOT_DECLARED = "not declared"
+SOURCE_NOT_DECLARED = "source not declared"
+UNIT_NOT_DECLARED = "unit not declared"
+DEMO_BANNER = "DEMONSTRATION DATA"
+
+# Display only. Filter values stay the contract enums.
+RISK_LABELS = {
+    "estable": "Stable",
+    "moderado": "Moderate",
+    "critico": "Critical",
+}
+SCALE_LABELS = {
+    "independent": "Per case",
+    "shared": "Shared across cases",
+}
+# Legacy Spanish labels still resolve, so an old session or caller does not flip the scale.
+_SHARED_SCALE = frozenset(
+    {
+        "shared",
+        "común a todos los casos",
+        "comun a todos los casos",
+        "compartida",
+    }
+)
+
 
 def format_dates_span(dates: Sequence[Any] | None) -> str | None:
     """Compact acquisition dates for chrome: first … last (n).
@@ -21,6 +46,26 @@ def format_dates_span(dates: Sequence[Any] | None) -> str | None:
     if len(shown) == 1:
         return f"dates {shown[0]}"
     return f"dates {shown[0]} … {shown[-1]} ({len(shown)})"
+
+
+def risk_label(value: Any) -> str:
+    """English chip/filter label. Unknown values are shown as stored."""
+    if value in (None, ""):
+        return f"risk {NOT_DECLARED}"
+    key = str(value)
+    return RISK_LABELS.get(key, key)
+
+
+def choice_label(value: str) -> str:
+    """Empty filter option, or a contract value with a display label when one exists."""
+    if value == "":
+        return "Unfiltered"
+    return RISK_LABELS.get(value, value)
+
+
+def is_shared_scale(mode: Any) -> bool:
+    """True for the canonical shared mode and the legacy Spanish aliases."""
+    return str(mode or "").strip().lower() in _SHARED_SCALE
 
 
 def format_json_block(data: Any, aria_label: str) -> str:

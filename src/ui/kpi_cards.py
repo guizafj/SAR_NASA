@@ -7,10 +7,12 @@ from typing import Any
 
 import streamlit as st
 
+from src.ui.formatters import NOT_DECLARED, SOURCE_NOT_DECLARED, UNIT_NOT_DECLARED
+
 
 def _shown(value: Any) -> str:
     if value in (None, ""):
-        return "no declarado"
+        return NOT_DECLARED
     if isinstance(value, bool):
         return str(value)
     if isinstance(value, (int, float)):
@@ -20,13 +22,13 @@ def _shown(value: Any) -> str:
 
 def render_kpi_cards(items: list[dict[str, Any]] | None) -> None:
     if not items:
-        st.caption("KPIs no declarados por el backend.")
+        st.caption("KPIs not declared by the backend.")
         return
     columns = st.columns(len(items))
     for column, item in zip(columns, items):
         unit = item.get("unit")
-        unit_text = f" {unit}" if unit else " (unidad no declarada)"
-        source = item.get("provenance_id") or "fuente no declarada"
+        unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
+        source = item.get("provenance_id") or SOURCE_NOT_DECLARED
         note = item.get("note") or ""
         note_html = (
             f'<p class="kpi-note">{html.escape(str(note))}</p>' if note else ""

@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.ui.kpi_cards import render_kpi_cards
+from src.ui.formatters import SOURCE_NOT_DECLARED, UNIT_NOT_DECLARED
 from src.ui.theme import active_palette, style_figure
 
 
@@ -20,7 +21,7 @@ def _call(loaders: Any, name: str, *args: Any) -> Any:
 
 def _line(series: list[dict[str, Any]] | None) -> None:
     if not series:
-        st.caption("Serie no declarada por el backend.")
+        st.caption("Series not declared by the backend.")
         return
     unit = next((row.get("unit") for row in series if row.get("unit")), None)
     source = next((row.get("provenance_id") for row in series if row.get("provenance_id")), None)
@@ -36,15 +37,15 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         figure,
         height=280,
         x_title="date",
-        y_title=f"value ({unit})" if unit else "value (unidad no declarada)",
+        y_title=f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})",
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
-    st.caption(f"serie · {unit or 'unidad no declarada'} · {source or 'fuente no declarada'}")
+    st.caption(f"series · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}")
 
 
 def _bars(rows: list[dict[str, Any]] | None) -> None:
     if not rows:
-        st.caption("Barras por land_use no declaradas por el backend.")
+        st.caption("Land-use bars not declared by the backend.")
         return
     unit = next((row.get("unit") for row in rows if row.get("unit")), None)
     source = next((row.get("provenance_id") for row in rows if row.get("provenance_id")), None)
@@ -59,10 +60,10 @@ def _bars(rows: list[dict[str, Any]] | None) -> None:
         figure,
         height=280,
         x_title="land_use",
-        y_title=f"value ({unit})" if unit else "value (unidad no declarada)",
+        y_title=f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})",
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
-    st.caption(f"land_use · {unit or 'unidad no declarada'} · {source or 'fuente no declarada'}")
+    st.caption(f"land_use · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}")
 
 
 def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:

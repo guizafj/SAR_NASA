@@ -54,7 +54,7 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
         "coherence_min": 0.5,
         "risk_level": None,
         "extrude_3d": True,
-        "scale_mode": "Común a todos los casos",
+        "scale_mode": "shared",
     }
     df_map = loaders.get_map_layer_df("mexico-city", filters)
     assert not df_map.empty
@@ -85,16 +85,16 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
 
     s_kpis = loaders.get_series_kpis("mexico-city", filters)
     assert [k["label"] for k in s_kpis] == [
-        "velocidad mediana",
-        "% de celdas por encima del umbral",
-        "celdas críticas",
-        "cobertura coherente",
+        "Median velocity",
+        "Cells above threshold",
+        "Critical cells",
+        "Coherent coverage",
     ]
 
     assert len(loaders.get_case_series("mexico-city", filters)) == 12
     assert len(loaders.get_land_use_bars("mexico-city", filters)) == 1
 
-    comp = loaders.get_scale_comparison("Común a todos los casos")
+    comp = loaders.get_scale_comparison("shared")
     shares = {c["id"]: c["share"] for c in comp["cases"]}
     assert shares["mexico-city"] == 1.0
     assert shares["malaga"] < 0.05

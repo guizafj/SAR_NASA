@@ -39,8 +39,8 @@ def _render_table(frame: pd.DataFrame) -> str:
         )
         body_rows.append(f"<tr>{cells}</tr>")
     return (
-        '<div class="cockpit-table-wrap" role="region" aria-label="Capas contextuales">'
-        '<table class="cockpit-table" aria-label="Propiedades de las capas contextuales">'
+        '<div class="cockpit-table-wrap" role="region" aria-label="Context layers">'
+        '<table class="cockpit-table" aria-label="Context layer properties">'
         f"<thead><tr>{headers}</tr></thead>"
         f'<tbody>{"".join(body_rows)}</tbody>'
         "</table></div>"
@@ -60,8 +60,8 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     if not payload:
         st.markdown(
             '<div class="cockpit-card is-empty">'
-            '<p class="kicker">Contexto</p>'
-            '<p class="empty-prompt">Sin context_layers.geojson. El Rol 3 no lo ha entregado.</p>'
+            '<p class="kicker">Context</p>'
+            '<p class="empty-prompt">No context_layers.geojson. Role 3 has not delivered it.</p>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -70,9 +70,9 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     st.markdown(
         '<div class="cockpit-card">'
-        '<p class="kicker">Capas entregadas</p>'
-        f"<p>{html.escape(str(payload.get('path', 'declarada')))}</p>"
-        f'{format_json_block(summary, "Resumen de las capas")}'
+        '<p class="kicker">Delivered layers</p>'
+        f"<p>{html.escape(str(payload.get('path', 'declared')))}</p>"
+        f'{format_json_block(summary, "Layer summary")}'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -84,8 +84,8 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     layers = sorted(str(value) for value in frame["layer"].unique() if str(value))
     st.markdown(
         '<div class="cockpit-card">'
-        '<p class="kicker">Capas contextuales</p>'
-        f"<p>{len(rows)} features · {html.escape(', '.join(layers) or 'sin capas')}</p>"
+        '<p class="kicker">Context layers</p>'
+        f"<p>{len(rows)} features · {html.escape(', '.join(layers) or 'no layers')}</p>"
         f"{_render_table(frame)}"
         "</div>",
         unsafe_allow_html=True,

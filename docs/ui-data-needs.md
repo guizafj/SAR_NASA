@@ -26,7 +26,7 @@ Reglas de presentación del stub (no copiar a loaders reales):
 
 ## Mock y umbral
 
-- Aviso **DATOS DE DEMOSTRACIÓN** si `product == "mock"` o `provenance.source` contiene `mock`.
+- Aviso **DEMONSTRATION DATA** si `product == "mock"` o `provenance.source` contiene `mock`.
 - Cabecera: `sensor`, `product`, `unit`, `dates`, `coherence_threshold` (omite ausentes).
 - Slider: `coherence_threshold` o `thresholds.coherence_min`.
 

@@ -30,7 +30,9 @@ from src.domain.map_adapter import (
 )
 from src.domain.metrics import compute_kpis
 
-_SHARED_LABELS = frozenset({"común a todos los casos", "compartida", "shared"})
+_SHARED_LABELS = frozenset(
+    {"shared", "común a todos los casos", "comun a todos los casos", "compartida"}
+)
 
 
 def _resolve_scale_mode(raw_mode: Any) -> ScaleMode:
@@ -279,19 +281,19 @@ def get_map_kpis(
     coh_min = float(view.grid["coherence"].min()) if not view.grid.empty else None
     return [
         {
-            "label": "velocidad mediana",
+            "label": "Median velocity",
             "value": round(kpis.median_velocity_mm_yr, 2) if kpis.median_velocity_mm_yr is not None else None,
             "unit": C.VELOCITY_UNIT,
             "provenance_id": prov_id,
         },
         {
-            "label": "delta_change mediana",
+            "label": "Median displacement",
             "value": round(kpis.median_delta_mm, 2) if kpis.median_delta_mm is not None else None,
             "unit": C.UNIT,
             "provenance_id": prov_id,
         },
         {
-            "label": "coherence min",
+            "label": "Minimum coherence",
             "value": round(coh_min, 3) if coh_min is not None else None,
             "unit": None,
             "provenance_id": prov_id,
@@ -415,28 +417,28 @@ def get_series_kpis(
 
     return [
         {
-            "label": "velocidad mediana",
+            "label": "Median velocity",
             "value": round(kpis.median_velocity_mm_yr, 2) if kpis.median_velocity_mm_yr is not None else None,
             "unit": C.VELOCITY_UNIT,
             "provenance_id": prov_id,
-            "note": "mediana del subconjunto filtrado",
+            "note": "median of the filtered subset",
         },
         {
-            "label": "% de celdas por encima del umbral",
+            "label": "Cells above threshold",
             "value": pct_above,
             "unit": "%",
             "provenance_id": prov_id,
-            "note": f"umbral {C.NULL_RESULT_MM_YR:g} mm/year",
+            "note": f"threshold {C.NULL_RESULT_MM_YR:g} mm/year",
         },
         {
-            "label": "celdas críticas",
+            "label": "Critical cells",
             "value": kpis.critical_cells_count,
-            "unit": "celdas",
+            "unit": "cells",
             "provenance_id": prov_id,
             "note": "risk_level critico",
         },
         {
-            "label": "cobertura coherente",
+            "label": "Coherent coverage",
             "value": pct_coh,
             "unit": "%",
             "provenance_id": prov_id,
@@ -503,7 +505,7 @@ def get_land_use_bars(
 
 
 def get_scale_comparison(
-    scale_mode: str = "Común a todos los casos",
+    scale_mode: str = "shared",
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> dict[str, Any]:

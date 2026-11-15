@@ -10,15 +10,15 @@ import streamlit as st
 from src.ui.charts import render_series_tab
 from src.ui.context_view import render_hazard_tab
 from src.ui.educational import render_physics_tab
-from src.ui.formatters import format_dates_span
+from src.ui.formatters import DEMO_BANNER, SCALE_LABELS, choice_label, format_dates_span
 from src.ui.map_view import render_map_tab
 from src.ui.theme import inject_css
 
-TAB_MAP = "1. Mapa"
-TAB_SERIES = "2. Series y KPIs"
-TAB_HAZARD = "3. Peligro e infraestructura"
-TAB_PHYSICS = "4. Física SAR y procedencia"
-PENDING = "Se implementa en feat/ui-charts"
+TAB_MAP = "1. Map"
+TAB_SERIES = "2. Series and KPIs"
+TAB_HAZARD = "3. Hazard and infrastructure"
+TAB_PHYSICS = "4. SAR physics and provenance"
+PENDING = "Implemented in feat/ui-charts"
 TITLE = "Dancing with the SARs: NISAR Interferometry Cockpit"
 
 # Header telemetry may use only these keys. Missing keys are omitted.
@@ -122,7 +122,7 @@ def render_header(meta: dict[str, Any] | None) -> None:
     )
     if is_demonstration(meta):
         st.markdown(
-            '<div class="demo-banner" role="status">DATOS DE DEMOSTRACIÓN</div>',
+            f'<div class="demo-banner" role="status">{DEMO_BANNER}</div>',
             unsafe_allow_html=True,
         )
 
@@ -135,30 +135,30 @@ def render_filters(
     coherence_floor: float | None,
 ) -> dict[str, Any]:
     """Draw the filter strip. Values stay in session_state; nothing is filtered."""
-    theme_labels = {"system": "Sistema", "light": "Claro", "dark": "Oscuro"}
+    theme_labels = {"system": "System", "light": "Light", "dark": "Dark"}
     if st.session_state.get("ui_theme_mode") not in theme_labels:
         st.session_state.ui_theme_mode = "system"
     with st.container(border=True, key="filter-strip"):
         case_col, land_col, coherence_col, risk_col, extrude_col, theme_col = st.columns(6)
         with case_col:
             st.selectbox(
-                "Caso",
+                "Case",
                 options=case_ids,
                 format_func=lambda case_id: labels.get(case_id, case_id),
                 key="filter_case_id",
             )
         with land_col:
             st.selectbox(
-                "Uso del suelo",
+                "Land use",
                 options=["", *land_uses],
-                format_func=lambda value: "sin filtrar" if value == "" else value,
+                format_func=choice_label,
                 key="filter_land_use",
             )
         with coherence_col:
             if coherence_floor is None:
-                st.caption("Umbral de coherencia no declarado.")
+                st.caption("Coherence threshold not declared.")
             elif not 0.0 <= coherence_floor <= 1.0:
-                st.caption("Umbral de coherencia fuera de [0, 1]. No se modifica.")
+                st.caption("Coherence threshold is outside [0, 1]. It is not modified.")
             else:
                 # Init when the key is missing. Reset only when this case declares
                 # a different floor, so a user value survives an unchanged threshold.
@@ -167,25 +167,25 @@ def render_filters(
                     st.session_state.filter_coherence_min = coherence_floor
                 st.session_state.filter_coherence_floor = coherence_floor
                 st.slider(
-                    "Coherencia mínima",
+                    "Minimum coherence",
                     min_value=0.0,
                     max_value=1.0,
                     key="filter_coherence_min",
                 )
         with risk_col:
             st.selectbox(
-                "Nivel de riesgo",
+                "Risk level",
                 options=["", *risk_levels],
-                format_func=lambda value: "sin filtrar" if value == "" else value,
+                format_func=choice_label,
                 key="filter_risk_level",
             )
         with extrude_col:
             if "filter_extrude_3d" not in st.session_state:
                 st.session_state.filter_extrude_3d = False
-            st.toggle("Extrusión 3D", key="filter_extrude_3d")
+            st.toggle("3D extrusion", key="filter_extrude_3d")
         with theme_col:
             st.selectbox(
-                "Tema",
+                "Theme",
                 options=list(theme_labels),
                 format_func=lambda mode: theme_labels.get(mode, mode),
                 key="ui_theme_mode",
@@ -212,7 +212,7 @@ def render_pending(note: str, filters: dict[str, Any]) -> None:
     del filters
     st.markdown(
         '<div class="cockpit-card is-empty">'
-        '<p class="kicker">Pendiente</p>'
+        '<p class="kicker">Pending</p>'
         f'<p class="empty-prompt">{html.escape(note)}</p>'
         "</div>",
         unsafe_allow_html=True,
@@ -226,7 +226,7 @@ def render_app() -> None:
     labels = {str(case["id"]): str(case.get("label") or case["id"]) for case in cases}
 
     if not case_ids:
-        st.error("No hay casos. Falta config/study_cases.yaml.")
+        st.error("No cases. config/study_cases.yaml is missing.")
         return
 
     if "filter_case_id" not in st.session_state:

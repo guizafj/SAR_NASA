@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import streamlit as st
 
-from src.ui.formatters import format_json_block
+from src.ui.formatters import DEMO_BANNER, NOT_DECLARED, format_json_block
 
 
 def _public_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
@@ -18,7 +18,7 @@ def _public_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
 
 def _shown(value: Any) -> str:
     if value is None or value == "":
-        return "no declarado"
+        return NOT_DECLARED
     if isinstance(value, bool):
         return str(value)
     if isinstance(value, (int, float)):
@@ -61,7 +61,7 @@ def _regime_cards(meta: dict[str, Any] | None) -> None:
     if isinstance(limitations, list) and limitations:
         st.markdown(
             '<div class="cockpit-card">'
-            '<p class="kicker">limitaciones del caso</p>'
+            '<p class="kicker">case limitations</p>'
             + "".join(f"<p>- {html.escape(str(item))}</p>" for item in limitations)
             + "</div>",
             unsafe_allow_html=True,
@@ -72,8 +72,8 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     limits = getattr(loaders, "load_documented_limits", lambda: {})()
     st.markdown(
         '<div class="cockpit-card is-empty">'
-        '<p class="kicker">Educación</p>'
-        '<p class="empty-prompt">Sin texto científico aprobado por el Rol 3.</p>'
+        '<p class="kicker">Education</p>'
+        '<p class="empty-prompt">No scientific text approved by Role 3.</p>'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -84,7 +84,7 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     caveat_body = (
         f"<p>{html.escape(str(caveat))}</p>"
         if caveat
-        else "<p>README §8 no aporta una limitación citable.</p>"
+        else "<p>README §8 does not provide a citable limitation.</p>"
     )
     st.markdown(
         '<div class="cockpit-card">'
@@ -97,12 +97,12 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     items_body = (
         "".join(f"<p>- {html.escape(str(item))}</p>" for item in items)
         if items
-        else "<p>README §13 no disponible.</p>"
+        else "<p>README §13 is not available.</p>"
     )
     st.markdown(
         '<div class="cockpit-card">'
-        '<p class="kicker">Limitaciones README §13</p>'
-        '<p class="kpi-note">La lista numerada de limitaciones está en el README §13, no en el §8.</p>'
+        '<p class="kicker">README §13 limitations</p>'
+        '<p class="kpi-note">The numbered limitation list is in README §13, not in §8.</p>'
         f"{items_body}"
         "</div>",
         unsafe_allow_html=True,
@@ -110,16 +110,16 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
 
     shown = _public_meta(meta)
     if not shown:
-        meta_note = "El loader no devolvió meta.json."
+        meta_note = "The loader did not return meta.json."
     elif shown.get("product") == "mock":
-        meta_note = "meta.json en disco. product es mock: DATOS DE DEMOSTRACIÓN, no una observación."
+        meta_note = f"meta.json on disk. product is mock: {DEMO_BANNER}, not an observation."
     else:
-        meta_note = "Contenido devuelto por el loader."
+        meta_note = "Content returned by the loader."
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">meta.json</p>'
         f"<p>{html.escape(meta_note)}</p>"
-        f'{format_json_block(shown, "Contenido de meta.json")}'
+        f'{format_json_block(shown, "meta.json contents")}'
         "</div>",
         unsafe_allow_html=True,
     )

@@ -54,7 +54,7 @@ Fuente de verdad: `src/domain/contracts.py` (`SCHEMA_VERSION` **1.1**, revisión
 - Todo número se muestra con unidad y fuente (`provenance_id`). Distingue dato de interpretación.
 - Málaga es control: un resultado nulo es límite de detección. Nunca fuerces una señal. Si el artefacto trae `detection_limit_mm_yr`, muéstralo; no lo calcules.
 - No mezcles sensores ni escalas sin aviso visible.
-- Si `product` es `mock`, aviso permanente: **DATOS DE DEMOSTRACIÓN**.
+- Si `product` es `mock`, aviso permanente: **DEMONSTRATION DATA**.
 - Los textos científicos solo salen de contenido aprobado por el Rol 3. No copies cifras del README ni de Stitch.
 
 ## Diseño
