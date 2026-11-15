@@ -22,6 +22,12 @@ TITLE = "Dancing with the SARs: NISAR Interferometry Cockpit"
 
 # Header telemetry may use only these keys. Missing keys are omitted.
 _TELEMETRY_KEYS = ("sensor", "product", "unit", "dates", "coherence_threshold")
+_TELEMETRY_LABELS = {
+    "sensor": "Sensor",
+    "product": "Product",
+    "unit": "Unit",
+    "coherence_threshold": "Coherence threshold",
+}
 
 
 def _loaders() -> Any:
@@ -72,14 +78,14 @@ def telemetry_line(meta: dict[str, Any] | None) -> str:
         if key == "dates":
             span = format_dates_span(value if isinstance(value, list) else None)
             if span:
-                parts.append(span)
+                parts.append(span.capitalize())
             continue
-        parts.append(f"{key} {value}")
+        parts.append(f"{_TELEMETRY_LABELS.get(key, key)} {value}")
     if "coherence_threshold" not in meta:
         thresholds = meta.get("thresholds")
         floor = thresholds.get("coherence_min") if isinstance(thresholds, dict) else None
         if isinstance(floor, (int, float)) and not isinstance(floor, bool):
-            parts.append(f"coherence floor {floor:g}")
+            parts.append(f"Coherence floor {floor:g}")
     return " · ".join(parts)
 
 

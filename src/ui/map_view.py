@@ -19,6 +19,8 @@ from src.ui.formatters import (
     SOURCE_NOT_DECLARED,
     UNIT_NOT_DECLARED,
     format_dates_span,
+    format_number,
+    humanize,
     is_shared_scale,
     risk_label,
 )
@@ -122,21 +124,21 @@ def _legend(scale: dict[str, Any], mode: str) -> str:
     if isinstance(vmin, (int, float)) and isinstance(vmax, (int, float)):
         mid = round(vmin + (vmax - vmin) / 2, 2)
         ticks = (
-            f"<span>{vmin:g} {html.escape(str(unit))}</span>"
-            f"<span>{mid:g} {html.escape(str(unit))}</span>"
-            f"<span>{vmax:g} {html.escape(str(unit))}</span>"
+            f"<span>{format_number(vmin, 1)} {html.escape(str(unit))}</span>"
+            f"<span>{format_number(mid, 1)} {html.escape(str(unit))}</span>"
+            f"<span>{format_number(vmax, 1)} {html.escape(str(unit))}</span>"
         )
     note = SATURATION_NOTE if scale.get("saturated") else ""
-    fallback = " Provisional domain." if scale.get("fallback") else ""
     caption = scale.get("caption")
+    if not caption and scale.get("fallback"):
+        caption = f"Provisional domain [{format_number(vmin, 1)}, {format_number(vmax, 1)}] {unit}."
     caption_html = f"<p>{html.escape(str(caption))}</p>" if caption else ""
     note_html = f"<p>{html.escape(note)}</p>" if note else ""
     return (
         '<div class="cockpit-card legend">'
-        f'<p class="kicker">{html.escape(str(metric))} · {html.escape(str(unit))}</p>'
+        f'<p class="kicker">{html.escape(humanize(metric))} · {html.escape(str(unit))}</p>'
         f'<div class="legend-bar" style="background: linear-gradient(90deg, {gradient})"></div>'
         f'<div class="legend-ticks">{ticks}</div>'
-        f"<p>{html.escape(SCALE_LABELS.get(mode, str(mode)))} · range {html.escape(str(vmin))} – {html.escape(str(vmax))} {html.escape(str(unit))}{html.escape(fallback)}</p>"
         f"{caption_html}"
         f"{note_html}"
         "</div>"
@@ -149,22 +151,19 @@ def _provenance(meta: dict[str, Any] | None) -> str:
     provenance = meta.get("provenance") if isinstance(meta.get("provenance"), dict) else {}
     parts: list[str] = []
     for label, value in (
-        ("source", provenance.get("source") or meta.get("source")),
-        ("unit", meta.get("unit")),
-        ("sensor", meta.get("sensor")),
-        ("product", meta.get("product")),
+        ("Sensor", meta.get("sensor")),
+        ("Product", meta.get("product")),
+        ("Unit", meta.get("unit")),
+        ("Source", provenance.get("source") or meta.get("source")),
     ):
-        if value not in (None, ""):
-            parts.append(f"{label} {value}")
-        else:
-            parts.append(f"{label} {NOT_DECLARED}")
+        parts.append(f"{label} {value}" if value not in (None, "") else f"{label} {NOT_DECLARED}")
     # provenance_id before dates so a long acquisition list cannot push it off-screen.
     provenance_id = meta.get("provenance_id") or provenance.get("provenance_id")
     parts.append(
-        f"provenance_id {provenance_id}" if provenance_id else f"provenance_id {NOT_DECLARED}"
+        f"Provenance ID {provenance_id}" if provenance_id else f"Provenance ID {NOT_DECLARED}"
     )
     span = format_dates_span(meta.get("dates") if isinstance(meta.get("dates"), list) else None)
-    parts.append(span if span else f"dates {NOT_DECLARED}")
+    parts.append(span.capitalize() if span else f"Dates {NOT_DECLARED}")
     return " · ".join(parts)
 
 
@@ -172,23 +171,22 @@ def _figure_line(
     label: str,
     value: Any,
     unit: str | None,
-    provenance_id: str | None,
     *,
     dimensionless: bool = False,
 ) -> str:
+    """One inspector row. The source is printed once per group, not per line."""
     if value in (None, ""):
         return f"{label}: {NOT_DECLARED}"
-    number = (
-        f"{round(float(value), 3):g}"
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
-        else str(value)
-    )
+    number = format_number(value)
     if dimensionless:
         unit_text = ""
     else:
-        unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
-    source = provenance_id or SOURCE_NOT_DECLARED
-    return f"{label}: {number}{unit_text} · {source}"
+        unit_text = f" {unit}" if unit else ""
+    return f"{label}: {number}{unit_text}"
+
+
+def _risk_hint(value: str) -> str:
+    return f"Risk band: {risk_label(value)} (derived from |velocity|, not a separate measurement)."
 
 
 def _candidate_cells(frame: Any, current: str | None, limit: int = 25) -> list[str]:
@@ -272,59 +270,56 @@ def _render_inspector(
     chip_class = _RISK_CLASS.get(risk, "chip chip-muted")
     unit = detail.get("unit")
     provenance_id = detail.get("provenance_id")
-    source_id = provenance_id if isinstance(provenance_id, str) else None
     unit_text = unit if isinstance(unit, str) else None
     seasonal = detail.get("seasonal_amp_mm")
     ratio = detail.get("ratio_R")
     if ratio is None and isinstance(seasonal, (int, float)) and not isinstance(seasonal, bool) and seasonal == 0:
         # Contract: ratio_R is null exactly when no harmonic was fitted (|trend|/0).
-        ratio_line = "ratio_R: not fitted (no seasonal harmonic)"
+        ratio_line = "Ratio R: not fitted (no seasonal harmonic)"
     else:
-        ratio_line = _figure_line("ratio_R", ratio, None, source_id, dimensionless=True)
+        ratio_line = _figure_line("Ratio R", ratio, None, dimensionless=True)
     groups: list[tuple[str, list[str]]] = [
         (
             "Deformation",
             [
-                "sign: positive = up",
-                _figure_line("val_t1", detail.get("val_t1"), unit_text, source_id),
-                _figure_line("val_t2", detail.get("val_t2"), unit_text, source_id),
-                _figure_line("delta_change", detail.get("delta_change"), unit_text, source_id),
+                "Sign: positive = up",
+                _figure_line("Displacement at first date", detail.get("val_t1"), unit_text),
+                _figure_line("Displacement at last date", detail.get("val_t2"), unit_text),
+                _figure_line("Displacement change", detail.get("delta_change"), unit_text),
                 _figure_line(
-                    "velocity_mm_yr",
+                    "Velocity",
                     detail.get("velocity_mm_yr"),
                     detail.get("velocity_unit") if isinstance(detail.get("velocity_unit"), str) else None,
-                    source_id,
                 ),
             ],
         ),
         (
             "Quality",
             [
-                _figure_line("coherence", detail.get("coherence"), None, source_id, dimensionless=True),
-                "risk_level: derived band from |velocity|, not a separate measurement",
-                f"regime: {detail.get('regime') or NOT_DECLARED} · secular versus seasonal",
+                _figure_line("Coherence", detail.get("coherence"), None, dimensionless=True),
+                _risk_hint(risk),
+                f"Regime: {detail.get('regime') or NOT_DECLARED} (secular versus seasonal)",
                 ratio_line,
-                "ratio_R: abs(trend) / seasonal amplitude",
+                "Ratio R = |trend| / seasonal amplitude",
                 _figure_line(
-                    "seasonal_amp_mm",
+                    "Seasonal amplitude",
                     detail.get("seasonal_amp_mm"),
                     unit if isinstance(unit, str) else None,
-                    source_id,
                 ),
             ],
         ),
         (
             "Provenance",
             [
-                f"case: {detail.get('case_id') or case_id or NOT_DECLARED}",
-                _coord_line("lat", detail.get("lat")),
-                _coord_line("lon", detail.get("lon")),
-                f"land_use: {detail.get('land_use') or NOT_DECLARED}",
-                f"sensor: {detail.get('sensor') or NOT_DECLARED}",
-                f"product: {detail.get('product') or NOT_DECLARED}",
-                f"source: {detail.get('source') or NOT_DECLARED}",
-                f"provenance_id: {provenance_id or NOT_DECLARED}",
-                f"acquisition_date: {detail.get('acquisition_date') or NOT_DECLARED}",
+                f"Case: {detail.get('case_id') or case_id or NOT_DECLARED}",
+                _coord_line("Latitude", detail.get("lat")),
+                _coord_line("Longitude", detail.get("lon")),
+                f"Land use: {detail.get('land_use') or NOT_DECLARED}",
+                f"Sensor: {detail.get('sensor') or NOT_DECLARED}",
+                f"Product: {detail.get('product') or NOT_DECLARED}",
+                f"Source: {detail.get('source') or NOT_DECLARED}",
+                f"Provenance ID: {provenance_id or NOT_DECLARED}",
+                f"Last acquisition: {detail.get('acquisition_date') or NOT_DECLARED}",
             ],
         ),
     ]
@@ -370,43 +365,46 @@ def _render_series(
     style_figure(
         figure,
         height=160,
-        x_title="date",
-        y_title=f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})",
+        x_title="Date",
+        y_title=f"Displacement ({unit})" if unit else f"Displacement ({UNIT_NOT_DECLARED})",
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     source = provenance_id or SOURCE_NOT_DECLARED
     if scope == "aoi":
-        note = "Aggregated AOI series (per-cell series not emitted)"
+        note = "Aggregated area series; this cell has no series of its own"
         if _artefact_omits_cell_series(meta):
-            note += ". The artefact did not emit a per-cell series."
-        st.caption(note)
+            note += " (the artefact does not emit per-cell series)"
+        st.caption(f"{note}. provenance_id {source}")
         return
-    st.caption(f"series · {unit or UNIT_NOT_DECLARED} · {source}")
+    st.caption(f"Cell series · {unit or UNIT_NOT_DECLARED} · provenance_id {source}")
 
 
 def _render_kpis(kpis: Any) -> None:
     if not isinstance(kpis, list) or not kpis:
         return
     columns = st.columns(len(kpis))
+    sources: list[str] = []
     for column, item in zip(columns, kpis):
         if not isinstance(item, dict):
             continue
         unit = item.get("unit")
         value = item.get("value")
-        shown = NOT_DECLARED if value in (None, "") else (
-            f"{value:g}" if isinstance(value, (int, float)) and not isinstance(value, bool) else str(value)
-        )
+        shown = NOT_DECLARED if value in (None, "") else format_number(value)
         unit_text = f" {unit}" if unit else ""
-        source = item.get("provenance_id") or SOURCE_NOT_DECLARED
+        source = item.get("provenance_id")
+        if source:
+            sources.append(str(source))
         column.markdown(
             '<div class="cockpit-card">'
             f'<p class="kicker">{html.escape(str(item.get("label") or "kpi"))}</p>'
             f'<p class="kpi-value">{html.escape(shown)}{html.escape(unit_text)}</p>'
-            f'<p class="kpi-source" title="{html.escape(str(source))}">{html.escape(str(source))}</p>'
             "</div>",
             unsafe_allow_html=True,
         )
+    unique = list(dict.fromkeys(sources))
+    if unique:
+        st.caption(f"provenance_id {' · '.join(unique)}")
 
 
 def _render_comparison(
@@ -425,11 +423,14 @@ def _render_comparison(
             unsafe_allow_html=True,
         )
     rows = []
+    sources: list[str] = []
     for item in report["cases"]:
         unit = item.get("unit") or UNIT_NOT_DECLARED
         peak = item.get("peak")
-        peak_text = f"{peak:g}" if isinstance(peak, (int, float)) else NOT_DECLARED
-        source = item.get("provenance_id") or SOURCE_NOT_DECLARED
+        peak_text = format_number(peak) if isinstance(peak, (int, float)) else NOT_DECLARED
+        source = item.get("provenance_id")
+        if source:
+            sources.append(str(source))
         case_id = str(item.get("id") or "")
         case_name = (case_labels or {}).get(case_id, case_id)
         # In per-case mode `share` is 1.0 for every case, so a bar would read as
@@ -447,19 +448,26 @@ def _render_comparison(
             '<div class="compare-row">'
             f'<span class="compare-case">{html.escape(case_name)}</span>'
             f"{track}"
-            f'<span class="compare-meta">{html.escape(peak_text)} {html.escape(str(unit))} · {html.escape(str(source))}</span>'
+            f'<span class="compare-meta">{html.escape(peak_text)} {html.escape(str(unit))}</span>'
             "</div>"
         )
     note = (
-        ""
-        if shared
-        else '<p class="kpi-note">Per-case scale: bars are omitted because each case uses its own range. '
-        "Compare the numbers, not a length.</p>"
+        '<p class="kpi-note">Peak |velocity| per case. '
+        + (
+            "Bars share one scale, so their length is comparable."
+            if shared
+            else "Each case is on its own scale: bars are omitted, compare the numbers."
+        )
+        + "</p>"
+    )
+    unique = list(dict.fromkeys(sources))
+    source_note = (
+        f'<p class="kpi-note">provenance_id {" · ".join(unique)}</p>' if unique else ""
     )
     st.markdown(
         '<div class="cockpit-card compare-card">'
         '<p class="kicker">Relative magnitude across cases</p>'
-        f"{note}{''.join(rows)}"
+        f"{note}{''.join(rows)}{source_note}"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -471,7 +479,7 @@ def _context_legend(groups: list[tuple[str, str, dict[str, Any]]]) -> str:
     rows = "".join(
         '<p class="detail-line">'
         f'<span class="swatch" style="background:{html.escape(color)}"></span>'
-        f"{html.escape(layer)}</p>"
+        f"{html.escape(humanize(layer))}</p>"
         for layer, color, _payload in groups
     )
     return (
@@ -573,13 +581,13 @@ def render_map_tab(
                 map_style="light" if reported_scheme() == "light" else "dark",
                 tooltip={
                     "text": (
-                        "cell_id: {cell_id}\n"
-                        "delta_change: {delta_change} {unit}\n"
-                        "velocity: {velocity_mm_yr} {velocity_unit}\n"
-                        "coherence: {coherence}\n"
-                        "regime: {regime}\n"
-                        "ratio_R: {ratio_R}\n"
-                        "risk_level: {risk_level}"
+                        "Cell {cell_id}\n"
+                        "Displacement {delta_change} {unit}\n"
+                        "Velocity {velocity_mm_yr} {velocity_unit}\n"
+                        "Coherence {coherence}\n"
+                        "Regime {regime}\n"
+                        "Ratio R {ratio_R}\n"
+                        "Risk band {risk_level}"
                     )
                 },
             )

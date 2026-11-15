@@ -7,7 +7,14 @@ from typing import Any, Mapping
 
 import streamlit as st
 
-from src.ui.formatters import DEMO_BANNER, NOT_DECLARED, format_json_block, safe_inline
+from src.ui.formatters import (
+    DEMO_BANNER,
+    NOT_DECLARED,
+    format_json_block,
+    format_number,
+    humanize,
+    safe_inline,
+)
 
 
 def _public_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
@@ -20,17 +27,15 @@ def _shown(value: Any) -> str:
     if value is None or value == "":
         return NOT_DECLARED
     if isinstance(value, bool):
-        return str(value)
-    if isinstance(value, (int, float)):
-        return f"{value:g}"
-    return str(value)
+        return "emitted" if value else "not emitted"
+    return format_number(value)
 
 
 def _stat_card(column: Any, label: str, value: Any, unit: str | None) -> None:
     unit_text = f" {unit}" if unit and value not in (None, "") else ""
     column.markdown(
         '<div class="cockpit-card">'
-        f'<p class="kicker">{html.escape(label)}</p>'
+        f'<p class="kicker">{html.escape(humanize(label))}</p>'
         f'<p class="kpi-value">{html.escape(_shown(value))}{html.escape(unit_text)}</p>'
         "</div>",
         unsafe_allow_html=True,
@@ -52,7 +57,7 @@ def _case_block(meta: dict[str, Any]) -> None:
         if "detection_limit_mm_yr" in stats:
             cards.append(("detection_limit_mm_yr", stats.get("detection_limit_mm_yr"), "mm/year"))
         if isinstance(stats.get("n_cells"), int) and not isinstance(stats.get("n_cells"), bool):
-            cards.append(("n_cells", stats.get("n_cells"), "cells"))
+            cards.append(("n_cells", stats.get("n_cells"), None))
         series = stats.get("per_cell_series")
         if isinstance(series, dict) and "enabled" in series:
             cards.append(("per_cell_series.enabled", series.get("enabled"), None))
@@ -71,7 +76,7 @@ def _case_block(meta: dict[str, Any]) -> None:
     if null_policy:
         st.markdown(
             '<div class="cockpit-card">'
-            '<p class="kicker">null_policy</p>'
+            '<p class="kicker">How missing data is recorded</p>'
             f"<p>{safe_inline(null_policy)}</p>"
             "</div>",
             unsafe_allow_html=True,
@@ -80,7 +85,7 @@ def _case_block(meta: dict[str, Any]) -> None:
     if isinstance(limitations, list) and limitations:
         st.markdown(
             '<div class="cockpit-card">'
-            '<p class="kicker">case limitations</p>'
+            '<p class="kicker">Limits of this artefact</p>'
             + "".join(f"<p>- {safe_inline(item)}</p>" for item in limitations)
             + "</div>",
             unsafe_allow_html=True,
@@ -127,6 +132,7 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Known caveat</p>'
+        '<p class="kpi-note">From the project documentation, not from the case artefact.</p>'
         f"{caveat_body}"
         "</div>",
         unsafe_allow_html=True,
@@ -134,6 +140,7 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Known limitations</p>'
+        '<p class="kpi-note">From the project documentation, not from the case artefact.</p>'
         f"{items_body}"
         "</div>",
         unsafe_allow_html=True,
@@ -143,14 +150,12 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     if not shown:
         meta_note = "The loader did not return meta.json."
     elif shown.get("product") == "mock":
-        meta_note = f"meta.json on disk. product is mock: {DEMO_BANNER}, not an observation."
+        meta_note = f"Full record from disk. product is mock: {DEMO_BANNER}, not an observation."
     else:
-        meta_note = "Content returned by the loader."
-    st.markdown(
-        '<div class="cockpit-card">'
-        '<p class="kicker">meta.json</p>'
-        f"<p>{html.escape(meta_note)}</p>"
-        f'{format_json_block(shown, "meta.json contents")}'
-        "</div>",
-        unsafe_allow_html=True,
-    )
+        meta_note = "Full record returned by the loader."
+    with st.expander("Full meta.json record", expanded=False):
+        st.caption(meta_note)
+        st.markdown(
+            format_json_block(shown, "meta.json contents"),
+            unsafe_allow_html=True,
+        )

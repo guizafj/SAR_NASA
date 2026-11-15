@@ -93,6 +93,26 @@ En los tres artefactos actuales no hay `name`. La columna sale vacía. Las `clas
 
 Fase 1 aplicada en la UI. Tras integrar `main`, Rol 1 ya declara `scaled` / `scale_factor`, extrusión `False` por defecto y el caveat completo; la pestaña 2 consume el aviso solo cuando `scaled` es verdadero. El contrato v1.1 añade la descomposición ajustada (`trend_mm_yr`, `seasonal_mm`, `median_seasonal_amp_mm`) y `ratio_R` nulo cuando no se ajustó armónico: el inspector muestra "not fitted" en ese caso, nunca un número inventado. El pedido de texto a Rol 3 sigue abierto en `docs/requests.md`.
 
+## Texto revisado (2026-11-15)
+
+Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentación, sin tocar datos:
+
+| Antes | Ahora | Origen |
+|---|---|---|
+| `provenance_id` repetido bajo cada tarjeta y en cada línea del inspector | una sola línea de fuente por grupo | el mismo id para todas las cifras del caso |
+| `dominant_regime`, `median_ratio_R`, `n_cells`, `per_cell_series.enabled` | Dominant regime, Median ratio R, Cells, Per-cell series | claves de `meta.stats` |
+| `per_cell_series.enabled: False` | `not emitted` | booleano de `meta.stats` |
+| `ratio_R: 276.76` | `Ratio R: 276.76` + definición del contrato | `get_cell_detail` |
+| `velocity_mm_yr`, `val_t1`, `val_t2` | Velocity, Displacement at first/last date | `get_cell_detail` |
+| leyenda con línea de rango duplicada y `velocity_mm_yr` | caption del adapter + `Velocity · mm/year` | `get_color_scale` |
+| barras con `provenance_id` por fila | una línea con los ids de los tres casos | `get_scale_comparison` |
+| tabla `layer/class/name/source/provenance_id` | Layer, Class, Feature name, Source, Provenance ID; `—` para vacío; id una vez | `load_context_layers` |
+| `meta.json` crudo siempre visible | dentro de "Full meta.json record" | `load_meta` |
+| asteriscos y backticks visibles | énfasis y `code` convertidos; marcadores truncados eliminados | `load_documented_limits` |
+| tarjetas KPI con `-62.065` y `41.3767` | dos decimales como máximo | todos los hooks numéricos |
+
+Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.
+
 ## Plan
 
 Objetivo: que cada bloque diga qué es, de qué hook sale y cómo se lee, usando solo campos que el bridge ya entrega. Sin nuevas cifras y sin leer artefactos desde la UI.

@@ -36,7 +36,7 @@ def _line(series: list[dict[str, Any]] | None) -> None:
     style_figure(
         figure,
         height=280,
-        x_title="date",
+        x_title="Date",
         y_title=(
             f"Cumulative displacement ({unit})"
             if unit
@@ -51,7 +51,8 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         factor_text = f" ×{factor:g}" if isinstance(factor, (int, float)) else ""
         scale_text = f" · scaled{factor_text} to the filtered subset"
     st.caption(
-        f"AOI series · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}{scale_text}"
+        f"Cumulative displacement · {unit or UNIT_NOT_DECLARED} · "
+        f"provenance_id {source or SOURCE_NOT_DECLARED}{scale_text}"
     )
 
 
@@ -77,7 +78,10 @@ def _bars(rows: list[dict[str, Any]] | None) -> None:
         ),
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
-    st.caption(f"land_use · {unit or UNIT_NOT_DECLARED} · {source or SOURCE_NOT_DECLARED}")
+    st.caption(
+        f"Median velocity by land use · {unit or UNIT_NOT_DECLARED} · "
+        f"provenance_id {source or SOURCE_NOT_DECLARED}"
+    )
 
 
 def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:

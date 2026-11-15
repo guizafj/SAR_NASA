@@ -97,6 +97,7 @@ Pedimos:
 - Una frase por `layer`: qué es y qué no es.
 - Una frase que fije que `class` de contexto no es el filtro `land_use` de la grilla.
 - Confirmación de que la geografía mock no es una capa de peligro verificada ni un inventario de infraestructura. Si alguna clase sí debe leerse como infraestructura de demostración, listarla. Si no, la UI sigue mostrándola como feature entregada, sin interpretarla.
+- Los `name` de las features llegan en español ("Estación Metro Zócalo (sintética)", "Pozo Roma (sintético)"). Para un evento internacional, pedimos nombres en inglés o confirmación de que son cadenas de demostración que la UI debe citar tal cual. La UI no traduce valores del artefacto.
 
 ### 4. Campos que el artefacto contradice
 

@@ -11,6 +11,8 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from src.ui.formatters import humanize
+
 _TABLE_FIELDS = ("layer", "class", "name", "source", "provenance_id")
 
 
@@ -37,16 +39,23 @@ def _visible_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def _render_table(frame: pd.DataFrame) -> str:
+def _render_table(frame: pd.DataFrame, provenance: str | None = None) -> str:
     shown = _visible_frame(frame)
-    headers = "".join(f"<th>{html.escape(str(col))}</th>" for col in shown.columns)
+    note = (
+        f'<p class="kpi-note">provenance_id {html.escape(provenance)}</p>'
+        if provenance
+        else ""
+    )
+    headers = "".join(f"<th>{html.escape(humanize(col))}</th>" for col in shown.columns)
     body_rows: list[str] = []
     for row in shown.itertuples(index=False):
         cells = "".join(
-            f"<td>{html.escape(str(val).replace(chr(10), ' '))}</td>" for val in row
+            f"<td>{html.escape(str(val).replace(chr(10), ' ')) if str(val) not in ('', 'None', 'nan') else '—'}</td>"
+            for val in row
         )
         body_rows.append(f"<tr>{cells}</tr>")
     return (
+        f"{note}"
         '<div class="cockpit-table-wrap" role="region" aria-label="Context layers">'
         '<table class="cockpit-table" aria-label="Context layer properties">'
         f"<thead><tr>{headers}</tr></thead>"
@@ -105,22 +114,28 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     total = summary.get("n_features")
     if not isinstance(total, int) or isinstance(total, bool):
         total = len(rows)
-    breakdown = ", ".join(f"{layer} {count}" for layer, count in sorted(counts.items()))
+    breakdown = ", ".join(
+        f"{humanize(layer)} {count}" for layer, count in sorted(counts.items())
+    )
     columns = st.columns(3)
-    _stat_card(columns[0], "Delivered features", f"{total}", "context features")
+    _stat_card(columns[0], "Delivered features", f"{total}", "GeoJSON features")
     _stat_card(columns[1], "Delivered layers", f"{len(counts)}", "distinct layer values")
     _stat_card(columns[2], "Layer counts", breakdown or "none", None)
 
     if not rows:
         return
     frame = pd.DataFrame(rows, columns=list(_TABLE_FIELDS)).fillna("")
-    layers = sorted(str(value) for value in frame["layer"].unique() if str(value))
+    provenance_ids = sorted(
+        {str(value) for value in frame["provenance_id"] if str(value) not in ("", "None", "nan")}
+    )
+    shown = frame.drop(columns=["provenance_id"]) if len(provenance_ids) == 1 else frame
+    single_source = provenance_ids[0] if len(provenance_ids) == 1 else None
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Context layers</p>'
         '<p class="kpi-note">A context class is not the grid land_use filter.</p>'
-        f"<p>{len(rows)} features · {html.escape(', '.join(layers) or 'no layers')}</p>"
-        f"{_render_table(frame)}"
+        f"<p>{len(rows)} features delivered</p>"
+        f"{_render_table(shown, single_source)}"
         "</div>",
         unsafe_allow_html=True,
     )

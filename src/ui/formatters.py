@@ -34,14 +34,67 @@ _SHARED_SCALE = frozenset(
 
 
 _INLINE_EMPHASIS = re.compile(r"\*\*(.+?)\*\*|\*(.+?)\*")
+_INLINE_CODE = re.compile(r"`([^`]+)`")
 _RISK_WORD = re.compile(r"\b(estable|moderado|critico)\b")
+_RISK_AFTER_NOUN = re.compile(r"\b(band|level|class)\s+(estable|moderado|critico)\b")
+
+# Display labels for known fields. Unknown keys fall back to a readable form.
+FIELD_LABELS = {
+    "dominant_regime": "Dominant regime",
+    "median_ratio_R": "Median ratio R",
+    "median_velocity_mm_yr": "Median velocity",
+    "median_seasonal_amp_mm": "Median seasonal amplitude",
+    "detection_limit_mm_yr": "Detection limit",
+    "n_cells": "Cells",
+    "n_dates": "Dates",
+    "n_series_rows": "Series rows",
+    "per_cell_series.enabled": "Per-cell series",
+    "annual_coverage": "Annual coverage",
+    "design_condition": "Design condition",
+    "seasonal_n_harmonics": "Seasonal harmonics",
+    "null_policy": "Null policy",
+    "velocity_mm_yr": "Velocity",
+    "delta_change": "Displacement",
+    "coherence": "Coherence",
+    "ratio_R": "Ratio R",
+    "seasonal_amp_mm": "Seasonal amplitude",
+    "risk_level": "Risk band",
+    "land_use": "Land use",
+    "admin_boundary": "Administrative boundary",
+    "infrastructure": "Infrastructure",
+    "water": "Water",
+    "provenance_id": "Provenance ID",
+    "source": "Source",
+    "class": "Class",
+    "name": "Feature name",
+    "layer": "Layer",
+}
+
+
+def humanize(value: Any) -> str:
+    """Readable label for a contract key or value. Never changes stored data."""
+    text = str(value)
+    if text in FIELD_LABELS:
+        return FIELD_LABELS[text]
+    return text.replace("_", " ").replace("-", " ").strip().capitalize()
+
+
+def format_number(value: Any, decimals: int = 2) -> str:
+    """Trim float noise for display: 41.3767 -> 41.38, 11694.0 -> 11694."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        if float(value).is_integer():
+            return f"{int(value)}"
+        return f"{round(float(value), decimals):g}"
+    return str(value)
 
 
 def safe_inline(text: Any) -> str:
-    """Escape HTML, then turn `**bold**` and `*italic*` into tags.
+    """Escape HTML, then render `**bold**`, `*italic*` and `code`.
 
     Delivered copy carries markdown emphasis. Wrapping it in a raw <p> without
-    this leaves the asterisks visible.
+    this leaves the asterisks and backticks visible.
     """
     escaped = html.escape(str(text))
 
@@ -50,15 +103,25 @@ def safe_inline(text: Any) -> str:
             return f"<strong>{match.group(1)}</strong>"
         return f"<em>{match.group(2)}</em>"
 
-    return _INLINE_EMPHASIS.sub(_replace, escaped)
+    rendered = _INLINE_EMPHASIS.sub(_replace, escaped)
+    rendered = _INLINE_CODE.sub(lambda match: f"<code>{match.group(1)}</code>", rendered)
+    # Delivered copy can be truncated mid-emphasis; do not leak the markers.
+    return rendered.replace("**", "")
 
 
 def format_note(note: Any) -> str:
     """Display-only translation of contract risk values inside a note.
 
     The note is backend copy. The enum value stays unchanged in the payload.
+    `band critico` reads as `band critical`, not `band Critical`.
     """
-    return _RISK_WORD.sub(lambda match: RISK_LABELS.get(match.group(0), match.group(0)), str(note))
+    text = str(note)
+
+    def _band(match: re.Match[str]) -> str:
+        return f"{match.group(1)} {RISK_LABELS.get(match.group(2), match.group(2)).lower()}"
+
+    text = _RISK_AFTER_NOUN.sub(_band, text)
+    return _RISK_WORD.sub(lambda match: RISK_LABELS.get(match.group(0), match.group(0)), text)
 
 
 def format_dates_span(dates: Sequence[Any] | None) -> str | None:

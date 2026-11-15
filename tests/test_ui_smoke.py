@@ -29,7 +29,7 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert "DEMONSTRATION DATA" in text
     assert "Dancing with the SARs: NISAR Interferometry Cockpit" in text
     assert "Median velocity" in text
-    assert "coherence floor" in text
+    assert "Coherence floor" in text
     assert "Known caveat" in text
     assert "Known limitations" in text
     assert "A context class is not the grid land_use filter." in text
