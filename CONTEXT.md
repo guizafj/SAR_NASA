@@ -148,8 +148,10 @@ Important unresolved items include:
 - ~~the granule-identity parsers disagree about which filename token is the track~~ **resolved
   2026-11-14 (O-06)**: both parsers read track = token 5 and frame = token 7, and a regression
   pins it (`tests/test_parser_agreement.py`);
-- the CLI's away-positive LOS label conflicts with the projection's sign for purely vertical motion;
-  O-08 blocks physical interpretation of real output until phase, projection, and labels agree;
+- ~~the CLI's away-positive LOS label conflicts with the projection's sign~~ **closed 2026-11-15
+  (O-08) by renaming**: the default label is `toward-sensor`, matching `u_up = cosθ > 0`; the
+  factor is unchanged at −1.0, so no published number moved. What remains open is GNSS
+  *validation* of the convention, not the naming;
 - urban GUNW coverage and the exact real-file layout remain unverified;
 - atmospheric, orbital, DEM, and unwrapping errors are not all corrected;
 - a short window cannot support confident seasonal or elastic/inelastic claims;

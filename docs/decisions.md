@@ -111,7 +111,12 @@ freedom to absorb the trend and produced ±533 mm/yr scatter in testing. The gua
 noisy" into a refusal.
 **Evidence.** `pipeline/science/transforms.py` (`MIN_FIT_POINTS = 4`,
 `MIN_SEASONAL_COVERAGE_PER_HARMONIC = 0.75`).
-**Reverse if.** A multi-year stack arrives.
+**Reverse if.** A multi-year stack arrives. **Reversed 2026-11-15 by its own condition:** the
+two-year mock window (62 dates, 732 d) *is* a multi-year stack, so `transforms.harmonic_order` now
+asks for **two** harmonics (every shipped `meta.stats.seasonal_n_harmonics` is 2). The guard
+survives as the coverage/epoch floor rather than as a fixed order of one; `harmonic_fit`'s own
+default is still 1 for callers that do not compute an order, which is why the decision text above
+is kept rather than rewritten.
 
 ### D-10 — Vertical conversion uses ONE geometry; the LOS sign is not validated
 **Decision.** `v_up = d_LOS/cosθ + tanθ·(cosα·v_east + sinα·v_north)` from a single flight direction
