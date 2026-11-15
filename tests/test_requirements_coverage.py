@@ -70,6 +70,10 @@ FIRST_PARTY_EXTRA = {
     # `tests/test_reference_loader.py` / `tests/test_handoff_snippets.py` insert `examples/` into
     # sys.path and then `import reference_loader` — that is docs/handoff-mock.md's copyable module.
     "reference_loader": "examples/reference_loader.py",
+    # `tests/test_ui_accessibility.py` imports the cockpit entry point to inspect the widgets it
+    # actually renders. `app.py` is this repository's own file, so no distribution can ever provide
+    # it: without this entry the audit demands a requirements.txt line for `app`.
+    "app": "app.py",
 }
 
 #: Module name -> distribution name, for the pairs that differ. Everything else is assumed to ship

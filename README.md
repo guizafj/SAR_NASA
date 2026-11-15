@@ -36,17 +36,17 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 
 ## 1. What it is
 
-A web app that lets anyone scrub through time, watch three cities sink, and understand why one of
-them barely moves at all.
+A web app that lets anyone compare three cities over the same two-year window and understand why one of
+them barely moves at all — with the 62-date series drawn whole, because the app has no time control.
 
 | Capability | What the user does |
 |---|---|
-| **Time scrub** | Drag a date slider; charts and KPIs update across the 62 dates — the **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid) |
+| **Series across the window** | The series tab draws all 62 dates at once. The **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid). There is **no date slider** — the only slider filters on minimum coherence |
 | **Click to interrogate** | Click a cell → displacement series, trend, quality (needs `--per-cell-series` artefacts; the committed set carries only the AOI aggregate) |
-| **Compare mode** | Three cities on **one shared colour scale** |
-| **Filter** | Coherence, land use, risk level, critical-velocity threshold |
-| **Evidence** | Every layer shows its unit, source, date range and revisit interval |
-| **Learn** | An educational tab explains NISAR, what SAR measures, and what it cannot |
+| **Shared scale (opt-in)** | A **Scale** radio switches from per-case colouring (the default) to one shared cross-city scale, so the three cities can be read against each other |
+| **Filter** | Case, land use, minimum coherence, risk level, 3D extrusion and theme — six controls; there is no velocity-threshold filter |
+| **Evidence** | Every rendered number carries a unit, or the app says the unit is not declared; each group of figures prints one `Provenance ID` line, and the full source, date range and revisit interval sit in the provenance tab |
+| **Learn** | Tab 4, **Provenance and limits**, carries a collapsed expander explaining NISAR, what SAR measures, and what it cannot |
 
 ### The thesis the app must make visible
 
@@ -273,12 +273,13 @@ control for signal, not for fittability.
 - NISAR GUNW is provisional and **cryosphere-derived**; SME2 excludes urban areas. An intersecting
   granule must be visually verified before we claim city-wide displacement. If it fails, the
   fallback chain is HyP3 Sentinel-1 → OPERA DISP-S1 → EGMS → local ISCE2+MintPy from GSLC, and
-  **the badge shows which one won**.
+  **the provenance line shows which one won**.
 - Sentinel-1 archives are deep enough that an HyP3 on-demand stack is always feasible — at 6-day
   revisit, so its coherence thresholds must never be pooled with NISAR's.
 
-> **The badge rule.** `provenance.source` is displayed in the UI on every layer. If the demo runs on
-> mock data, the app says so. Judges reward that; they punish the alternative.
+> **The provenance rule.** Each group of figures prints one `Provenance ID` line, and the full
+> `provenance.source` record is in the provenance tab. If the demo runs on mock data, the app says so.
+> Judges reward that; they punish the alternative.
 
 The full decision record — options, evidence, the verification checklist a GUNW granule must pass
 before it may be labelled `nisar-gunw`, and the accepted consequences:
@@ -692,8 +693,10 @@ Use `git status` and `git diff` to inspect — they cannot lose work.
   metrics computed once, server-side; CI reproduces artefacts from a clean checkout.
 - **Rol 2:** the four views that exist are reachable — map, series and KPIs, hazard and
   infrastructure, provenance and limits (`tests/test_ui_smoke.py` pins exactly four tabs); a fifth is
-  **not implemented**; **the app starts with no NASA credentials**; URL restores the exact state;
-  units and sources always visible; keyboard-navigable; works on a phone.
+  **not implemented**; **the app starts with no NASA credentials**; the URL round-trips the eight
+  filter and selection keys but not the active tab or the expander state; every rendered number
+  carries a unit; the `H3 cell` selectbox gives a keyboard path to the map's numbers; `?compact=1`
+  collapses the filter panel on a phone.
 - **Everyone:** `main` runnable, PR reviewed, `./scripts/python.sh -m pytest tests -q` green.
 
 ---
@@ -702,7 +705,7 @@ Use `git status` and `git diff` to inspect — they cannot lose work.
 
 | Risk | Mitigation | Owner |
 |---|---|---|
-| NISAR urban coverage absent | Verified fallback chain (§5); badge shows the source that won | yuls |
+| NISAR urban coverage absent | Verified fallback chain (§5); the provenance line shows the source that won | yuls |
 | Live InSAR too slow | Never on the critical path; artefacts pre-built | yuls / pozo |
 | Málaga signal ≤ noise | Render flat **deliberately**; publish the detection limit | yuls / fradiaz |
 | Frontend blocked on data | Mock frozen at H0; contract never changes to unblock a UI | yuls / pozo |
@@ -847,7 +850,7 @@ Documented now so the MVP is not designed against it:
 | Axarquía water crisis | Junquera et al. 2025, *PNAS* | 10.1073/pnas.2508055122 |
 | NISAR Data User Guide | Kristenson et al. 2026 | 10.5281/ZENODO.20075813 |
 
-*Jakarta rates vary by method and period — quote the source actually used in the provenance badge.*
+*Jakarta rates vary by method and period — quote the source actually used in the provenance record.*
 
 ---
 
@@ -862,5 +865,5 @@ Code, docs and figures are **MIT** (`LICENSE`). That licence does **not** relice
   the C-band path runs; its coherence is never pooled with NISAR's (6-day vs 12-day revisit).
 - **Map context and place names** — © OpenStreetMap contributors (ODbL), fetched via Nominatim into
   `data/staging/`.
-- **Published subsidence rates** — cite the paper actually used in the provenance badge (§16), not
+- **Published subsidence rates** — cite the paper actually used in the provenance record (§16), not
   the closest headline number.

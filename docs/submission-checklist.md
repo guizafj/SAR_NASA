@@ -125,8 +125,11 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - **Rol 2 fradiaz:** [ ] the four views that exist are reachable — map, series/KPIs, hazard &
   infrastructure, provenance and limits (`tests/test_ui_smoke.py` pins exactly four tabs); a fifth
   view is **not implemented**, so do not claim one; [ ] the app starts with **no NASA credentials**;
-  [ ] URL restores the exact state; [ ] units and sources always visible, keyboard-navigable,
-  phone-ready.
+  [ ] the URL round-trips the eight filter and selection keys, but **not** the active tab or the
+  expander state — do not claim "the exact state"; [ ] every rendered number carries a unit or says it is
+  not declared; keyboard-navigable (the `H3 cell` selectbox is the keyboard path to the map's numbers, and
+  the scrollable tables take focus); phone-ready (`?compact=1` collapses the filter panel and the tab
+  strip wraps below 720 px).
 - **Rol 3 yuls:** [ ] `meta.json` validates for all published cases; [ ] every artefact < 15 MB and
   carries `provenance` + `revisit_days`; [ ] limitations documented, Málaga with its detection limit;
   [ ] video numbers re-derived from `demo_numbers.py` after the last artefact regeneration.

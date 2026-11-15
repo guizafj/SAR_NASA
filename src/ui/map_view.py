@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from typing import Any
 
 import pydeck as pdk
@@ -59,7 +60,7 @@ def detection_caption(above_limit: bool | None, limit: Any, unit: str | None) ->
         return None
     if isinstance(limit, bool) or not isinstance(limit, (int, float)):
         return LIMIT_MISSING
-    unit_text = f" {unit}" if unit else ""
+    unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
     return f"No detectable signal above the detection limit of {limit:g}{unit_text}"
 
 
@@ -207,7 +208,7 @@ def _figure_line(
     if dimensionless:
         unit_text = ""
     else:
-        unit_text = f" {unit}" if unit else ""
+        unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
     return f"{label}: {number}{unit_text}"
 
 
@@ -487,7 +488,7 @@ def _render_kpis(kpis: Any) -> None:
         unit = item.get("unit")
         value = item.get("value")
         shown = NOT_DECLARED if value in (None, "") else format_number(value)
-        unit_text = f" {unit}" if unit else ""
+        unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
         source = item.get("provenance_id")
         if source:
             sources.append(str(source))
@@ -586,6 +587,45 @@ def _context_legend(groups: list[tuple[str, str, dict[str, Any]]]) -> str:
     )
 
 
+# Every `{field}` the hover card prints. The deck used to ship the whole frame — ~21 columns per cell —
+# for 11 600 H3 cells, so most of several megabytes of payload was columns no consumer reads.
+_MAP_TOOLTIP_TEXT = (
+    "Cell {cell_id}\n"
+    "Displacement {delta_change} {unit}\n"
+    "Velocity {velocity_mm_yr} {velocity_unit}\n"
+    "Coherence {coherence}\n"
+    "Regime {regime_label}\n"
+    "Ratio R {ratio_R}\n"
+    "Risk band {risk_band}\n"
+    "Land use {land_use_label}"
+)
+_TOOLTIP_FIELDS = frozenset(re.findall(r"\{(\w+)\}", _MAP_TOOLTIP_TEXT))
+_LAYER_FIELDS = frozenset({"cell_id", "color", "height"})
+_DECK_FIELDS = _TOOLTIP_FIELDS | _LAYER_FIELDS
+
+
+def _deck_records(frame: Any, extrude: bool) -> list[dict[str, Any]]:
+    """Rows for the H3 layer: exactly the fields the layer draws and the tooltip reads.
+
+    `_DECK_FIELDS` is derived from `_MAP_TOOLTIP_TEXT`, so adding a placeholder to the hover card
+    cannot silently start reading a field the record no longer carries.
+    """
+    if frame is None or not hasattr(frame, "to_dict"):
+        return []
+    records: list[dict[str, Any]] = []
+    for row in frame.to_dict(orient="records"):
+        record = {field: row.get(field) for field in sorted(_DECK_FIELDS)}
+        # Display-only labels for the hover card; the stored enum is untouched.
+        record["risk_band"] = risk_label(row.get("risk_level"))
+        record["land_use_label"] = humanize(row.get("land_use")) if row.get("land_use") else NOT_DECLARED
+        record["regime_label"] = humanize(row.get("regime")) if row.get("regime") else NOT_DECLARED
+        # Flat mode must not keep loader heights: non-zero elevation still
+        # produces z-fighting that reads as overlapping hexes.
+        record["height"] = record.get("height") if extrude else 0
+        records.append(record)
+    return records
+
+
 def _render_deck(
     frame: Any,
     active: dict[str, Any],
@@ -594,22 +634,8 @@ def _render_deck(
     case_id: Any,
 ) -> None:
     """Draw the H3 deck and sync the picked cell into session state."""
-    records = frame.to_dict(orient="records") if frame is not None and hasattr(frame, "to_dict") else []
     extrude = bool(active.get("extrude_3d"))
-    # Flat mode must not keep loader heights: non-zero elevation still
-    # produces z-fighting that reads as overlapping hexes.
-    if not extrude and records:
-        records = [{**row, "height": 0} for row in records]
-    # Display-only labels for the hover card; the stored enum is untouched.
-    records = [
-        {
-            **row,
-            "risk_band": risk_label(row.get("risk_level")),
-            "land_use_label": humanize(row.get("land_use")) if row.get("land_use") else NOT_DECLARED,
-            "regime_label": humanize(row.get("regime")) if row.get("regime") else NOT_DECLARED,
-        }
-        for row in records
-    ]
+    records = _deck_records(frame, extrude)
     layer = pdk.Layer(
         "H3HexagonLayer",
         data=records,
@@ -673,18 +699,7 @@ def _render_deck(
         ),
         map_provider="carto",
         map_style="light" if reported_scheme() == "light" else "dark",
-        tooltip={
-            "text": (
-                "Cell {cell_id}\n"
-                "Displacement {delta_change} {unit}\n"
-                "Velocity {velocity_mm_yr} {velocity_unit}\n"
-                "Coherence {coherence}\n"
-                "Regime {regime_label}\n"
-                "Ratio R {ratio_R}\n"
-                "Risk band {risk_band}\n"
-                "Land use {land_use_label}"
-            )
-        },
+        tooltip={"text": _MAP_TOOLTIP_TEXT},
     )
     with st.container(key="map-slot", border=False):
         event = st.pydeck_chart(
