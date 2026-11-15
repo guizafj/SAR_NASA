@@ -1,25 +1,29 @@
 """Cross-artefact guard: what a judge READS on screen must equal what `data/processed/**` publishes.
 
 `tests/test_ui_smoke.py` pins the tab labels and the demo banner; `tests/test_ui_bridge.py` pins the
-18 hook signatures and a handful of their return values. Neither reads the DOM the app actually
-produced, so a KPI card carrying a hardcoded, stale or invented figure passes the whole suite. This
-file renders `app.py` with Streamlit's in-process `AppTest` and compares every *displayed* number
-with the artefact behind it, for the three frozen cases.
+18 hook signatures, the KPI card labels and a handful of their return values. Neither reads the DOM
+the app actually produced, so a KPI card carrying a hardcoded, stale or invented figure passes the
+whole suite. This file renders `app.py` with Streamlit's in-process `AppTest` and compares every
+*displayed* number with the artefact behind it, for the three frozen cases.
 
-Three layers are checked per case:
+Layers checked per case:
 
 1. The formatted KPI cards (tab 1 and tab 2) against `meta.json::stats`, within the app's own
    display rounding. The cards are *computed from the grid parquet* by `get_series_kpis` /
    `get_map_kpis` (`src/data/ui_bridge.py`), so this is genuinely a cross-artefact parity check:
    the number on the card must agree with the number the case published.
-2. The panels that echo the artefact verbatim (tab 4 renders `meta.json`; tab 3 prints the
-   context summary) against the file they claim to show.
+2. The panels that echo an artefact: the tab-4 `meta.json` block (rendered by
+   `src/ui/formatters.format_json_block`) and the tab-4 "case" stat cards, plus the tab-3 context
+   cards and feature table against the selected case's `context_layers.geojson`.
 3. The acquisition span `(62)` in the mission bar and the map footer against `meta.dates` /
-   `meta.stats.n_dates`.
+   `meta.stats.n_dates`, and the cell-count caption against `meta.stats.n_cells`.
+4. The null-result detection limit: shown only where `meta.stats` declares one.
 
-Assertions never use a literal copied from the app: every expected value is read from
-`data/processed/<case>/meta.json`, `nisar_grid.parquet` or `context_layers.geojson`, or from the
-frozen contract constant (`src.domain.contracts`) the loader formats with.
+Assertions never use a literal copied from the app for the *expected number*: every expected value
+is read from `data/processed/<case>/meta.json`, `nisar_grid.parquet` or `context_layers.geojson`, or
+from the frozen contract constant (`src.domain.contracts`) the loader formats with. Card labels are
+DOM anchors, not expected values; `test_kpi_cards_are_labelled_as_the_bridge_publishes` re-derives
+them from `src.data.ui_bridge` so a relabelled card cannot silently make the number checks vacuous.
 
 Anti-vacuity
 ------------
@@ -33,17 +37,12 @@ No `src/**` file is edited and `data/**` is only ever read.
 
 Known gaps this file cannot close without touching `src/**` (reported, not fixed):
 
-* `src/ui/formatters.py` has **no** `DEMO_BANNER` constant: the banner literal is duplicated in
-  `app.py:116` and `src/ui/charts.py:76`. `_expected_banner()` prefers that constant as soon as it
-  exists; until then it falls back to the banner text the UI spec declares
-  (`docs/ui-data-needs.md`, "Aviso **…** si `product == \"mock\"`") and asserts both rendered
-  banners match it and each other.
-* `stats.median_ratio_R` and `stats.annual_coverage` are never formatted into a card; the only
-  element that carries them is the whole-`meta.json` JSON panel in tab 4. A stale ratio would still
-  be caught there, but no card-level provenance exists.
-* `src/ui/context_view.py:9` drops the selected case (`del filters` plus `loader()` with no
-  `case_id`), so tab 3 always renders the *primary* case's `context_layers.geojson`. Encoded as a
-  strict `xfail` — it turns red when the panel starts following the selector.
+* `stats.annual_coverage`, `stats.n_dates`, `stats.n_context_features`, `stats.p05_velocity_mm_yr`,
+  `stats.p95_velocity_mm_yr`, `stats.design_condition` and `stats.per_cell_series.*` are never
+  formatted into a KPI card with a provenance badge; the only element that carries them is the
+  whole-`meta.json` block in tab 4. A stale value would still be caught there, but no card-level
+  provenance exists. `median_ratio_R` and `n_cells` *are* tab-4 stat cards now (checked here,
+  without a provenance badge).
 """
 
 from __future__ import annotations
@@ -53,6 +52,7 @@ import functools
 import html
 import inspect
 import json
+import math
 import re
 import shutil
 from pathlib import Path
@@ -69,7 +69,6 @@ from src.ui import formatters
 ROOT = Path(__file__).resolve().parents[1]
 PROCESSED = ROOT / "data" / "processed"
 APP = ROOT / "app.py"
-UI_SPEC = ROOT / "docs" / "ui-data-needs.md"
 
 #: Display contract enforced on the cards. The loader rounds millimetre statistics to 2 decimals
 #: and percentages to 1 (`src/data/ui_bridge.py`), so a card may show at most that many digits and
@@ -77,12 +76,42 @@ UI_SPEC = ROOT / "docs" / "ui-data-needs.md"
 _MM_DECIMALS = 2
 _PCT_DECIMALS = 1
 
+#: `src/ui/educational.py` prints its stat cards with `f"{value:g}"`, i.e. six significant digits.
+_STAT_DIGITS = 6
+
+#: Card labels published by `src/data/ui_bridge.py` (pinned there by `tests/test_ui_bridge.py`).
+#: These are DOM anchors for the scraper, never an expected number.
+_VELOCITY_LABEL = "Median velocity"
+_SEASONAL_LABEL = "Median seasonal amplitude"
+_COVERAGE_LABEL = "Coherent coverage"
+_ABOVE_LABEL = "Cells above threshold"
+_CRITICAL_LABEL = "Critical cells"
+
 _CARD_RE = re.compile(r'<div class="cockpit-card">(.*?)</div>', re.S)
 _BANNER_RE = re.compile(r'<div class="demo-banner" role="status">(.*?)</div>', re.S)
 _NUMBER_RE = re.compile(r"^(?P<num>[+-]?\d+(?:\.\d+)?)(?:\s+(?P<unit>.*))?$")
 _SPAN_RE = re.compile(r"dates (?P<first>\d{4}-\d{2}-\d{2}) … (?P<last>\d{4}-\d{2}-\d{2}) \((?P<n>\d+)\)")
-_CAPTION_TOTAL_RE = re.compile(r"^(?P<shown>\d+) celdas mostradas de (?P<total>\d+)$")
-_CONTEXT_CAPTION = "Capas entregadas: "
+_CAPTION_TOTAL_RE = re.compile(r"^(?P<shown>\d+) cells shown of (?P<total>\d+)$")
+_CONTEXT_SUMMARY_RE = re.compile(r"<p>(?P<n>\d+) features · (?P<layers>[^<]*)</p>")
+#: DOM anchor: the phrase `src/ui/map_view.py::detection_caption` emits around the artefact value.
+_DETECTION_RE = re.compile(
+    r"detection limit of (?P<num>[+-]?\d+(?:\.\d+)?)(?: (?P<unit>[^<\s]+))?"
+)
+#: Tab-4 renders `meta.json` through `formatters.format_json_block`, one `<div class="json-line">`
+#: per JSON line; stripping the spans restores the exact JSON text.
+_JSON_LINE_RE = re.compile(r'<div class="json-line"[^>]*>(.*?)</div>', re.S)
+_JSON_BLOCK_ANCHOR = 'aria-label="meta.json contents"'
+_TAG_RE = re.compile(r"<[^>]+>")
+_CONTEXT_TABLE_RE = re.compile(
+    r'<table class="cockpit-table"[^>]*><thead><tr>(?P<head>.*?)</tr></thead>'
+    r"<tbody>(?P<body>.*?)</tbody></table>",
+    re.S,
+)
+_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.S)
+_CELL_RE = re.compile(r"<t[hd]>(.*?)</t[hd]>", re.S)
+_COMPARE_ROW = '<div class="compare-row">'
+_COMPARE_CASE_RE = re.compile(r'<span class="compare-case">(?P<label>.*?)</span>', re.S)
+_COMPARE_META_RE = re.compile(r'<span class="compare-meta">(?P<tail>.*?)</span>', re.S)
 
 CRITICAL_BAND = "critico"  # contracts.RISK_LEVELS critical member (frozen enum)
 
@@ -97,17 +126,22 @@ def _fresh_loader_cache() -> Iterator[None]:
     loaders.clear_loader_cache()
 
 
-#: The case `load_context_layers(case_id=None)` falls back to (tab 3 ignores the selector).
-_PRIMARY = loaders.load_study_cases_config(loaders.DEFAULT_STUDY_CASES_PATH).primary
-
-
 @pytest.fixture(scope="module", params=C.CASE_IDS, ids=list(C.CASE_IDS))
 def rendered(request: pytest.FixtureRequest) -> dict[str, Any]:
     """One in-process render per frozen case, shared by the read-only assertions below."""
     case_id = str(request.param)
     meta = json.loads((PROCESSED / case_id / "meta.json").read_text(encoding="utf-8"))
     grid = pd.read_parquet(PROCESSED / case_id / "nisar_grid.parquet")
-    return {"case": case_id, "meta": meta, "grid": grid, "at": _run_app(case_id)}
+    context = json.loads(
+        (PROCESSED / case_id / "context_layers.geojson").read_text(encoding="utf-8")
+    )
+    return {
+        "case": case_id,
+        "meta": meta,
+        "grid": grid,
+        "context": context,
+        "at": _run_app(case_id),
+    }
 
 
 # --------------------------------------------------------------------------------------
@@ -132,7 +166,7 @@ def _field(block: str, css_class: str) -> str:
 
 
 def _cards(at: AppTest) -> list[dict[str, str]]:
-    """Every rendered KPI card, in DOM order (tab 1 then tab 2)."""
+    """Every rendered KPI card, in DOM order (tab 1, tab 2, tab 3, tab 4)."""
     cards = []
     for block in _CARD_RE.findall(_markdown(at)):
         if "kpi-value" not in block:
@@ -158,20 +192,49 @@ def _span_occurrences(at: AppTest) -> list[re.Match[str]]:
     return list(_SPAN_RE.finditer(html.unescape(_markdown(at))))
 
 
-def _json_payloads(at: AppTest) -> list[dict[str, Any]]:
-    payloads = []
-    for node in at.json:
-        value = node.value
-        payloads.append(value if isinstance(value, dict) else json.loads(value))
-    return payloads
-
-
 def _meta_panel(at: AppTest) -> dict[str, Any]:
-    """The tab-4 `st.json(meta.json)` panel (the context summary has no `stats`/`dates`)."""
-    for payload in _json_payloads(at):
-        if isinstance(payload, dict) and "stats" in payload and "dates" in payload:
-            return payload
-    raise AssertionError("tab 4 no longer renders meta.json, so no panel can be cross-checked")
+    """The tab-4 `meta.json` block, restored to the JSON text `format_json_block` received."""
+    text = _markdown(at)
+    assert text.count(_JSON_BLOCK_ANCHOR) == 1, (
+        "tab 4 no longer renders exactly one meta.json block, so no panel can be cross-checked"
+    )
+    raw = "\n".join(
+        html.unescape(_TAG_RE.sub("", chunk)) for chunk in _JSON_LINE_RE.findall(text)
+    )
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as error:  # pragma: no cover - markup change, not data
+        raise AssertionError(
+            f"the tab-4 meta.json block is no longer parseable ({error}); first 400 chars: "
+            f"{raw[:400]!r}"
+        ) from error
+
+
+def _compare_rows(at: AppTest) -> list[tuple[str, str]]:
+    """`(case label, 'peak unit · provenance_id')` per row of the tab-1 comparison strip."""
+    text = _markdown(at)
+    starts = [match.start() for match in re.finditer(re.escape(_COMPARE_ROW), text)]
+    rows: list[tuple[str, str]] = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(text)
+        block = text[start:end]
+        label = _COMPARE_CASE_RE.search(block)
+        tail = _COMPARE_META_RE.search(block)
+        assert label and tail, f"the comparison row markup changed: {block[:200]!r}"
+        rows.append((html.unescape(label["label"]), html.unescape(tail["tail"])))
+    return rows
+
+
+def _context_table(at: AppTest) -> tuple[list[str], list[dict[str, str]]]:
+    """Header names and cell values of the tab-3 context table."""
+    match = _CONTEXT_TABLE_RE.search(_markdown(at))
+    assert match, "tab 3 no longer renders the context feature table"
+    header = [html.unescape(_TAG_RE.sub("", cell)) for cell in _CELL_RE.findall(match["head"])]
+    rows = []
+    for raw in _ROW_RE.findall(match["body"]):
+        cells = [html.unescape(_TAG_RE.sub("", cell)) for cell in _CELL_RE.findall(raw)]
+        rows.append(dict(zip(header, cells)))
+    return header, rows
 
 
 # --------------------------------------------------------------------------------------
@@ -193,38 +256,56 @@ def _assert_shows(shows: str, artefact: float, *, decimals: int, what: str) -> N
     )
 
 
+def _assert_shows_significant(shows: str, artefact: float, *, what: str) -> None:
+    """`f"{value:g}"` display: the artefact rounded to `_STAT_DIGITS` significant digits."""
+    match = _NUMBER_RE.match(shows)
+    assert match, f"{what}: {shows!r} is not a formatted number"
+    number = float(match["num"])
+    if artefact == 0:
+        tolerance = 10 ** (1 - _STAT_DIGITS) + 1e-12
+    else:
+        exponent = math.floor(math.log10(abs(float(artefact))))
+        tolerance = 0.5 * 10 ** (exponent - (_STAT_DIGITS - 1)) + 1e-12
+    assert abs(number - float(artefact)) <= tolerance, (
+        f"{what}: the app shows {match['num']} but the artefact publishes {artefact!r} "
+        f"(a {_STAT_DIGITS}-significant-digit display allows ±{tolerance:.3g})"
+    )
+
+
 def assert_velocity_cards_match_meta(
     at: AppTest, meta: dict[str, Any], case_id: str
 ) -> None:
-    """Tab 1 + tab 2 `velocidad mediana` vs `meta.stats.median_velocity_mm_yr`."""
+    """Tab 1 + tab 2 `Median velocity` vs `meta.stats.median_velocity_mm_yr`."""
     published = meta["stats"]["median_velocity_mm_yr"]
-    cards = _cards_labelled(at, "velocidad mediana")
-    assert len(cards) >= 2, f"{case_id}: velocidad mediana must appear on tab 1 and tab 2"
+    cards = _cards_labelled(at, _VELOCITY_LABEL)
+    assert len(cards) >= 2, f"{case_id}: Median velocity must appear on tab 1 and tab 2"
     for card in cards:
         _assert_shows(
             card["value"],
             published,
             decimals=_MM_DECIMALS,
-            what=f"{case_id}: velocidad mediana card",
+            what=f"{case_id}: {_VELOCITY_LABEL} card",
         )
 
 
 def assert_seasonal_cards_match_meta(at: AppTest, meta: dict[str, Any], case_id: str) -> None:
-    """`amplitud estacional mediana` card, its unit, and the regime the note prints."""
+    """`Median seasonal amplitude` card, its unit, and the regime the note prints."""
     stats = meta["stats"]
-    cards = _cards_labelled(at, "amplitud estacional mediana")
-    assert len(cards) >= 2, f"{case_id}: the seasonal amplitude must appear on tab 1 and tab 2"
+    cards = _cards_labelled(at, _SEASONAL_LABEL)
+    assert len(cards) >= 2, (
+        f"{case_id}: the seasonal amplitude must appear on tab 1 and tab 2"
+    )
     for card in cards:
         _assert_shows(
             card["value"],
             stats["median_seasonal_amp_mm"],
             decimals=_MM_DECIMALS,
-            what=f"{case_id}: amplitud estacional mediana card",
+            what=f"{case_id}: {_SEASONAL_LABEL} card",
         )
     notes = [card["note"] for card in cards if card["note"]]
     assert notes, f"{case_id}: the seasonal card lost its provenance note"
     assert any(
-        f"régimen dominante {stats['dominant_regime']}" in note for note in notes
+        f"dominant regime {stats['dominant_regime']}" in note for note in notes
     ), (
         f"{case_id}: no card note names the published dominant regime "
         f"{stats['dominant_regime']!r}; notes were {notes!r}"
@@ -244,12 +325,12 @@ def assert_grid_derived_cards_match_grid(
         "so the published coverage percentage and the app's filtered card disagree by design"
     )
     coverage = round(float((coherence >= floor).mean() * 100.0), _PCT_DECIMALS)
-    (coverage_card,) = _cards_labelled(at, "cobertura coherente")
+    (coverage_card,) = _cards_labelled(at, _COVERAGE_LABEL)
     _assert_shows(
         coverage_card["value"],
         coverage,
         decimals=_PCT_DECIMALS,
-        what=f"{case_id}: cobertura coherente card",
+        what=f"{case_id}: {_COVERAGE_LABEL} card",
     )
     assert f"coherence >= {floor:g}" in coverage_card["note"], (
         f"{case_id}: the coverage note does not quote the published floor {floor}"
@@ -257,35 +338,48 @@ def assert_grid_derived_cards_match_grid(
 
     velocities = grid["velocity_mm_yr"].to_numpy(dtype=float)
     above = round(float((abs(velocities) >= C.NULL_RESULT_MM_YR).mean() * 100.0), _PCT_DECIMALS)
-    (above_card,) = _cards_labelled(at, "% de celdas por encima del umbral")
+    (above_card,) = _cards_labelled(at, _ABOVE_LABEL)
     _assert_shows(
         above_card["value"],
         above,
         decimals=_PCT_DECIMALS,
-        what=f"{case_id}: '% de celdas por encima del umbral' card",
+        what=f"{case_id}: {_ABOVE_LABEL} card",
     )
-    assert f"umbral {C.NULL_RESULT_MM_YR:g} mm/year" in above_card["note"], (
+    assert f"threshold {C.NULL_RESULT_MM_YR:g} mm/year" in above_card["note"], (
         f"{case_id}: the card does not name the frozen null-result threshold "
         f"{C.NULL_RESULT_MM_YR} mm/year it counted against"
     )
 
     critical = int((grid["risk_level"].astype(str) == CRITICAL_BAND).sum())
-    (critical_card,) = _cards_labelled(at, "celdas críticas")
+    (critical_card,) = _cards_labelled(at, _CRITICAL_LABEL)
     _assert_shows(
         critical_card["value"],
         critical,
         decimals=0,
-        what=f"{case_id}: celdas críticas card",
+        what=f"{case_id}: {_CRITICAL_LABEL} card",
     )
 
 
+def _bridge_kpi_labels(case_id: str) -> set[str]:
+    """The KPI card labels `src/data/ui_bridge.py` publishes for one case (tabs 1 and 2)."""
+    labels = {str(item["label"]) for item in loaders.get_map_kpis(case_id, {})}
+    labels |= {str(item["label"]) for item in loaders.get_series_kpis(case_id, {})}
+    return labels
+
+
 def assert_provenance_badge_is_the_artefact(at: AppTest, meta: dict[str, Any], case_id: str) -> None:
-    """Every card credits the `provenance_id` its own `meta.json` publishes."""
+    """Every KPI card credits the `provenance_id` its own `meta.json` publishes."""
     published = meta["provenance"]["provenance_id"]
     cards = _cards(at)
     assert cards
-    stale = {card["label"]: card["source"] for card in cards if card["source"] != published}
+    credited = [card for card in cards if card["source"]]
+    stale = {card["label"]: card["source"] for card in credited if card["source"] != published}
     assert not stale, f"{case_id}: cards credit {stale} but meta.json publishes {published}"
+    # Anti-vacuity: dropping the badge from every card must not turn this into a no-op.
+    assert {card["label"] for card in credited} >= _bridge_kpi_labels(case_id), (
+        f"{case_id}: only {sorted({card['label'] for card in credited})} carry a provenance "
+        f"badge, but the bridge publishes {sorted(_bridge_kpi_labels(case_id))}"
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -301,11 +395,11 @@ def test_seasonal_amplitude_and_regime_match_published_stats(rendered: dict[str,
 
 def test_kpi_units_come_from_the_contract(rendered: dict[str, Any]) -> None:
     at = rendered["at"]
-    for card in _cards_labelled(at, "velocidad mediana"):
+    for card in _cards_labelled(at, _VELOCITY_LABEL):
         assert card["value"].endswith(f" {C.VELOCITY_UNIT}"), (
             f"{rendered['case']}: velocity card {card['value']!r} is not in {C.VELOCITY_UNIT}"
         )
-    for card in _cards_labelled(at, "amplitud estacional mediana"):
+    for card in _cards_labelled(at, _SEASONAL_LABEL):
         assert card["value"].endswith(f" {C.UNIT}"), (
             f"{rendered['case']}: seasonal card {card['value']!r} is not in {C.UNIT}"
         )
@@ -321,6 +415,48 @@ def test_every_card_credits_the_published_provenance_id(rendered: dict[str, Any]
     assert_provenance_badge_is_the_artefact(
         rendered["at"], rendered["meta"], rendered["case"]
     )
+
+
+def test_kpi_cards_are_labelled_as_the_bridge_publishes(rendered: dict[str, Any]) -> None:
+    """The DOM anchors above are the bridge's labels; drift here means update the anchors."""
+    at, case_id = rendered["at"], rendered["case"]
+    shown = {card["label"] for card in _cards(at)}
+    missing = _bridge_kpi_labels(case_id) - shown
+    assert not missing, (
+        f"{case_id}: the app renders no card labelled {sorted(missing)} even though "
+        "src/data/ui_bridge.py publishes those labels"
+    )
+
+
+def test_case_stat_cards_echo_the_published_stats(rendered: dict[str, Any]) -> None:
+    """Tab 4 prints the v1.1 stats no chart formats (`median_ratio_R`, `n_cells`, ...)."""
+    case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
+    stats = meta["stats"]
+    cards = {card["label"]: card for card in _cards(at) if card["label"] in stats}
+    assert {"median_ratio_R", "n_cells"} <= set(cards), (
+        f"{case_id}: tab 4 no longer prints the published stats as cards; it rendered "
+        f"{sorted(cards)}"
+    )
+    for label, card in cards.items():
+        artefact = stats[label]
+        if isinstance(artefact, str):
+            assert card["value"] == artefact, (
+                f"{case_id}: the {label} card shows {card['value']!r} but meta.json publishes "
+                f"{artefact!r}"
+            )
+        else:
+            _assert_shows_significant(
+                card["value"], artefact, what=f"{case_id}: {label} stat card"
+            )
+        # The unit follows from the published key, not from the card's copy.
+        if label.endswith("_mm_yr"):
+            assert card["value"].endswith(f" {C.VELOCITY_UNIT}"), (
+                f"{case_id}: the {label} card {card['value']!r} is not in {C.VELOCITY_UNIT}"
+            )
+        elif label.endswith("_mm"):
+            assert card["value"].endswith(f" {C.UNIT}"), (
+                f"{case_id}: the {label} card {card['value']!r} is not in {C.UNIT}"
+            )
 
 
 # --------------------------------------------------------------------------------------
@@ -368,14 +504,15 @@ def test_cell_total_matches_meta_n_cells(rendered: dict[str, Any]) -> None:
 def test_cross_case_bar_peak_matches_the_grid(rendered: dict[str, Any]) -> None:
     """The tab-1 comparison strip prints one peak per case; each must be that case's grid peak."""
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
-    rows = re.findall(
-        r'<div class="compare-row"><span>(?P<slug>[^<]*)</span>.*?<span>(?P<tail>[^<]*)</span></div>',
-        _markdown(at),
-        re.S,
-    )
+    rows = _compare_rows(at)
     assert rows, f"{case_id}: the comparison strip renders no rows"
-    mine = [tail for slug, tail in rows if slug == case_id]
-    assert len(mine) == 1, f"{case_id}: the comparison strip does not list this case once"
+    # The strip lists cases by their published display name, not by slug.
+    labels = {str(case["id"]): str(case["label"]) for case in loaders.load_study_cases()}
+    mine = [tail for label, tail in rows if label == labels[case_id]]
+    assert len(mine) == 1, (
+        f"{case_id}: the comparison strip does not list {labels[case_id]!r} exactly once; "
+        f"rows were {[label for label, _tail in rows]}"
+    )
     peak = round(float(rendered["grid"]["velocity_mm_yr"].abs().max()), _MM_DECIMALS)
     _assert_shows(
         mine[0].split(" · ")[0],
@@ -393,39 +530,47 @@ def test_cross_case_bar_peak_matches_the_grid(rendered: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------------------
 def test_detection_limit_caption_follows_the_artefact(rendered: dict[str, Any]) -> None:
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
-    limit = meta["stats"].get("detection_limit_mm_yr")
+    stats = meta["stats"]
     text = html.unescape(_markdown(at))
-    mentions = re.findall(r"límite de detección de ([^<]*)", text)
+    found = list(_DETECTION_RE.finditer(text))
+    # The unit follows from the published key; a `_mm_yr` statistic is a rate.
+    limit = stats.get("detection_limit_mm_yr")
     if limit is None:
-        assert not mentions, (
-            f"{case_id}: the app shows a detection limit {mentions} but meta.stats has no "
+        assert not found, (
+            f"{case_id}: the app shows a detection limit "
+            f"{[match.group(0) for match in found]} but meta.stats has no "
             "detection_limit_mm_yr — that number has no artefact behind it"
         )
         return
-    assert mentions, f"{case_id}: meta.stats publishes a detection limit the app never shows"
-    assert mentions == [f"{limit:g} mm/year"], (
-        f"{case_id}: the app prints {mentions} but meta.stats.detection_limit_mm_yr is {limit!r}"
-    )
+    assert found, f"{case_id}: meta.stats publishes a detection limit the app never shows"
+    for match in found:
+        _assert_shows_significant(
+            f"{match['num']} {match['unit'] or ''}".strip(),
+            limit,
+            what=f"{case_id}: detection-limit caption",
+        )
+        assert match["unit"] == C.VELOCITY_UNIT, (
+            f"{case_id}: the caption prints the detection limit in {match['unit']!r}, but "
+            f"meta.stats.detection_limit_mm_yr is a {C.VELOCITY_UNIT} rate"
+        )
 
 
 # --------------------------------------------------------------------------------------
 # 5. the demo banner equals the declared banner text
 # --------------------------------------------------------------------------------------
 def _expected_banner() -> str:
-    """The banner the code is supposed to render.
+    """The banner the code is supposed to render, from the constant both sites share.
 
-    Preferred source is `src.ui.formatters.DEMO_BANNER` (the constant `app.py` and
-    `src/ui/charts.py` should share). It does not exist on this branch, so the fallback is the
-    banner string the UI spec declares in `docs/ui-data-needs.md`; both render sites are then
-    pinned to that spec, so translating the banner without translating the spec fails.
+    `src/ui/formatters.DEMO_BANNER` is what `app.py::render_header` and
+    `src/ui/educational.py` render, so pinning the DOM to it keeps the banner and the
+    `product == "mock"` disclosure in one place.
     """
     constant = getattr(formatters, "DEMO_BANNER", None)
-    if isinstance(constant, str) and constant.strip():
-        return constant
-    spec = UI_SPEC.read_text(encoding="utf-8")
-    match = re.search(r"Aviso \*\*(?P<banner>.+?)\*\*", spec)
-    assert match, "docs/ui-data-needs.md no longer declares a demo banner"
-    return match.group("banner").strip()
+    assert isinstance(constant, str) and constant.strip(), (
+        "src/ui/formatters.py no longer declares DEMO_BANNER, so the rendered banner has no "
+        "single source of truth"
+    )
+    return constant
 
 
 def test_demo_banner_is_the_declared_banner(rendered: dict[str, Any]) -> None:
@@ -444,85 +589,98 @@ def test_demo_banner_is_the_declared_banner(rendered: dict[str, Any]) -> None:
 def test_meta_panel_echoes_the_published_artefact(rendered: dict[str, Any]) -> None:
     case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
     panel = _meta_panel(at)
-    stale = {key: (value, panel.get(key)) for key, value in meta.items() if panel.get(key) != value}
-    assert not stale, f"{case_id}: tab 4 shows {stale} but meta.json says otherwise"
 
-    # Keys the loader injects for display; both come from the contract, not from thin air.
-    injected = set(panel) - set(meta)
-    assert injected <= {"unit", "provenance_id"}, f"{case_id}: tab 4 invents keys {sorted(injected)}"
+    # Keys `load_meta` injects for display; both are the contract constant or a published value.
+    loaded = loaders.load_meta(case_id)
+    injected = set(loaded) - set(meta)
+    assert injected <= {"unit", "provenance_id"}, (
+        f"{case_id}: tab 4 invents keys {sorted(injected)}"
+    )
     if "unit" in injected:
-        assert panel["unit"] == C.UNIT
+        assert loaded["unit"] == C.UNIT
+    if "provenance_id" in injected:
+        assert loaded["provenance_id"] == meta["provenance"]["provenance_id"]
 
-    # The v1.1 statistics that no card formats still reach the judge through this panel.
-    for key in (
-        "median_velocity_mm_yr",
-        "median_seasonal_amp_mm",
-        "median_ratio_R",
-        "dominant_regime",
-        "annual_coverage",
-        "n_dates",
-        "n_cells",
-        "detection_limit_mm_yr",
-    ):
-        if key in meta["stats"]:
-            assert panel["stats"][key] == meta["stats"][key], (
-                f"{case_id}: tab 4 shows stats.{key} = {panel['stats'][key]!r} but meta.json "
-                f"publishes {meta['stats'][key]!r}"
-            )
-
-
-def test_context_panel_matches_the_artefact_it_names(rendered: dict[str, Any]) -> None:
-    """Tab 3 prints a path; the JSON beside it must be that same file's summary."""
-    caption = next(
-        (str(node.value) for node in rendered["at"].caption if str(node.value).startswith(_CONTEXT_CAPTION)),
-        None,
+    expected = {**meta, **{key: loaded[key] for key in injected}}
+    stale = {
+        key: (value, panel.get(key))
+        for key, value in expected.items()
+        if panel.get(key) != value
+    }
+    assert not stale, f"{case_id}: tab 4 shows {stale} but meta.json says otherwise"
+    assert set(panel) == set(expected), (
+        f"{case_id}: tab 4 renders keys {sorted(set(panel) - set(expected))} and drops "
+        f"{sorted(set(expected) - set(panel))}"
     )
-    assert caption, f"{rendered['case']}: tab 3 shows no context caption"
-    named = Path(caption[len(_CONTEXT_CAPTION) :].strip())
-    geojson_path = named if named.is_absolute() else ROOT / named
-    assert geojson_path.is_file(), f"tab 3 names {named}, which does not exist"
-    features = json.loads(geojson_path.read_text(encoding="utf-8"))["features"]
-    summary = next(
-        payload
-        for payload in _json_payloads(rendered["at"])
-        if isinstance(payload, dict) and "n_features" in payload
-    )
-    assert summary["n_features"] == len(features), (
-        f"tab 3 claims {summary['n_features']} features but {named} has {len(features)}"
-    )
-    layers: dict[str, int] = {}
-    for feature in features:
-        layer = str((feature.get("properties") or {}).get("layer", "unknown"))
-        layers[layer] = layers.get(layer, 0) + 1
-    assert summary["layers"] == layers
-    assert summary["case_id"] == geojson_path.parent.name
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "src/ui/context_view.py:9 drops the selected case (`del filters`, then `loader()` with no "
-        "case_id`), so tab 3 always renders the primary case's context_layers.geojson"
-    ),
-)
-@pytest.mark.parametrize(
-    "case_id", [slug for slug in C.CASE_IDS if slug != _PRIMARY], ids=lambda slug: slug
-)
-def test_hazard_tab_shows_the_selected_cases_context(case_id: str) -> None:
-    """FINDING, not a pass: tab 3 ignores the selector.
+def test_context_panel_matches_the_selected_cases_artefact(rendered: dict[str, Any]) -> None:
+    """Tab 3 must summarise the `context_layers.geojson` of the case the selector names.
 
-    `src/ui/context_view.py:9` calls `loader()` with no `case_id` after `del filters`, so the
-    loader falls back to the primary case per `list_available_cases` ordering
-    (`src/data/ui_bridge.py::load_context_layers`). Strict xfail: it fails loudly once the panel
-    follows the case selector, so the marker has to be removed deliberately.
+    The merged panel prints cards and a feature table instead of the artefact path, so the claim
+    is checked where it lives: the counts, the layer breakdown, the rows and the credits it
+    renders all come from the selected case's file — and, because the three cases publish
+    different `provenance_id`s, from *that* case only.
     """
-    at = _run_app(case_id)
-    caption = next(
-        str(node.value) for node in at.caption if str(node.value).startswith(_CONTEXT_CAPTION)
+    case_id, meta, at = rendered["case"], rendered["meta"], rendered["at"]
+    features = [
+        dict(feature.get("properties") or {}) for feature in rendered["context"]["features"]
+    ]
+    assert features, f"{case_id}: context_layers.geojson carries no features to compare against"
+
+    counts: dict[str, int] = {}
+    for props in features:
+        layer = str(props.get("layer") or "")
+        if layer:
+            counts[layer] = counts.get(layer, 0) + 1
+    breakdown = ", ".join(f"{layer} {count}" for layer, count in sorted(counts.items()))
+
+    (delivered,) = _cards_labelled(at, "Delivered features")
+    _assert_shows(
+        delivered["value"], len(features), decimals=0, what=f"{case_id}: Delivered features"
     )
-    named = caption[len(_CONTEXT_CAPTION) :].strip()
-    assert Path(named).parent.name == case_id, (
-        f"tab 3 shows {named} while {case_id} is selected"
+    (layers_card,) = _cards_labelled(at, "Delivered layers")
+    _assert_shows(
+        layers_card["value"], len(counts), decimals=0, what=f"{case_id}: Delivered layers"
+    )
+    (breakdown_card,) = _cards_labelled(at, "Layer counts")
+    assert breakdown_card["value"] == breakdown, (
+        f"{case_id}: the layer breakdown reads {breakdown_card['value']!r} but "
+        f"context_layers.geojson yields {breakdown!r}"
+    )
+
+    summary = _CONTEXT_SUMMARY_RE.search(_markdown(at))
+    assert summary, f"{case_id}: tab 3 no longer prints the feature/layer summary line"
+    assert int(summary["n"]) == len(features), (
+        f"{case_id}: tab 3 claims {summary['n']} features but the artefact has {len(features)}"
+    )
+    assert summary["layers"] == ", ".join(sorted(counts)), (
+        f"{case_id}: tab 3 lists layers {summary['layers']!r} but the artefact has "
+        f"{sorted(counts)}"
+    )
+
+    header, rows = _context_table(at)
+    expected_rows = [
+        {
+            field: ("" if props.get(field) is None else str(props.get(field)).replace("\n", " "))
+            for field in header
+        }
+        for props in features
+    ]
+    assert len(rows) == len(expected_rows), (
+        f"{case_id}: tab 3 renders {len(rows)} rows but the artefact has {len(expected_rows)} "
+        "features"
+    )
+    assert rows == expected_rows, (
+        f"{case_id}: the context table does not echo the artefact; first difference: "
+        f"{next((pair for pair in zip(rows, expected_rows) if pair[0] != pair[1]), None)}"
+    )
+    # Selector-following: every credit is this case's, not the primary case's fallback.
+    published = meta["provenance"]["provenance_id"]
+    credited = {row["provenance_id"] for row in rows if "provenance_id" in row}
+    assert credited == {published}, (
+        f"{case_id}: tab 3 credits {sorted(credited)} but this case publishes {published!r} "
+        "(the panel is not following the case selector)"
     )
 
 
@@ -617,12 +775,12 @@ def test_mutated_meta_median_velocity_is_caught(tmp_path: Path) -> None:
     )
     with _app_reading(root):
         at = _run_app(case_id)
-        shown = [card["value"] for card in _cards_labelled(at, "velocidad mediana")]
+        shown = [card["value"] for card in _cards_labelled(at, _VELOCITY_LABEL)]
         mutated_meta = json.loads((root / case_id / "meta.json").read_text(encoding="utf-8"))
         mutated_grid = pd.read_parquet(root / case_id / "nisar_grid.parquet")
         # The card still renders the grid's own number, not the corrupted stat.
         assert shown and shown[0].split()[0] != f"{corrupted:g}"
-        with pytest.raises(AssertionError, match="velocidad mediana"):
+        with pytest.raises(AssertionError, match=_VELOCITY_LABEL):
             assert_velocity_cards_match_meta(at, mutated_meta, case_id)
         # Every other guard stays green: the failure is the mutation, not collateral damage.
         assert_seasonal_cards_match_meta(at, mutated_meta, case_id)
@@ -663,11 +821,11 @@ def test_mutated_grid_velocity_is_caught(tmp_path: Path) -> None:
         at = _run_app(case_id)
         mutated_meta = json.loads((root / case_id / "meta.json").read_text(encoding="utf-8"))
         published = mutated_meta["stats"]["median_velocity_mm_yr"]
-        shown = [card["value"] for card in _cards_labelled(at, "velocidad mediana")]
+        shown = [card["value"] for card in _cards_labelled(at, _VELOCITY_LABEL)]
         assert shown and abs(float(shown[0].split()[0]) - published) > 0.005, (
             "the corrupted grid did not move the card, so this fixture proves nothing"
         )
-        with pytest.raises(AssertionError, match="velocidad mediana"):
+        with pytest.raises(AssertionError, match=_VELOCITY_LABEL):
             assert_velocity_cards_match_meta(at, mutated_meta, case_id)
         # The card agrees with the corrupted parquet, so the guard that reads the grid directly
         # stays green: the failure is the meta/parquet disagreement, not a broken render.
