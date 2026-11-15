@@ -6,9 +6,10 @@ Two layers, deliberately separate:
    final; nothing here re-implements a schema rule.
 2. The assertions this task adds on top of the contract, because the contract cannot see them:
    nodata is *absent* and exactly explained (the grid cell set equals the coverage-ellipse cell set
-   minus precisely the cells below `thresholds.coherence_min`), the arithmetic holds to 1e-9, the
-   dates/statistics/provenance ids are mutually consistent, and the mock-specific ranges (published
-   coherence in [coherence_min, 0.95], Málaga's null result) are respected.
+   minus precisely the cells below `thresholds.coherence_min`), the arithmetic holds to the
+   tolerance the contract itself sets (never a tighter one), the dates/statistics/provenance ids are
+   mutually consistent, and the mock-specific ranges (published coherence in [coherence_min, 0.95],
+   Málaga's null result) are respected.
 
 `assert_case()` raises `AssertionError` with every failed check, so `--check` is a real gate and
 not a linter with opinions.
@@ -31,6 +32,30 @@ from src.domain import contracts as C
 from . import model as M
 from .artifacts import ARTEFACTS, PRODUCT, TOTAL_BUDGET_BYTES
 from .cases import CaseSpec, StudyCases
+
+#: Tolerances of the two *value* rules this module duplicates from `contracts.validate_grid`.
+#: They are mirrored, never invented: a gate that is stricter than its own contract refuses legal
+#: artefacts, which is the direction that blocks publication. The contract does not export these two
+#: numbers as names (unlike `contracts.MAX_PUBLISHABLE_RATIO_R`, which is read from `C` below), so
+#: each expression is copied verbatim from `validate_grid` and must be kept in step with it — the
+#: same arrangement `src/data/validation.py` documents for its copy of the ratio rule.
+#:
+#: - identity: `validate_grid` rejects a row only when `|delta_change - (val_t2 - val_t1)| > 1e-6`.
+#: - ratio:    `validate_grid` accepts `|ratio_R - |velocity|/amp| <= |expected| * 5e-3 + 5e-3`,
+#:             the relative term existing to absorb rounding (§3: "tolerancia relativa 5e-3 para
+#:             absorber el redondeo"), so a ratio published to two decimals is legal by design.
+DELTA_CHANGE_TOLERANCE_MM: float = 1e-6
+RATIO_RELATIVE_TOLERANCE: float = 5e-3
+RATIO_ABSOLUTE_TOLERANCE: float = 5e-3
+
+
+def ratio_tolerance(expected: np.ndarray) -> np.ndarray:
+    """`contracts.validate_grid`'s tolerance for a published `ratio_R`, per row.
+
+    One expression, used by every caller below, so the duplicate rule cannot drift into a tighter
+    (publication-blocking) variant of the normative one again.
+    """
+    return np.abs(expected) * RATIO_RELATIVE_TOLERANCE + RATIO_ABSOLUTE_TOLERANCE
 
 
 @dataclass
@@ -132,10 +157,22 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
             )
     checks.append("no nulls in required grid/timeseries columns")
 
-    # -- 3. arithmetic: delta_change == val_t2 - val_t1 exactly (gate: 1e-9) -----------------
+    # -- 3. arithmetic: delta_change == val_t2 - val_t1, to the CONTRACT's tolerance ----------
+    # `contracts.validate_grid` owns this number (it rejects a row only above 1e-6). This copy used
+    # to gate at 1e-9 — three orders tighter — so a contract-legal delta_change written with
+    # 7-decimal rounding (residual ~1e-7) was refused by the generator's own gate. Same class of
+    # bug as the ratio tolerance in §7; `src/data/validation.py` carries the identical repair.
     residual = (grid["val_t2"] - grid["val_t1"] - grid["delta_change"]).abs().max()
-    _require(float(residual) <= 1e-9, f"delta_change arithmetic residual {residual:.3e} > 1e-9", failures)
-    checks.append(f"delta_change = val_t2 - val_t1 (max residual {float(residual):.2e} <= 1e-9)")
+    _require(
+        float(residual) <= DELTA_CHANGE_TOLERANCE_MM,
+        f"delta_change arithmetic residual {residual:.3e} > {DELTA_CHANGE_TOLERANCE_MM:g} "
+        "(the tolerance contracts.validate_grid allows)",
+        failures,
+    )
+    checks.append(
+        f"delta_change = val_t2 - val_t1 (max residual {float(residual):.2e} <= "
+        f"{DELTA_CHANGE_TOLERANCE_MM:g})"
+    )
 
     # -- 4. nodata is ABSENT and exactly explained by the quality filter -----------------------
     # The cell set is an equation, not a percentage: a cell inside the ellipse is published iff its
@@ -155,7 +192,11 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         "the quality filter cannot be audited",
         failures,
     )
-    model = M.build_case(case, study, seed) if seed >= 0 else None
+    model = (
+        M.build_case(case, study, seed, provenance=str(meta["provenance"]["provenance_id"]))
+        if seed >= 0
+        else None
+    )
     if model is not None:
         modelled_prefilter = {str(v) for v in model.prefilter_cell_id}
         _require(
@@ -275,12 +316,30 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     ratio = grid["ratio_R"].to_numpy(dtype=float)
     fitted = amplitude > 0.0
     ratio_residual = 0.0
+    ratio_excess = 0.0
     if fitted.any():
         expected_ratio = np.abs(velocity[fitted]) / amplitude[fitted]
-        ratio_residual = float(np.max(np.abs(ratio[fitted] - expected_ratio)))
+        residual = np.abs(ratio[fitted] - expected_ratio)
+        # The contract's own tolerance, not a bare absolute epsilon: a ratio rounded to two
+        # decimals is legal, and this gate must not be the only verifier that says otherwise.
+        ratio_residual = float(np.max(residual))
+        ratio_excess = float(np.max(residual - ratio_tolerance(expected_ratio)))
     _require(
-        ratio_residual <= 1e-6,
-        f"ratio_R is not abs(velocity_mm_yr)/seasonal_amp_mm (max residual {ratio_residual:.3e})",
+        ratio_excess <= 0.0,
+        f"ratio_R is not abs(velocity_mm_yr)/seasonal_amp_mm (max residual {ratio_residual:.3e}, "
+        f"outside the contract's |expected|*{RATIO_RELATIVE_TOLERANCE:g} + "
+        f"{RATIO_ABSOLUTE_TOLERANCE:g} tolerance)",
+        failures,
+    )
+    # The one bound of that rule the contract *does* export, read from it rather than re-typed: a
+    # ratio this large is a numerical-zero amplitude published as a measurement (a sentinel).
+    absurd = int(
+        np.count_nonzero(fitted & np.isfinite(ratio) & (ratio > C.MAX_PUBLISHABLE_RATIO_R))
+    )
+    _require(
+        absurd == 0,
+        f"ratio_R exceeds {C.MAX_PUBLISHABLE_RATIO_R:g} on {absurd} fitted cell(s); that magnitude "
+        "means the amplitude is numerically zero, so publish amplitude 0 with a null ratio instead",
         failures,
     )
     defined_where_not_fitted = int(np.count_nonzero(~fitted & np.isfinite(ratio)))
@@ -354,7 +413,9 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     known_land_use = set(C.LAND_USE)
     _require(set(grid["land_use"].astype(str)) <= known_land_use, "land_use outside the frozen vocabulary", failures)
     land_use_counts = {str(k): int(v) for k, v in grid["land_use"].value_counts().items()}
-    _require(len(land_use_counts) >= 5, f"land_use only uses {sorted(land_use_counts)}: rule is too coarse", failures)
+    # Three classes is the floor, not a target: the labels are real OSM tags now, and a case whose
+    # extract happens to carry only residential/vegetation/industrial land is telling the truth.
+    _require(len(land_use_counts) >= 3, f"land_use only uses {sorted(land_use_counts)}: rule is too coarse", failures)
     # Water must be ABSENT from the grid (a specular surface has no usable phase, so the quality
     # filter drops those cells) while remaining a context layer, so the app can draw the coastline
     # without publishing "ocean with subsidence".
@@ -371,7 +432,8 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     )
     checks.append(
         f"derived: risk bands from velocity, ratio_R = |trend|/amplitude on the {int(fitted.sum())} "
-        f"fitted cell(s) (max residual {ratio_residual:.1e}), ratio_R null on the "
+        f"fitted cell(s) (max residual {ratio_residual:.1e} <= |expected|*"
+        f"{RATIO_RELATIVE_TOLERANCE:g} + {RATIO_ABSOLUTE_TOLERANCE:g}), ratio_R null on the "
         f"{int((~fitted).sum())} not-fitted one(s), regime from classify_regime, coherence in "
         f"[{meta['thresholds']['coherence_min']}, 0.95], land_use classes {len(land_use_counts)}"
     )
@@ -534,7 +596,20 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         failures,
     )
     layers = {f["properties"]["layer"] for f in context["features"]}
-    _require({"land_use", "infrastructure", "water"} <= layers, f"context layers {sorted(layers)} incomplete", failures)
+    _require("land_use" in layers, f"context layers {sorted(layers)} incomplete: no land_use", failures)
+    _require("admin_boundary" in layers, f"context layers {sorted(layers)} incomplete: no AOI", failures)
+    # Water and infrastructure are published from the extract. When the extract has none of a layer,
+    # its absence is a fact and is reported; when it has some but none were published, that is a bug.
+    for layer in ("water", "infrastructure"):
+        if model is None or model.context.synthetic or not model.context.features_of(layer).empty:
+            _require(
+                layer in layers,
+                f"context layers {sorted(layers)} incomplete: the {layer} layer produced no "
+                "published feature although the context carries one",
+                failures,
+            )
+        else:
+            checks.append(f"context: no {layer} feature in the extract for this AOI (declared absent)")
     checks.append(f"context: {len(context['features'])} features, land_use classes match the grid")
 
     # -- 13. budget: this case cannot own the whole 15 MB tree -------------------------------
