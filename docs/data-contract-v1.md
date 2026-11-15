@@ -121,7 +121,7 @@ Reglas validadas por `validate_grid()`:
   detectabilidad — el máximo real es 276.76, y una serie sin estacionalidad ajusta el suelo de ruido
   (~0.2 mm con 1 mm/época), no 0. En ese caso se publica amplitud 0 con `ratio_R` nulo.
 
-Ejemplo de fila:
+Ejemplo de fila: <!-- provenance-example: fila ilustrativa del orden de campos; `abc12345` es un digest de relleno, no el id de ningún artefacto publicado (los ids vivos salen de `meta.provenance.provenance_id`) -->
 
 ```json
 {
@@ -286,7 +286,7 @@ Propiedades obligatorias por feature:
 | `source` | string | Proveedor (GHSL, OSM, SACMEX, …) |
 | `provenance_id` | string | Mismo formato que en el grid |
 
-Ejemplo:
+Ejemplo: <!-- provenance-example: feature ilustrativa; `abc12345` es un digest de relleno, no el id de ningún artefacto publicado -->
 
 ```json
 {
