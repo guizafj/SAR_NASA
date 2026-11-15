@@ -94,6 +94,20 @@ def test_the_caption_follows_the_payload_instead_of_asserting_openstreetmap() ->
     assert "dissolved H3 cells" in real_text, real_text
     assert "OpenStreetMap" not in fallback_text.replace("not OpenStreetMap data", ""), fallback_text
     assert "synthetic fallback" in fallback_text, fallback_text
+    # A frame of only land_use rows: every polygon shown is a dissolved grid cell, so the sentence must not open by
+    # crediting them to OpenStreetMap (an adversarial review drove exactly this payload).
+    land_use_only = pd.DataFrame(
+        {
+            "layer": ["Land use", "Land use"],
+            "source": [
+                "OpenStreetMap contributors (ODbL 1.0), Overpass API extract",
+                "OpenStreetMap contributors (ODbL 1.0), Overpass API extract",
+            ],
+        }
+    )
+    land_use_text = context_caption(land_use_only)
+    assert "dissolved H3 cells" in land_use_text, land_use_text
+    assert "Context polygons carry OpenStreetMap provenance" not in land_use_text, land_use_text
 
 
 def test_every_published_case_carries_the_licence_into_its_artefact() -> None:

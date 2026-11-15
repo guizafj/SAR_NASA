@@ -159,18 +159,30 @@ def context_caption(shown: pd.DataFrame) -> str:
     fallback = (not osm) and bool(sources.str.contains("mock|synthetic", case=False, na=False).any())
     # `shown` has already been humanised for display (`land_use` -> "Land use"), so accept either spelling: the
     # raw form arrives from a direct call, the humanised one from the rendered table.
-    has_land_use = "layer" in shown.columns and bool(
-        shown["layer"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .isin({"land_use", "land use"})
-        .any()
+    layer_values = (
+        shown["layer"].astype(str).str.strip().str.lower()
+        if "layer" in shown.columns
+        else pd.Series(dtype=str)
     )
+    is_land_use = layer_values.isin({"land_use", "land use"})
+    has_land_use = bool(is_land_use.any())
+    # The land_use shapes are dissolved grid cells published with the case source string, so a frame made only of
+    # them must not open with an OpenStreetMap claim: every row shown would be the exception, not the rule.
+    if has_land_use and "source" in shown.columns:
+        osm_others = bool(
+            shown[~is_land_use]["source"].astype(str).str.contains("OpenStreetMap", na=False).any()
+        )
+    else:
+        osm_others = osm
     if fallback:
         origin = (
             "These polygons are the declared synthetic fallback, not OpenStreetMap data — the Source "
             "column says so on every row."
+        )
+    elif has_land_use and not osm_others:
+        origin = (
+            "These are the dissolved H3 cells of this grid, not OpenStreetMap geometry; they carry the "
+            "case source string."
         )
     else:
         origin = "Context polygons carry OpenStreetMap provenance (ODbL 1.0)"
