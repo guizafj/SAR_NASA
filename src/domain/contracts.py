@@ -718,6 +718,21 @@ def validate_meta(meta: Mapping[str, Any]) -> list[str]:
                     problems.append(f"meta: stats.{key} must be finite or null, got {value!r}")
                 elif value < 0.0:
                     problems.append(f"meta: stats.{key} must be non-negative, got {value!r}")
+        # The null `ratio_R` must travel with its explanation (docs/data-contract-v1.md §5): if the
+        # case fitted no seasonal harmonic, some limitation has to say so, otherwise a reader sees
+        # an amplitude of 0 and a null ratio with nothing telling them it means "not fitted".
+        # Accept either producer's key spelling so this survives the planned rename.
+        harmonics = stats.get("seasonal_n_harmonics", stats.get("n_harmonics"))
+        if isinstance(harmonics, int) and not isinstance(harmonics, bool) and harmonics == 0:
+            limitations_text = " ".join(
+                str(item) for item in (meta.get("limitations") or ())
+            ).lower()
+            if "not fitted" not in limitations_text:
+                problems.append(
+                    "meta: no seasonal harmonic was fitted "
+                    "(stats.seasonal_n_harmonics/n_harmonics is 0) but no limitation says so; "
+                    "the null ratio_R must travel with its reason"
+                )
         median = stats.get("median_velocity_mm_yr")
         if isinstance(median, (int, float)) and abs(median) < NULL_RESULT_MM_YR:
             if not isinstance(stats.get("detection_limit_mm_yr"), (int, float)):
@@ -929,6 +944,9 @@ def _selfcheck() -> int:
         ),
         "sentinel ratio where nothing was fitted": validate_grid(
             pd.DataFrame([{**rows[0], "seasonal_amp_mm": 0.0, "ratio_R": 1e9}])
+        ),
+        "not-fitted case without an explanation": validate_meta(
+            {**meta, "stats": {**meta["stats"], "seasonal_n_harmonics": 0}}
         ),
         "non-finite trend_mm_yr": validate_timeseries(series.assign(trend_mm_yr=float("nan"))),
         "undeclared product": validate_meta({**meta, "product": "opera-disp-s1", "sensor": "nisar"}),
