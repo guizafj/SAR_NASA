@@ -238,3 +238,18 @@ def test_tab4_cites_real_nisar_availability() -> None:
     assert "Recommended stack" in text
     assert "Nothing was downloaded for this demo" in text
     assert "granules catalogued" in text
+
+
+def test_reading_panel_separates_series_scope_from_grid_statistics() -> None:
+    """Empty state: the AOI series and the grid medians must not read as one scope."""
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    assert not app.exception
+    text = "\n".join(node.value for node in app.markdown)
+    captions = "\n".join(getattr(node, "value", "") for node in getattr(app, "caption", []))
+    blob = text + "\n" + captions
+    assert "No cell selected" in blob
+    assert "Whole-area aggregate series" in captions
+    assert "Grid statistics for the current filter" in captions
+    # One provenance line per block: the standalone card is gone in the empty state.
+    assert '<p class="kicker">Provenance</p>' not in text

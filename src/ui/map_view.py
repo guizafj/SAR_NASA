@@ -357,13 +357,11 @@ def _reading_panel(
         else ""
     )
     title = str(detail.get("cell_id")) if detail else "Whole area"
-    subtitle = (
-        f"{detail.get('case_id') or case_id}" if detail else "Aggregated area series (no cell selected)"
-    )
+    kicker = f"{detail.get('case_id') or case_id}" if detail else "No cell selected"
     hint = "" if detail else f'<p class="kpi-note">{html.escape(EMPTY_HINT)}</p>'
     st.markdown(
         '<div class="cockpit-card reading-head">'
-        f'<p class="kicker">{html.escape(str(subtitle))}</p>'
+        f'<p class="kicker">{html.escape(str(kicker))}</p>'
         f'<p class="reading-title">{html.escape(title)} {chip}</p>'
         f"{hint}</div>",
         unsafe_allow_html=True,
@@ -375,7 +373,7 @@ def _reading_panel(
         series = _call(loaders, "get_case_series", case_id, filters) or []
         scope = "aoi"
     if series:
-        _render_series(series, scope, meta, height=HERO_HEIGHT)
+        _render_series(series, scope, meta, height=HERO_HEIGHT, selected=bool(detail))
     else:
         st.caption("Series not declared by the backend.")
 
@@ -401,15 +399,9 @@ def _reading_panel(
             if isinstance(item, dict)
         ]
         if stats:
+            # Different scope from the series above: say it before the numbers.
+            st.caption("Grid statistics for the current filter (not the aggregate series above).")
             _stats_strip(stats)
-        source = _provenance(meta)
-        st.markdown(
-            '<div class="cockpit-card provenance-card">'
-            '<p class="kicker">Provenance</p>'
-            f'<p class="telemetry">{html.escape(source)}</p>'
-            "</div>",
-            unsafe_allow_html=True,
-        )
 
 
 def _series_figure(series: list[dict[str, Any]], height: int) -> Any:
@@ -444,18 +436,23 @@ def _render_series(
     meta: dict[str, Any] | None = None,
     *,
     height: int = HERO_HEIGHT,
+    selected: bool = True,
 ) -> None:
     unit = next((row.get("unit") for row in series if row.get("unit")), None)
     provenance_id = next((row.get("provenance_id") for row in series if row.get("provenance_id")), None)
     st.plotly_chart(_series_figure(series, height), width="stretch", theme=None, config={"displayModeBar": False})
     source = provenance_id or SOURCE_NOT_DECLARED
+    unit_text = unit or UNIT_NOT_DECLARED
+    if not selected:
+        st.caption(f"Whole-area aggregate series · {unit_text} · Provenance ID {source}")
+        return
     if scope == "aoi":
-        note = "Aggregated area series; this cell has no series of its own"
+        note = "This H3 cell has no series of its own; showing the area aggregate"
         if _artefact_omits_cell_series(meta):
             note += " (the artefact does not emit per-cell series)"
-        st.caption(f"{note}. {unit or UNIT_NOT_DECLARED} · Provenance ID {source}")
+        st.caption(f"{note} · {unit_text} · Provenance ID {source}")
         return
-    st.caption(f"Cell series · {unit or UNIT_NOT_DECLARED} · Provenance ID {source}")
+    st.caption(f"Cell series · {unit_text} · Provenance ID {source}")
 
 
 def _render_kpis(kpis: Any) -> None:
@@ -741,13 +738,16 @@ def render_map_tab(
             )
         else:
             _render_deck(frame, active, view, context_groups, case_id)
+
+    with panel_col:
+        # The ramp, its saturation note and the provenance line belong to the reading
+        # context: at 1440x900 they must be visible, and under a 420 px map they fall
+        # below the fold. One place, one copy.
         counts_text = f"{shown} of {total} cells" if isinstance(shown, int) and isinstance(total, int) else ""
         st.markdown(
             _legend(scale, mode, _provenance(meta), counts_text),
             unsafe_allow_html=True,
         )
-
-    with panel_col:
         with st.container(key="reading-slot"):
             selector_key = f"inspector_cell_{case_id}"
             # A previous run asked for "Clear selection"; the selectbox must be

@@ -116,6 +116,7 @@ Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentaci�
 | eje X de barras con `land_use` y slugs crudos | `Land use` y etiquetas legibles (`Urban dense`, …) | `get_land_use_bars` |
 | tarjetas de pestañas 3 y 4 sin `Provenance ID` | `Provenance ID` bajo las tarjetas de resumen y `Dominant regime` humanizado | `load_context_layers`, `load_meta` |
 | `?cell=` borrado en el primer arranque | `selected_cell_id` se conserva si pertenece al caso activo y se limpia si es inválida o cambia el caso | `st.query_params` + `get_cell_detail` |
+| serie del AOI y KPIs de rejilla en el mismo grupo, y procedencia repetida en tarjeta aparte | serie rotulada "Whole-area aggregate series"; los KPIs llevan "Grid statistics for the current filter"; una sola línea de procedencia (la de la franja) | `get_case_series`, `get_map_kpis`, `load_meta` |
 
 Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.
 
