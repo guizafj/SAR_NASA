@@ -7,7 +7,7 @@
 | Rol 1 (pozo) | `get_map_layer_df`: extrusión por defecto en `False` | resuelta en `main` (`7f0b455`), integrada en `fradiaz` |
 | Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
 | Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta en `main` (`ui_bridge` y `_stubs` unen el párrafo del caveat y todas las líneas de continuación de `section_13`) |
-| Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | abierta |
+| Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | respondida en parte (2026-11-15): punto 4 resuelto, punto 5 confirmado, puntos 1–3 **no declarados** (ver «Respuesta de Rol 3») |
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
@@ -122,3 +122,58 @@ No pedimos otro `meta.json`, otra grilla ni otro GeoJSON si los publicados sigue
 
 **Impacto en contrato de datos:** ninguno si el texto viaja por un hook o por `meta` ya previsto. Un campo nuevo de copy educativo se propone en `docs/contract-change-requests.md` y exige a los tres roles.  
 **Aprobación:** Rol 3 entrega el texto. Rol 2 solo lo cita.
+
+### Respuesta de Rol 3 (`yuls`) — 2026-11-15
+
+Medido sobre `main`. Cada punto dice qué está publicado y qué no; donde no hay texto aprobado la
+respuesta es **no declarado**, como pedía la petición.
+
+**1. Lectura de cada caso.** `meta.limitations` (6 entradas en `mexico-city` y `jakarta`, 7 en
+`malaga`) y `meta.null_policy` son **texto público publicado**, no notas de pipeline: son campos
+obligatorios del contrato y viajan en `data/processed/<caso>/meta.json`. No existe además un
+párrafo aprobado por `case_id`: **no declarado**. La lectura de Málaga como control ya está
+publicada — su cota de detección es `stats.detection_limit_mm_yr = 1.5` y una de sus limitaciones
+dice «Rates are at or below the detection floor: the bound IS the result» — así que no hay nada
+que inventar.
+
+**2. Módulo educativo.** `src/ui/educational.py` existe y la pestaña 4 se llama
+**«4. Provenance and limits»** (`app.py`): el nombre ya se ajustó a lo que se muestra y no
+reclama física que no exista. No hay texto docente aprobado: **no declarado**. La UI ya renderiza
+`NOT_DECLARED` desde `src/ui/formatters.py` cuando el dato falta, de modo que la ausencia se lee
+como ausencia.
+
+**3. Glosario de contexto.** Corrección sobre la petición: los GeoJSON **sí** traen `name`, en 6 de
+las 12 features (nombres sintéticos, etiquetados como mock). `layer` toma cuatro valores —
+`admin_boundary`, `infrastructure`, `land_use`, `water`— y `class` doce: `aoi`, `bare`,
+`industrial`, `infrastructure`, `metro-station`, `reservoir`, `river`, `urban-dense`,
+`urban-residential`, `vegetation`, `water-treatment`, `water-well`. Las frases por `layer` y la que
+fija que `class` de contexto no es el filtro `land_use` de la grilla: **no declarado**. Lo que sí
+se confirma: la geografía la inventa `pipeline/mock/geography.py` y cada feature se etiqueta como
+mock, así que no es capa de peligro verificada ni inventario de infraestructura.
+
+**4. Campos que el artefacto contradice.** Resuelto, y ya no hay decisión que tomar: `mexico-city`
+publica `seasonal_amp_mm` y `ratio_R` en las 11.694 celdas, y su limitación 3 dice que la ventana
+de dos años **sí** identifica el término estacional. La limitación del stack de 132 días que
+desaconsejaba publicar el campo quedó superseded al cambiar la ventana; ninguna limitación
+publicada prohíbe ya el campo, así que no hace falta suprimirlo ni marcarlo.
+
+**5. Definiciones que la UI cita.** Confirmadas contra el código, con una corrección de lectura:
+
+- `risk_level` es banda de `|velocity_mm_yr|`, no una medición distinta: en
+  `src/domain/contracts.py` los cortes son `< 5` estable, `< 25` moderado, resto `critico`, y la
+  función ignora el signo. Enum `RISK_LEVELS` = estable, moderado, critico.
+- `ratio_R = |velocity_mm_yr| / seasonal_amp_mm` (contrato §7.5).
+- `regime` ∈ `inelastic`, `elastic`, `transitional`.
+- El signo no es «positivo = hacia arriba» sin más: positivo significa **hacia el sensor**
+  (`--los-sign` por defecto `toward-sensor`, `d_LOS = -λ/4π·φ`), que en la geometría del mock
+  coincide con el uplift porque `u_up = cos θ > 0`. El README lo marca como **registrado, no
+  validado**, y la UI lo dice en una frase visible; no se da por cerrado.
+
+**6. Qué no hace falta reenviar.** Confirmado: no se pide otro `meta.json`, grilla ni GeoJSON
+mientras los publicados sigan siendo la fuente. Tampoco volumen `m³/year`, área crítica, slider de
+fechas ni cambio de métrica del mapa.
+
+**Estado:** PARCIALMENTE RESUELTA (2026-11-15) — el punto 4 quedó resuelto por el cambio a la
+ventana de dos años y el 5 está confirmado contra el contrato (con la salvedad del signo no
+validado); los puntos 1, 2 y 3 siguen **no declarados** y no bloquean la UI, que muestra
+`NOT_DECLARED`.
