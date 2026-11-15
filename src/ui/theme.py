@@ -46,6 +46,29 @@ MUTED = "#94A3B8"
 FOCUS = DARK["focus"]
 RADIUS = "4px"
 
+# Design tokens: dimensions, typography, borders, shadow and motion are declared
+# here so the presentation layer has one source of visual values.
+DESIGN_TOKENS = {
+    "space-0": "0",
+    "space-1": "4px",
+    "space-2": "8px",
+    "space-3": "12px",
+    "space-4": "16px",
+    "space-5": "20px",
+    "space-6": "24px",
+    "space-8": "32px",
+    "radius-sm": "2px",
+    "radius-md": RADIUS,
+    "border-width": "1px",
+    "shadow-menu": "0 4px 12px rgba(0, 0, 0, 0.14)",
+    "type-xs": "0.6875rem",
+    "type-sm": "0.75rem",
+    "type-md": "0.875rem",
+    "type-lg": "1rem",
+    "motion-fast": "180ms",
+    "motion-standard": "200ms",
+}
+
 #: Categorical identity slots for the three cities, fixed order, validated with
 #: `dataviz/scripts/validate_palette.py` on both cockpit surfaces (light: one WARN
 #: at 2.82:1 for Málaga, hence the mandatory direct label). Never cycled.
@@ -134,7 +157,7 @@ _CSS = f"""
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap");
 
 :root {{
-  --radius: {RADIUS};
+  --radius: var(--radius-md);
   --card-pad-y: 0.6rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
@@ -142,6 +165,7 @@ _CSS = f"""
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
+{_decls(DESIGN_TOKENS)}
 {_decls(DARK)}
   color-scheme: dark;
 }}
@@ -368,7 +392,7 @@ body,
 
 .cockpit-card .detail-head {{
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--type-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -400,7 +424,7 @@ body,
 }}
 
 .cockpit-card.inspector .detail-line {{
-  font-size: 0.62rem;
+  font-size: var(--type-xs);
   line-height: 1.3;
   padding: 0.1rem 0;
 }}
@@ -608,7 +632,7 @@ body,
 .legend-inline-label,
 .legend-inline-range {{
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: var(--type-xs);
   letter-spacing: 0.03em;
   color: var(--muted) !important;
   white-space: nowrap;
@@ -781,7 +805,7 @@ ul[data-baseweb="menu"] {{
   border: 1px solid var(--border) !important;
   border-radius: var(--radius) !important;
   color: var(--text) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14) !important;
+  box-shadow: var(--shadow-menu) !important;
 }}
 
 [data-testid="stSelectboxVirtualDropdown"] [role="option"],
@@ -944,6 +968,8 @@ button[data-baseweb="tab"] {{
   letter-spacing: 0.04em;
   white-space: nowrap;
   opacity: 1 !important;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }}
 
 button[data-baseweb="tab"] *,
@@ -988,6 +1014,8 @@ button[data-baseweb="tab"][aria-selected="true"] span {{
   font-family: var(--font-mono) !important;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }}
 
 .stButton > button * {{
@@ -1317,7 +1345,86 @@ input:focus-visible,
 }}
 
 .js-plotly-plot {{
-  animation: cockpit-plot-in 180ms ease-out both;
+  animation: cockpit-plot-in var(--motion-fast) ease-out both;
+}}
+
+.kpi-unit {{
+  color: var(--muted);
+  font: 500 var(--type-xs) var(--font-mono);
+  margin-left: var(--space-1);
+}}
+
+.status-chip {{
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px var(--space-2);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 var(--type-xs) var(--font-mono);
+  line-height: 1.2;
+}}
+
+.status-coherence,
+.status-quality {{
+  border-color: var(--coherence);
+  color: var(--coherence);
+}}
+
+.status-moderate {{
+  border-color: var(--alert);
+  color: var(--alert);
+}}
+
+.status-critical {{
+  border-color: var(--coral);
+  color: var(--coral);
+}}
+
+.empty-icon {{
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font: 600 var(--type-lg) var(--font-mono);
+}}
+
+.cockpit-card.is-empty {{
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+}}
+
+.cockpit-skeleton {{
+  gap: var(--space-2);
+}}
+
+.skeleton-bar {{
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--muted) 18%, var(--surface));
+}}
+
+.skeleton-bar:nth-of-type(2) {{ width: 76%; }}
+.skeleton-bar:nth-of-type(3) {{ width: 58%; }}
+
+.sr-only {{
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }}
 
 @media (prefers-reduced-motion: reduce) {{

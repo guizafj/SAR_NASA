@@ -198,6 +198,15 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
             key=f"ctx-risk-{case_id}",
         )
 
+    # One provenance line per view when every row shares the same case artefact;
+    # repeating the identical id in 12 rows is noise, not traceability.
+    provenance_ids = sorted(
+        {str(value) for value in frame["provenance_id"] if str(value) not in ("", "None", "nan")}
+    )
+    single_source = provenance_ids[0] if len(provenance_ids) == 1 else None
+    if single_source:
+        frame = frame.drop(columns=["provenance_id"])
+
     shown = frame
     if picked_layers:
         shown = shown[shown["layer"].isin(picked_layers)]
@@ -231,7 +240,7 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         f"<p>{len(shown)} features shown of {len(frame)}</p>",
         unsafe_allow_html=True,
     )
-    st.markdown(_render_table(shown), unsafe_allow_html=True)
+    st.markdown(_render_table(shown, single_source), unsafe_allow_html=True)
 
     text_cols = st.columns(2)
     with text_cols[0]:

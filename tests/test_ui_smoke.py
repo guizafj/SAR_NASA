@@ -293,3 +293,49 @@ def test_physics_topics_cover_roughness_dielectric_and_bands() -> None:
     text = "\n".join(node.value for node in app.markdown)
     assert "Surface roughness." in text
     assert "Dielectric constant." in text
+
+
+def _render_map_tab_only() -> None:
+    """Render Tab 1 alone so per-tab duplication can be counted without the other tabs."""
+    import streamlit as st
+
+    from src.data import loaders
+    from src.ui.map_view import render_map_tab
+
+    meta = loaders.load_meta("malaga")
+    st.session_state.setdefault("ui_theme_mode", "system")
+    filters = {
+        "case_id": "malaga",
+        "land_use": None,
+        "coherence_min": 0.35,
+        "risk_level": None,
+        "extrude_3d": False,
+        "scale_mode": "independent",
+    }
+    render_map_tab(filters, loaders, meta, {"malaga": "Málaga, ES"})
+
+
+def test_map_tab_shows_provenance_and_kpis_exactly_once() -> None:
+    """One visible source per datum inside Tab 1: provenance 1x, each KPI label 1x."""
+    from src.data import loaders
+
+    app = AppTest.from_function(_render_map_tab_only, default_timeout=90)
+    app.run()
+    assert not app.exception
+
+    text = "\n".join(node.value for node in app.markdown)
+    captions = "\n".join(getattr(node, "value", "") for node in getattr(app, "caption", []))
+    blob = text + "\n" + captions
+    provenance_id = loaders.load_meta("malaga")["provenance"]["provenance_id"]
+
+    assert blob.count(provenance_id) == 1, blob.count(provenance_id)
+    assert blob.count("Provenance ID") == 1, blob.count("Provenance ID")
+    for label in ("Median velocity", "Median displacement", "Minimum coherence"):
+        assert blob.count(label) == 1, (label, blob.count(label))
+    # Tab 1 no longer duplicates these: seasonal amplitude lives in Tab 2, and the
+    # header fields are not repeated inside the map tab.
+    assert "Median seasonal amplitude" not in blob
+    assert "Sensor nisar" not in blob
+    assert "Unit mm" not in blob
+    assert "Dates 2024-11-10" not in blob
+    assert "Source mock" in blob
