@@ -78,6 +78,23 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert not app.sidebar.selectbox
 
 
+def test_page_title_is_a_heading_and_map_focus_is_visible() -> None:
+    from src.ui.theme import _CSS
+
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    text = "\n".join(node.value for node in app.markdown)
+    assert text.count('<h1 class="mission-title">') == 1
+    assert '<p class="mission-title">' not in text
+    assert '.st-key-map-slot canvas[role="region"]:focus-visible' in _CSS
+    assert 'outline: 2px solid var(--accent)' in _CSS
+    mobile_css = _CSS.split('@media (max-width: 640px)', 1)[1]
+    assert '[role="tablist"]' in mobile_css
+    assert 'flex-wrap: wrap !important' in mobile_css
+    assert '[data-testid="stTabsScrollRight"]' in mobile_css
+    assert 'display: none !important' in mobile_css
+
+
 def test_url_params_seed_the_session_and_mirror_back() -> None:
     from src.data import loaders
 
@@ -121,6 +138,51 @@ def test_unknown_url_values_are_ignored_and_replaced() -> None:
     assert 0.0 <= float(app.query_params["coh"]) <= 1.0
     assert app.query_params["case"] == CASE_IDS[0]
     assert "cell" not in app.query_params
+
+
+def test_active_tab_and_map_ramp_round_trip_in_query_params() -> None:
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["tab"] = "3. Hazard and infrastructure"
+    app.query_params["ramp"] = "colorblind"
+    app.run()
+
+    assert app.session_state["cockpit-tabs"] == "3. Hazard and infrastructure"
+    assert app.session_state["map_color_ramp"] == "colorblind"
+    assert app.query_params["tab"] == "3. Hazard and infrastructure"
+    assert app.query_params["ramp"] == "colorblind"
+    from urllib.parse import parse_qs, urlsplit
+
+    share_link = next(item.value for item in app.code if "tab=" in item.value)
+    share_query = parse_qs(urlsplit(share_link).query or share_link.lstrip("?"))
+    assert share_query["case"] == ["mexico-city"]
+    assert share_query["tab"] == ["3. Hazard and infrastructure"]
+    assert share_query["ramp"] == ["colorblind"]
+    assert not app.exception
+
+    invalid = AppTest.from_file(APP, default_timeout=90)
+    invalid.query_params["tab"] = "unknown"
+    invalid.query_params["ramp"] = "rainbow"
+    invalid.run()
+    assert invalid.session_state["cockpit-tabs"] == "1. Map"
+    assert invalid.session_state["map_color_ramp"] == "classic"
+    assert invalid.query_params["tab"] == "1. Map"
+    assert invalid.query_params["ramp"] == "classic"
+    assert not invalid.exception
+
+
+def test_explicit_theme_query_and_theme_selector_update_all_components() -> None:
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["theme"] = "light"
+    app.run()
+    assert app.session_state["ui_theme_mode"] == "light"
+    assert 'data-cockpit="light"' in "\n".join(item.value for item in app.markdown)
+
+    theme = next(item for item in app.selectbox if item.label == "Theme")
+    theme.set_value("dark").run()
+    assert app.session_state["ui_theme_mode"] == "dark"
+    assert app.query_params["theme"] == "dark"
+    assert 'data-cockpit="dark"' in "\n".join(item.value for item in app.markdown)
+    assert not app.exception
 
 
 def test_tab4_reader_plus_technical_equals_loader_total() -> None:
@@ -178,6 +240,7 @@ def test_every_figure_declares_a_unit_on_the_y_axis() -> None:
     assert figures["line"].layout.hovermode == "x unified"
     assert figures["three-cities"].layout.hovermode == "x unified"
     assert figures["bars"].layout.hovermode in (None, "closest")
+    assert figures["line"].layout.xaxis.rangeslider.visible is True
 
     # The fitted seasonal term is drawn, never invented when absent.
     assert any(trace.name == "Seasonal fit" for trace in figures["line"].data)
@@ -193,12 +256,84 @@ def test_compact_query_param_closes_the_filter_strip() -> None:
     compact = AppTest.from_file(APP, default_timeout=60)
     compact.query_params["compact"] = "1"
     compact.run()
-    filters = next(e for e in compact.expander if e.label == "Filters")
+    filters = next(e for e in compact.expander if e.label.startswith("Filters"))
     assert filters.proto.expanded is False
 
     normal = AppTest.from_file(APP, default_timeout=60)
     normal.run()
-    assert next(e for e in normal.expander if e.label == "Filters").proto.expanded is True
+    assert next(e for e in normal.expander if e.label.startswith("Filters")).proto.expanded is True
+
+
+def test_filter_counts_presets_and_removable_chips() -> None:
+    from src.data import loaders
+
+    unfiltered = loaders.get_layer_counts(CASE_IDS[0], {})
+    dense = loaders.get_layer_counts(CASE_IDS[0], {"land_use": "urban-dense"})
+    full_label = f"{unfiltered['shown']} of {unfiltered['total']} cells"
+    dense_label = f"{dense['shown']} of {dense['total']} cells"
+
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.run()
+    assert not app.exception
+    assert any(full_label in item.label for item in app.expander)
+
+    land = next(item for item in app.selectbox if item.label == "Land use")
+    land.set_value("urban-dense").run()
+    assert app.session_state["filter_land_use"] == "urban-dense"
+    assert any(dense_label in item.label for item in app.expander)
+    next(item for item in app.button if item.label.startswith("× Land")).click().run()
+    assert app.session_state["filter_land_use"] == ""
+    assert any(full_label in item.label for item in app.expander)
+
+    next(item for item in app.button if item.label == "Reliable signal · ≥ 0.5").click().run()
+    assert app.session_state["filter_coherence_min"] >= 0.5
+    next(item for item in app.button if item.label == "High risk only").click().run()
+    assert app.session_state["filter_risk_level"] == "critico"
+    next(item for item in app.button if item.label == "Reset filters").click().run()
+    assert app.session_state["filter_coherence_min"] == 0.35
+    assert app.session_state["filter_risk_level"] == ""
+    assert not app.exception
+
+
+def test_zero_cell_state_offers_filter_recovery() -> None:
+    from src.data import loaders
+
+    total = loaders.get_layer_counts(CASE_IDS[0], {})["total"]
+    app = AppTest.from_file(APP, default_timeout=90).run()
+    slider = next(item for item in app.slider if item.label == "Minimum coherence")
+    slider.set_value(1.0).run()
+
+    assert app.session_state["filter_coherence_min"] == 1.0
+    assert any(f"0 of {total} cells" in item.label for item in app.expander)
+    assert "No cells match these filters" in "\n".join(item.value for item in app.markdown)
+    next(item for item in app.button if item.label == "Lower minimum coherence").click().run()
+    assert app.session_state["filter_coherence_min"] == 0.35
+    assert not app.exception
+
+
+def test_case_level_null_state_cites_bound_and_explains_filter_scope() -> None:
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["case"] = "malaga"
+    app.run()
+
+    text = "\n".join(item.value for item in app.markdown)
+    captions = "\n".join(getattr(item, "value", "") for item in app.caption)
+    assert (
+        "No detectable signal above the detection limit (the neutral band above) of 1.5 mm/year."
+        in text
+    )
+    assert "not an empty filter result" in captions
+    assert sum("DEMONSTRATION DATA" in item.value for item in app.markdown) == 1
+    assert not app.exception
+
+
+def test_colorblind_map_ramp_is_selectable_without_changing_case_state() -> None:
+    app = AppTest.from_file(APP, default_timeout=90).run()
+    ramp = next(item for item in app.radio if item.label == "Ramp")
+    ramp.set_value("colorblind").run()
+    assert app.session_state["map_color_ramp"] == "colorblind"
+    assert app.session_state["filter_case_id"] == CASE_IDS[0]
+    assert not app.exception
 
 
 def test_clear_selection_resets_cell_and_url() -> None:
@@ -214,6 +349,48 @@ def test_clear_selection_resets_cell_and_url() -> None:
     clear.click().run()
     assert app.session_state["selected_cell_id"] is None
     assert "cell" not in app.query_params
+
+
+def test_h3_selector_updates_the_shareable_cell_state() -> None:
+    app = AppTest.from_file(APP, default_timeout=90).run()
+    selector = next(item for item in app.selectbox if item.label == "H3 cell")
+    cell_id = selector.options[1]
+    selector.set_value(cell_id).run()
+
+    assert app.session_state["selected_cell_id"] == cell_id
+    assert app.query_params["cell"] == cell_id
+    from urllib.parse import parse_qs, urlsplit
+
+    share_link = next(item.value for item in app.code if "cell=" in item.value)
+    share_query = parse_qs(urlsplit(share_link).query or share_link.lstrip("?"))
+    assert share_query["cell"] == [cell_id]
+    assert not app.exception
+
+
+def test_series_tab_explains_when_selected_cell_has_no_own_series() -> None:
+    from src.data import loaders
+
+    cell_id = str(loaders.get_map_layer_df(CASE_IDS[0], {})["cell_id"].iloc[0])
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["cell"] = cell_id
+    app.query_params["tab"] = "2. Series and KPIs"
+    app.run()
+
+    blob = _tab_text(app)
+    assert f"Selected H3 cell {cell_id} has no per-cell series" in blob
+    assert "showing the whole-area aggregate" in blob
+    assert app.session_state["selected_cell_id"] == cell_id
+    assert not app.exception
+
+
+def test_pydeck_selection_event_extracts_the_selected_h3_id() -> None:
+    from types import SimpleNamespace
+
+    from src.ui.map_view import LAYER_ID, _selected_cell
+
+    state = SimpleNamespace(selection={"objects": {LAYER_ID: [{"cell_id": "8928308280fffff"}]}})
+    assert _selected_cell(state) == "8928308280fffff"
+    assert _selected_cell(SimpleNamespace(selection={"objects": {LAYER_ID: []}})) is None
 
 
 def test_number_format_is_half_up_and_trimmed() -> None:
@@ -280,6 +457,25 @@ def test_export_buttons_exist_for_grid_context_and_cell() -> None:
     assert "Export filtered cells (CSV)" in labels
     assert "Export context (CSV)" in labels
     assert "Export selected cell (JSON)" in labels
+    assert "Export selected cell series (CSV)" not in labels
+
+
+def test_selected_cell_series_csv_serializes_only_delivered_rows() -> None:
+    from src.ui.map_view import _series_csv
+
+    rows = [
+        {
+            "case_id": "demo-case",
+            "cell_id": "8928308280fffff",
+            "date": "2026-01-01",
+            "value": -1.25,
+            "unit": "mm",
+            "provenance_id": "demo-case+mock+20260101+abcdef01",
+        }
+    ]
+    csv = _series_csv(rows)
+    assert csv.splitlines()[0] == "case_id,cell_id,date,value,unit,provenance_id"
+    assert csv.splitlines()[1].endswith(",-1.25,mm,demo-case+mock+20260101+abcdef01")
 
 
 def test_context_tab_cross_references_nearest_cell_risk() -> None:
@@ -353,3 +549,167 @@ def test_map_tab_shows_provenance_and_kpis_exactly_once() -> None:
     assert "Unit mm" not in blob
     assert "Dates 2024-11-10" not in blob
     assert "Source mock" in blob
+
+
+def _render_map_tab_with_cell_selected() -> None:
+    import streamlit as st
+
+    from src.data import loaders
+    from src.ui.map_view import render_map_tab
+
+    case_id = "malaga"
+    st.session_state.ui_theme_mode = "system"
+    st.session_state.selected_cell_id = str(loaders.get_map_layer_df(case_id, {}).iloc[0]["cell_id"])
+    render_map_tab(
+        {
+            "case_id": case_id,
+            "land_use": None,
+            "coherence_min": 0.35,
+            "risk_level": None,
+            "extrude_3d": False,
+            "scale_mode": "independent",
+        },
+        loaders,
+        loaders.load_meta(case_id),
+        {case_id: "Málaga, ES"},
+    )
+
+
+def test_selected_map_cell_keeps_one_source_and_one_value_for_each_readout() -> None:
+    from src.data import loaders
+
+    app = AppTest.from_function(_render_map_tab_with_cell_selected, default_timeout=90).run()
+    assert not app.exception
+    blob = _tab_text(app)
+    source_id = loaders.load_meta("malaga")["provenance"]["provenance_id"]
+    assert blob.count(source_id) == 1
+    assert blob.count("Provenance ID") == 1
+    stats = next(node.value for node in app.markdown if "reading-stats" in node.value)
+    inspector = next(node.value for node in app.markdown if 'class="cockpit-card inspector"' in node.value)
+    for label in ("Velocity", "Coherence", "Ratio R"):
+        assert stats.count(f'class="stat-label">{label}</span>') == 1
+        assert f"{label}:" not in inspector
+
+
+def _render_series_tab_only() -> None:
+    from src.data import loaders
+    from src.ui.charts import render_series_tab
+
+    case_id = "mexico-city"
+    filters = {
+        "case_id": case_id,
+        "land_use": None,
+        "coherence_min": 0.35,
+        "risk_level": None,
+        "extrude_3d": False,
+    }
+    render_series_tab(filters, loaders, loaders.load_meta(case_id))
+
+
+def _render_context_tab_only() -> None:
+    from src.data import loaders
+    from src.ui.context_view import render_hazard_tab
+
+    render_hazard_tab(
+        {
+            "case_id": "mexico-city",
+            "land_use": None,
+            "coherence_min": 0.35,
+            "risk_level": None,
+            "extrude_3d": False,
+        },
+        loaders,
+    )
+
+
+def _render_provenance_tab_only() -> None:
+    from src.data import loaders
+    from src.ui.educational import render_physics_tab
+
+    render_physics_tab(loaders, loaders.load_meta("mexico-city"))
+
+
+def _tab_text(app) -> str:
+    text = "\n".join(
+        node.value for node in app.markdown if 'class="cockpit-json"' not in node.value
+    )
+    captions = "\n".join(getattr(node, "value", "") for node in app.caption)
+    return text + "\n" + captions
+
+
+def test_series_tab_has_one_visible_provenance_and_one_of_each_kpi_label() -> None:
+    from src.data import loaders
+
+    app = AppTest.from_function(_render_series_tab_only, default_timeout=90).run()
+    assert not app.exception
+    blob = _tab_text(app)
+    source_id = loaders.load_meta("mexico-city")["provenance"]["provenance_id"]
+    assert blob.count(source_id) == 1
+    assert blob.count("Provenance ID") == 1
+    for label in (
+        "Median velocity",
+        "Cells above threshold",
+        "Critical cells",
+        "Coherent coverage",
+        "Median seasonal amplitude",
+    ):
+        assert blob.count(label) == 1, (label, blob.count(label))
+
+
+def test_context_and_provenance_tabs_show_one_visible_case_source() -> None:
+    from src.data import loaders
+
+    for render in (_render_context_tab_only, _render_provenance_tab_only):
+        app = AppTest.from_function(render, default_timeout=90).run()
+        assert not app.exception
+        blob = _tab_text(app)
+        source_id = loaders.load_meta("mexico-city")["provenance"]["provenance_id"]
+        assert blob.count(source_id) == 1, (render.__name__, blob.count(source_id))
+        assert blob.count("Provenance ID") == 1, (render.__name__, blob.count("Provenance ID"))
+        if render is _render_provenance_tab_only:
+            assert blob.count("Median velocity") == 1
+
+
+def _render_comparison_only() -> None:
+    from src.ui.map_view import _render_comparison
+
+    _render_comparison(
+        {
+            "mixed_units": False,
+            "mixed_sensors": True,
+            "mixed_products": True,
+            "sensors": ["nisar", "sentinel-1"],
+            "products": ["mock", "opera-disp-s1"],
+            "cases": [{"id": "mexico-city", "unit": "mm/year", "peak": 1.0, "share": 1.0}],
+        },
+        "independent",
+    )
+
+
+def _render_comparison_homogeneous() -> None:
+    from src.ui.map_view import _render_comparison
+
+    _render_comparison(
+        {
+            "mixed_units": False,
+            "mixed_sensors": False,
+            "mixed_products": False,
+            "sensors": ["nisar"],
+            "products": ["mock"],
+            "cases": [{"id": "mexico-city", "unit": "mm/year", "peak": 1.0, "share": 1.0}],
+        },
+        "independent",
+    )
+
+
+def test_comparison_declares_mixed_sensors_and_products() -> None:
+    """`docs/requests.md` asks the UI to surface `mixed_sensors`, not to infer it."""
+    app = AppTest.from_function(_render_comparison_only, default_timeout=60).run()
+    assert not app.exception
+    text = "\n".join(node.value for node in app.markdown)
+    assert "mix declared sensors (nisar, sentinel-1)" in text
+    assert "mix declared SAR products (mock, opera-disp-s1)" in text
+
+    quiet = AppTest.from_function(_render_comparison_homogeneous, default_timeout=60).run()
+    assert not quiet.exception
+    assert "mix declared" not in "\n".join(node.value for node in quiet.markdown)

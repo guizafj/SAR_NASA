@@ -93,6 +93,7 @@ def line_figure(series: list[dict[str, Any]], *, height: int = CHART_HEIGHT) -> 
         showlegend=_has_seasonal(series),
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
     )
+    figure.update_xaxes(rangeslider={"visible": True, "thickness": 0.08})
     return figure
 
 
@@ -203,7 +204,6 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         st.caption("Series not declared by the backend.")
         return
     unit = _unit_of(series) or UNIT_NOT_DECLARED
-    provenance = _prov_of(series) or SOURCE_NOT_DECLARED
     st.plotly_chart(line_figure(series), width="stretch", theme=None, config={"displayModeBar": False})
     trend = next(
         (
@@ -220,10 +220,7 @@ def _line(series: list[dict[str, Any]] | None) -> None:
     if scaled:
         factor_text = f" ×{factor:g}" if isinstance(factor, (int, float)) else ""
         scale_text = f" · scaled{factor_text} to the filtered subset"
-    st.caption(
-        f"Cumulative displacement · {unit}{trend_text} · "
-        f"Provenance ID {provenance}{scale_text}"
-    )
+    st.caption(f"Cumulative displacement · {unit}{trend_text}{scale_text}")
 
 
 def _three_cities(loaders: Any) -> None:
@@ -231,7 +228,6 @@ def _three_cities(loaders: Any) -> None:
     cases = _call(loaders, "load_study_cases") or []
     labels = {str(item.get("id")): str(item.get("label") or item.get("id")) for item in cases}
     series_by_case: dict[str, list[dict[str, Any]]] = {}
-    provenance: list[str] = []
     for case in cases:
         case_id = str(case.get("id") or "")
         if not case_id:
@@ -241,7 +237,6 @@ def _three_cities(loaders: Any) -> None:
         rows = [row for row in rows if row.get("date")]
         if rows:
             series_by_case[case_id] = rows
-            provenance.append(str(_prov_of(rows) or SOURCE_NOT_DECLARED))
     if not series_by_case:
         st.caption("No case series declared by the backend.")
         return
@@ -253,7 +248,7 @@ def _three_cities(loaders: Any) -> None:
     )
     st.caption(
         "Three cities, shared axis · Cumulative displacement (mm) · "
-        f"Provenance ID {' · '.join(dict.fromkeys(provenance))}"
+        "case provenance is listed in Provenance and limits."
     )
 
 
@@ -262,22 +257,51 @@ def _bars(rows: list[dict[str, Any]] | None, meta: Mapping[str, Any] | None = No
         st.caption("Land-use bars not declared by the backend.")
         return
     unit = _unit_of(rows) or UNIT_NOT_DECLARED
-    provenance = _prov_of(rows) or SOURCE_NOT_DECLARED
     st.plotly_chart(
         bars_figure(rows, meta),
         width="stretch",
         theme=None,
         config={"displayModeBar": False},
     )
-    st.caption(
-        f"Median velocity by land use · {unit} · Provenance ID {provenance}"
-    )
+    st.caption(f"Velocity by land use · {unit}")
 
 
 def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
     # The persistent demo banner lives in app.py; do not duplicate it per tab.
     case_id = filters.get("case_id")
     render_kpi_cards(_call(loaders, "get_series_kpis", case_id, filters))
-    _line(_call(loaders, "get_case_series", case_id, filters))
+    area_series = _call(loaders, "get_case_series", case_id, filters)
+    selected_cell = st.session_state.get("selected_cell_id")
+    detail = (
+        _call(loaders, "get_cell_detail", str(case_id), str(selected_cell))
+        if selected_cell and case_id
+        else None
+    )
+    cell_series = detail.get("series") if isinstance(detail, dict) else None
+    cell_scope = detail.get("series_scope") if isinstance(detail, dict) else None
+    if isinstance(cell_series, list) and cell_series and cell_scope == "cell":
+        st.toggle(
+            "Compare selected cell with whole-area aggregate",
+            key=f"compare-cell-series-{case_id}",
+            help="Show both series in separate panels, each with its own labelled axis.",
+        )
+        if st.session_state.get(f"compare-cell-series-{case_id}") and area_series:
+            cell_col, area_col = st.columns(2)
+            with cell_col:
+                st.caption(f"Selected H3 cell {selected_cell}")
+                _line(cell_series)
+            with area_col:
+                st.caption("Whole-area aggregate")
+                _line(area_series)
+        else:
+            st.caption(f"Selected H3 cell {selected_cell}")
+            _line(cell_series)
+    else:
+        _line(area_series)
+        if selected_cell and isinstance(detail, dict) and cell_scope == "aoi":
+            st.caption(
+                f"Selected H3 cell {selected_cell} has no per-cell series; "
+                "showing the whole-area aggregate."
+            )
     _three_cities(loaders)
     _bars(_call(loaders, "get_land_use_bars", case_id, filters), meta)

@@ -42,8 +42,9 @@ Thumbs.db
 .env
 .env.*
 .streamlit/secrets.toml
-tests
-# Exclude heavy doc figures/design notes from the image, EXCEPT docs/science-guide.md which
-# src/data/ui_bridge.py::load_documented_limits reads at runtime for Tab 4's physics summary.
+
+tests/
+deploy/
+# Keep only the documentation consumed by the runtime.
 docs/*
 !docs/science-guide.md

@@ -753,29 +753,7 @@ def _feature_point(geometry: Any) -> tuple[float, float] | None:
     return lat, lon
 
 
-_EXPORT_COLUMNS = (
-    "cell_id",
-    "lat",
-    "lon",
-    "val_t1",
-    "val_t2",
-    "delta_change",
-    "velocity_mm_yr",
-    "seasonal_amp_mm",
-    "ratio_R",
-    "regime",
-    "coherence",
-    "land_use",
-    "risk_level",
-    "case_id",
-    "sensor",
-    "product",
-    "unit",
-    "velocity_unit",
-    "source",
-    "provenance_id",
-    "acquisition_date",
-)
+_EXPORT_COLUMNS: tuple[str, ...] = tuple(field.name for field in C.GRID_FIELDS)
 
 
 def get_filtered_export_csv(
@@ -784,12 +762,16 @@ def get_filtered_export_csv(
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> str:
-    """CSV of the filtered H3 cells with contract columns only (no `color`/`height`)."""
+    """CSV of the filtered H3 cells with contract columns only (no `color`/`height`).
+
+    The column list is derived from `contracts.GRID_FIELDS`, not typed, so a schema bump cannot
+    leave the download silently short of a new required column. Empty selects keep the header.
+    """
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     view = apply_filters(bundle, _dict_to_criteria(filters))
     frame = view.grid
     ordered = [column for column in _EXPORT_COLUMNS if column in frame.columns]
-    return frame[ordered].to_csv(index=False)
+    return frame.loc[:, ordered].to_csv(index=False)
 
 
 def get_cell_export(

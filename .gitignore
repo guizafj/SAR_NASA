@@ -10,6 +10,7 @@
 !.gitattributes
 !.dockerignore
 !.python-version
+!.gcloudignore
 # `.streamlit/` IS re-included: the theme config the app boots with is public and carries no
 # secrets (tests/test_gitignore_policy.py checks its content for secret-shaped keys). Streamlit's
 # documented secrets location is `.streamlit/secrets.toml`, which stays ignored below — the order

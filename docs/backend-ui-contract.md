@@ -56,7 +56,11 @@ only if artefacts are absent:
 | `get_land_use_bars(case_id, filters)` | Median `velocity_mm_yr` per present `land_use` |
 | `get_scale_comparison(scale_mode)` | Cross-case peak `|velocity_mm_yr|`, `share`, dynamic `mixed_units`, `mixed_sensors`, `mixed_products`, `sensors`, `products` |
 | `load_context_layers(case_id=None)` | GeoJSON + feature/layer summary |
-| `load_documented_limits()` | Full README GNSS caveat paragraph, multi-line §13 items, `science_section_1` (`docs/science-guide.md` §1) and `case_roles` (`config/study_cases.yaml`) |
+| `get_context_exposure(case_id, filters)` | Each context feature joined to the nearest cell of the **filtered** grid (`nearest_cell_id`, `risk_level`, `land_use`, `distance_m`) — proximity cross-reference, never a hazard claim |
+| `get_filtered_export_csv(case_id, filters)` | The filtered grid as CSV with **only** `GRID_FIELDS` columns, in contract order (no `color`/`height`); the download passes `contracts.validate_grid` |
+| `get_cell_export(case_id, cell_id)` | One cell's attributes plus its published series, strict-JSON safe (`allow_nan=False`) |
+| `load_availability(case_id)` | Declared ASF search record from `data/processed/_availability/{case}.json`: stacks, HTTP status, date range, coverage note, `None` when absent — catalogue metadata, never a measurement |
+| `load_documented_limits()` | Full README GNSS caveat paragraph, multi-line §13 items, `science_section_1` (`docs/science-guide.md` §1), `case_roles` (`config/study_cases.yaml`) and `physics` (the three scattering bullets of README §6) |
 
 ---
 

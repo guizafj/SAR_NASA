@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import pathlib
+
+import pandas as pd
 
 from src.data import loaders
 from src.domain import contracts as C
@@ -190,6 +193,31 @@ def test_filtered_export_csv_drops_visual_columns() -> None:
     grid = loaders.get_map_layer_df("mexico-city", {})
     assert len(rows) == len(grid) + 1  # header + one line per filtered cell
     assert "provenance_id" in header
+
+
+def test_filtered_export_csv_is_a_contract_valid_grid() -> None:
+    """What the reader downloads must pass the same validator as the published artefact.
+
+    The download is the one artefact a judge carries away from the demo, so it cannot be a looser
+    shape than `data/processed/`: the columns must follow `GRID_FIELDS` order and
+    `contracts.validate_grid` must find no problem in the exported frame.
+    """
+    frame = pd.read_csv(io.StringIO(loaders.get_filtered_export_csv("mexico-city", {})))
+    expected = [field.name for field in C.GRID_FIELDS]
+    assert list(frame.columns) == [name for name in expected if name in frame.columns]
+    assert not C.validate_grid(frame), C.validate_grid(frame)
+
+    # The export follows the filter, not the whole case, and stays valid when narrowed.
+    narrowed = pd.read_csv(
+        io.StringIO(loaders.get_filtered_export_csv("mexico-city", {"coherence_min": 0.6}))
+    )
+    assert 0 < len(narrowed) < len(frame)
+    assert not C.validate_grid(narrowed)
+
+    # An empty selection still yields the header, so the download never fails silently.
+    empty = loaders.get_filtered_export_csv("mexico-city", {"coherence_min": 1.0001})
+    assert empty.splitlines()[0].split(",")[0] == "cell_id"
+    assert len(empty.strip().splitlines()) == 1
 
 
 def test_context_exposure_joins_nearest_cell_without_claiming_risk() -> None:
