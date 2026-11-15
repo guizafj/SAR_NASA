@@ -670,10 +670,10 @@ Use `git status` and `git diff` to inspect — they cannot lose work.
   limit.
 - **Rol 1:** loaders + validation reject malformed artefacts before the UI sees them; filters and
   metrics computed once, server-side; CI reproduces artefacts from a clean checkout.
-- **Rol 2:** the four views that exist are reachable — map, series/KPIs, hazard & infrastructure,
-  SAR physics & provenance (`tests/test_ui_smoke.py` pins exactly four tabs); a fifth is **not
-  implemented**; **the app starts with no NASA credentials**; URL restores the exact state; units
-  and sources always visible; keyboard-navigable; works on a phone.
+- **Rol 2:** the four views that exist are reachable — map, series and KPIs, hazard and
+  infrastructure, provenance and limits (`tests/test_ui_smoke.py` pins exactly four tabs); a fifth is
+  **not implemented**; **the app starts with no NASA credentials**; URL restores the exact state;
+  units and sources always visible; keyboard-navigable; works on a phone.
 - **Everyone:** `main` runnable, PR reviewed, `./scripts/python.sh -m pytest tests -q` green.
 
 ---

@@ -103,7 +103,7 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
   and metrics computed once, server-side; [ ] CI reproduces artefacts from a clean checkout, public URL
   up; [ ] `main` runnable.
 - **Rol 2 fradiaz:** [ ] the four views that exist are reachable — map, series/KPIs, hazard &
-  infrastructure, SAR physics & provenance (`tests/test_ui_smoke.py` pins exactly four tabs); a fifth
+  infrastructure, provenance and limits (`tests/test_ui_smoke.py` pins exactly four tabs); a fifth
   view is **not implemented**, so do not claim one; [ ] the app starts with **no NASA credentials**;
   [ ] URL restores the exact state; [ ] units and sources always visible, keyboard-navigable,
   phone-ready.
