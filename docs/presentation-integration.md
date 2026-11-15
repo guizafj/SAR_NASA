@@ -17,7 +17,7 @@ La app no lee Parquet, CSV, GeoJSON ni `meta.json`. El único seam vivo es `src/
 | `ratio_R` | contrato: `abs(trend) / seasonal amplitude`, ≥ 0 | Mostrar el número con esa definición citada, no reinterpretarla. |
 | `regime` | `inelastic` / `elastic` / `transitional` | Secular frente a estacional. No traducir el valor almacenado. |
 | Serie por celda | `stats.per_cell_series.enabled` es `false` en los tres casos | La curva del inspector es el agregado `cell_id == "aoi"`. Hay que decirlo. No inventar una serie por celda. |
-| Contexto | `context_layers.geojson`, 12 features por caso | Geografía de demostración. `source` lo declara. No son capas GIS verificadas. |
+| Contexto | `context_layers.geojson`, 708 features por caso (660 en Málaga) | Geometría **real** de OpenStreetMap bajo ODbL 1.0, con `source` y `provenance_id` en cada elemento; el *desplazamiento* sigue siendo `mock` y el `provenance_id` nombra ese producto, no los polígonos. La UI acredita la fuente en pantalla. No es un modelo de exposición ni una capa GIS validada. |
 | Cada cifra | hook | Unidad y `provenance_id`. Si faltan, "not declared". No rellenar. |
 
 Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (extensión), `malaga` (control). Los nombres visibles salen de `config/study_cases.yaml` vía `load_study_cases`, no de un literal de la UI.
