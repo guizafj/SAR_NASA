@@ -37,6 +37,7 @@ data/staging/
 .streamlit/secrets.toml
 
 # Local tooling, reports and temporary exports
+skills-lock.json
 .agents/
 .copilot/
 .impeccable/

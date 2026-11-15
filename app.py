@@ -101,6 +101,15 @@ def _blank(value: str | None) -> str | None:
     return value
 
 
+def _case_options(loaders: Any, name: str, case_id: str) -> tuple[str, ...]:
+    """Prefer case-scoped options; fall back for stubs whose hook takes no argument."""
+    function = getattr(loaders, name)
+    try:
+        return tuple(function(case_id))
+    except TypeError:
+        return tuple(function())
+
+
 def render_header(meta: dict[str, Any] | None) -> None:
     line = telemetry_line(meta)
     telemetry = f'<p class="telemetry">{html.escape(line)}</p>' if line else ""
@@ -126,8 +135,11 @@ def render_filters(
     coherence_floor: float | None,
 ) -> dict[str, Any]:
     """Draw the filter strip. Values stay in session_state; nothing is filtered."""
+    theme_labels = {"system": "Sistema", "light": "Claro", "dark": "Oscuro"}
+    if st.session_state.get("ui_theme_mode") not in theme_labels:
+        st.session_state.ui_theme_mode = "system"
     with st.container(border=True, key="filter-strip"):
-        case_col, land_col, coherence_col, risk_col, extrude_col = st.columns(5)
+        case_col, land_col, coherence_col, risk_col, extrude_col, theme_col = st.columns(6)
         with case_col:
             st.selectbox(
                 "Caso",
@@ -148,8 +160,12 @@ def render_filters(
             elif not 0.0 <= coherence_floor <= 1.0:
                 st.caption("Umbral de coherencia fuera de [0, 1]. No se modifica.")
             else:
-                if "filter_coherence_min" not in st.session_state:
+                # Init when the key is missing. Reset only when this case declares
+                # a different floor, so a user value survives an unchanged threshold.
+                applied = st.session_state.get("filter_coherence_floor")
+                if "filter_coherence_min" not in st.session_state or applied != coherence_floor:
                     st.session_state.filter_coherence_min = coherence_floor
+                st.session_state.filter_coherence_floor = coherence_floor
                 st.slider(
                     "Coherencia mínima",
                     min_value=0.0,
@@ -167,11 +183,22 @@ def render_filters(
             if "filter_extrude_3d" not in st.session_state:
                 st.session_state.filter_extrude_3d = False
             st.toggle("Extrusión 3D", key="filter_extrude_3d")
+        with theme_col:
+            st.selectbox(
+                "Tema",
+                options=list(theme_labels),
+                format_func=lambda mode: theme_labels.get(mode, mode),
+                key="ui_theme_mode",
+            )
 
     return {
         "case_id": st.session_state.get("filter_case_id"),
         "land_use": _blank(st.session_state.get("filter_land_use")),
-        "coherence_min": st.session_state.get("filter_coherence_min", coherence_floor),
+        "coherence_min": (
+            st.session_state.get("filter_coherence_min", coherence_floor)
+            if isinstance(coherence_floor, (int, float)) and 0.0 <= coherence_floor <= 1.0
+            else None
+        ),
         "risk_level": _blank(st.session_state.get("filter_risk_level")),
         "extrude_3d": bool(st.session_state.get("filter_extrude_3d", False)),
     }
@@ -209,8 +236,8 @@ def render_app() -> None:
 
     meta = loaders.load_meta(st.session_state.filter_case_id)
     render_header(meta if isinstance(meta, dict) else None)
-    land_uses = tuple(loaders.load_land_use_options())
-    risk_levels = tuple(loaders.load_risk_levels())
+    land_uses = _case_options(loaders, "load_land_use_options", st.session_state.filter_case_id)
+    risk_levels = _case_options(loaders, "load_risk_levels", st.session_state.filter_case_id)
     # Drop stale filter values when options shrink (stub no longer lists absent classes).
     if st.session_state.get("filter_land_use") not in ("", *land_uses):
         st.session_state.filter_land_use = ""
