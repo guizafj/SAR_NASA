@@ -216,7 +216,7 @@ acting on any row.
 | `meta.provenance` must carry `provenance_id` | `PROVENANCE_REQUIRED_KEYS` omits it; the cross-artefact orphan check lives in `pipeline/validate_artifacts.py` |
 | `timeseries.csv` must carry `cell_id == "aoi"` rows | documented, but not checked by `validate_timeseries` |
 | `REGIMES` is part of the published schema | v1.1 publishes `grid.regime` (required, enum-checked) and validates `stats.dominant_regime` against it |
-| the provenance digest hashes input artefact bytes | the mock hashes `case\|product\|seed`; the real path hashes sorted granule stems and the convention token |
+| the provenance digest hashes input artefact bytes | the mock hashes `case\|product\|seed\|window`; the real path hashes sorted granule stems and the convention token |
 
 ### 4.3 Validation caveats
 

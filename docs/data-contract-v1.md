@@ -403,9 +403,10 @@ mensaje científico).
 `meta.provenance`. **Qué entra en el hash depende del productor**, y conviene no confundirlo: la ruta
 real hashea los tallos ordenados de los gránulos de entrada (más el token de convención cuando no es
 el de defecto) y usa la fecha de adquisición más reciente; el mock hashea
-`case_id|product|seed` con una fecha de procesamiento fija. Por tanto el id del mock identifica
-caso, producto y semilla — **no** los bytes producidos ni la ventana de fechas: dos ventanas
-distintas con la misma semilla comparten id.
+`case_id|product|seed|ventana`, con `ventana` = sha256 de las fechas de adquisición en orden y una
+fecha de procesamiento fija. Por tanto el id del mock identifica caso, producto, semilla y ventana
+**— no** los bytes producidos: dos ventanas distintas con la misma semilla producen ids distintos,
+que es justo lo que permite comparar dos generaciones por su id.
 
 **Unidades.** Siempre declaradas en el propio fichero. Prohibido deducirlas del nombre de columna.
 
