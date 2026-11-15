@@ -8,6 +8,7 @@
 | Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
 | Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta en `main` (`ui_bridge` y `_stubs` unen el párrafo del caveat y todas las líneas de continuación de `section_13`) |
 | Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | resuelta (2026-11-15): puntos 4 y 5 cerrados en `3d6b858`; puntos 1–3 conectados en `load_documented_limits` y `src/ui/formatters.py` desde `config/study_cases.yaml`, `docs/science-guide.md` §1 y `docs/data-contract-v1.md` §6/§7.4 |
+| Todos | Estrategia de mejora continua por rama (sección final) | vigente desde 2026-11-15 |
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
@@ -174,3 +175,48 @@ mientras los publicados sigan siendo la fuente. Tampoco volumen `m³/year`, áre
 fechas ni cambio de métrica del mapa.
 
 **Estado:** RESUELTA (2026-11-15) — los puntos 4 y 5 quedaron confirmados en `3d6b858`; los puntos 1, 2 y 3 quedan cubiertos sin tocar artefactos ni añadir llamadas externas mediante `load_documented_limits` (`config/study_cases.yaml` + `docs/science-guide.md` §1) y el glosario/traductor determinista de `src/ui/formatters.py` (`docs/data-contract-v1.md` §6 y §7.4).
+
+## Estrategia de mejora continua por rama (2026-11-15)
+
+Protocolo común para los tres roles:
+
+1. **Una rama por miembro.** Cada rol trabaja en su rama (`pozo`, `yuls`, `fradiaz`). Un objetivo por commit o rama corta derivada; sin acumular objetivos ajenos a la propiedad de archivos (`AGENTS.md` §Propiedad).
+2. **Fila por hallazgo.** Todo defecto, deuda u optimización detectada se registra aquí como fila: `Qué / Por qué / Cómo se valida / Estado`. Una fila sin `Cómo se valida` no es accionable.
+3. **Estados.** `abierto` (sin trabajo) → `en-rama` (commit en la rama del rol) → `en-main` (merge con preflight verde) → `publicado` (push). Cambiar de estado exige la validación de su columna.
+4. **Puerta de merge a `main`.** Solo con `./scripts/preflight.sh` completo → `VERDICT: READY` sobre árbol limpio. Rol 2 revisa todo lo que toca presentación; Rol 1 todo lo que toca contrato o bridge; Rol 3 todo texto científico. Un cambio que cruce propiedad se pide aquí antes de escribirlo.
+5. **Reglas duras vigentes** (no negociables en ninguna rama): ningún campo nuevo de contrato sin propuesta aprobada por los tres en `docs/contract-change-requests.md`; la UI no lee artefactos ni calcula ciencia; ninguna cifra sin unidad y `provenance_id`; `product: mock` lleva aviso permanente.
+
+### Rol 1 (pozo) — backend, bridge, CI y deploy
+
+| Qué | Por qué | Cómo se valida | Estado |
+|---|---|---|---|
+| Exponer `provenance.method`, `license`, `reference` y `processing_date` por `load_meta` (aditivo, sin contrato) | La pestaña 4 los ignora hoy porque viajan dentro de `meta` pero la UI solo pinta lo declarado por hooks (registro en `presentation-integration.md`) | `test_ui_bridge.py` + pestaña 4 renderiza el bloque | abierto |
+| Decidir O-07 final: variante firmada de `origin/pozo` (`extrude_m`, `motion_direction`, `test_height_sign_parity.py`) contra `COLUMN_BASELINE_M` vigente en `main` | Dos soluciones conviven en ramas; una debe morir. Rol 2 verifica el mapa tras la decisión | `./scripts/preflight.sh` + captura de mapa en 3D | abierto |
+| Job CI con paridad 3.12 usando `SAR_PYTHON` (`aeabcf8`) | La receta existe (`docs/handoff-pozo.md` §6) pero `ci.yml` no la ejecuta | run verde en GitHub Actions | abierto |
+| URL pública de demo | Checklist §1 pide URL; el Docker local ya sirve | `curl -fsS <url>/_stcore/health` → 200 | abierto |
+| `mixed_sensors` explícito en `get_scale_comparison` (hoy `mixed_units` es siempre `false`) | Si algún caso cambia de sensor, la UI necesita declararlo, no deducirlo | fila nueva del payload + test de bridge | abierto (post-MVP ok) |
+
+### Rol 2 (fradiaz) — cockpit y presentación
+
+| Qué | Por qué | Cómo se valida | Estado |
+|---|---|---|---|
+| Verificación visual con navegador: mapa sobre el fold a 1440×900, clic pydeck → inspector + `?cell=`, contraste en desplegables/tabs/JSON | Sin GPU ni Playwright en esta máquina la validación es estructural, no píxel a píxel | checklist manual en `http://127.0.0.1:8502` con captura | abierto |
+| Conectar el texto aprobado de Rol 3 cuando llegue como párrafo por caso | La UI cita ahora las fuentes canónicas del repo (`science-guide` §1, `study_cases.yaml`); un párrafo aprobado lo sustituye sin inventar | `test_ui_smoke.py` + cita literal visible | en-rama (cableado listo en `educational.py`) |
+| Persistir tema/tamaño de mapa ante recarga fuerte fuera de `?theme=` | `ui_theme_mode` ya viaja por URL; el zoom de cámara no (es presentación pura) | AppTest + manual | abierto (baja prioridad) |
+
+### Rol 3 (yuls) — artefactos, ciencia, narrativa y video
+
+| Qué | Por qué | Cómo se valida | Estado |
+|---|---|---|---|
+| Aprobar o sustituir el copy que la UI cita automáticamente: `science_section_1` (science-guide §1), `case_roles` (`study_cases.yaml`) y el glosario de capas (contrato §6/§7.4) | Desde `cfcc14e` la pestaña 4 muestra párrafo §1 literal, rol/régimen/tasa de referencia por caso, y la pestaña 3 glosario; son texto del repo, no aún aprobado como guion | revisión de Rol 3; si cambia, `test_honesty_claims` + `test_ui_smoke` | en-rama (pendiente aprobación) |
+| Nombres GeoJSON en inglés en `pipeline/mock/geography.py` (próxima regeneración) | La UI los traduce determinista para no tocar hashes, pero un artefacto autoconsistente en inglés es mejor para jurado internacional | regen + `check_phase_a.sh` + pestaña 3 sin traductor activo | abierto |
+| Saturación de bandas en el mock CDMX (~93 % de celdas `critico`) | La banda `risk_level` no discrimina en el caso primario; es decisión de datos (ajustar peak/falloff o declararlo en `limitations`), no de la UI | `demo_numbers.py` + limitación visible en pestaña 4 | abierto |
+| Video 2:20 con números re-derivados de `demo_numbers.py` tras el último regen | Checklist §1; los números del guion deben coincidir con los artefactos congelados | `test_video_script_numbers.py` | abierto |
+
+### Plantilla para filas nuevas
+
+```
+| <acción concreta> | <defecto, deuda o riesgo> | <comando o vista que lo prueba> | abierto |
+```
+
+Nada se declara hecho fuera de esta tabla sin su `Cómo se valida` ejecutado en el commit integrado.
