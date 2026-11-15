@@ -2,8 +2,8 @@
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
-**De:** Rol 2 (fradiaz)  
-**Para:** Rol 1 (pozo)  
+**De:** Rol 2 (fradiaz)
+**Para:** Rol 1 (pozo)
 **Contexto:** cockpit mapa H3, rama `feat/ui-map-render`.
 
 En `get_map_layer_df`, el default actual es:
@@ -16,5 +16,5 @@ El toggle de la UI arranca en `False`. Pedimos cambiar el default a `False` para
 
 La UI ya aplana `height` en modo flat como red de seguridad; alinear el default evita trabajo duplicado y sorpresas si otro consumidor llama el hook sin `extrude_3d`.
 
-**Impacto en contrato de datos:** ninguno (solo default de presentación del bridge).  
+**Impacto en contrato de datos:** ninguno (solo default de presentación del bridge).
 **Aprobación:** Rol 1; Rol 2 verifica el mapa tras el cambio.
