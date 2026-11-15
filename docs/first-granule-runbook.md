@@ -72,7 +72,7 @@ The coverage number exists only after the aggregate, and P refuses < 4 epochs (T
 
 - [ ] Coverage PASS bar: ≥ **50 %** of the AOI's H3 cells must receive data (P `COVERAGE_WARNING_FRACTION = 0.5`; D checklist). The aggregate prints `WARNING: COVERAGE: only X% of the <case> AOI's N H3 cells received data (M cells, threshold 50%). Do NOT claim city-wide displacement…` — any such line is a FAIL **by reading**, not by exit code: `process_case.py` still exits 0 on low coverage.
 - [ ] Coherence median ≥ **0.35** = `K SENSOR_PROFILES["nisar-gunw"].coherence_min`; below it the interferogram is unusable at this posting (D) ⇒ FAIL.
-- [ ] `dates` inside `2026-07-02` … `2026-11-11` (C `processing.dates_start`, `dates_step_days: 12`, `dates_count: 12`). Real granules may fall outside: **decide from the file, then record it**, and note it in `meta.limitations`.
+- [ ] `dates` inside `2024-11-10` … `2026-11-12` (C `processing.dates_start`, `dates_step_days: 12`, `dates_count: 62`; the whole mock window). Real granules may fall outside: **decide from the file, then record it**, and note it in `meta.limitations`.
 - [ ] Decision rule: **coverage < 50 % ⇒ do not claim city-wide displacement.** Flip `primary: mexico-city` → `primary: malaga` in `config/study_cases.yaml` (one line; C header, D "Still open") and keep CDMX as a coverage-limited appendix, never the headline.
 - [ ] Why `/tmp`: only `_availability` may sit undeclared under `data/processed` (K gate file check); any other stray directory fails the gate.
 

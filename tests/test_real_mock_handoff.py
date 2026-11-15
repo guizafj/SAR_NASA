@@ -50,7 +50,8 @@ def test_shipped_three_cities_load_and_match_handoff_expectations():
     ref_case = load_case("mexico-city")
     assert len(map_payload(ref_case, coherence_min=0.7)) < 11694
     dates, vals = aoi_series(ref_case)
-    assert len(dates) == len(vals) == 12
+    # Two-year mock window: 62 dates, 2024-11-10 -> 2026-11-12 (handoff §1)
+    assert len(dates) == len(vals) == 62
     assert kpis(ref_case)["cells"] == 11694
 
     for slug, bundle in bundles.items():
@@ -58,7 +59,7 @@ def test_shipped_three_cities_load_and_match_handoff_expectations():
         assert bundle.is_mock is True
         opts = available_filter_options(bundle)
         assert opts.sensor_coherence_min == pytest.approx(0.35)
-        assert len(opts.available_dates) == 12
+        assert len(opts.available_dates) == 62
 
 
 def test_shipped_kpis_and_comparison_match_handoff_mock_doc():
@@ -80,9 +81,10 @@ def test_shipped_kpis_and_comparison_match_handoff_mock_doc():
     assert badge.revisit_days == 12
 
     series = extract_series_view(bundles["mexico-city"])
-    assert series.n_points == 12
+    assert series.n_points == 62
     assert series.fitted_trend_mm_yr is not None
-    assert series.fitted_trend_mm_yr < -70.0  # chart mean slope ~ -78.1 mm/yr per handoff §3c
+    # chart mean slope -85.8 mm/yr (mean x T = -172.0 mm) per handoff §3c
+    assert series.fitted_trend_mm_yr == pytest.approx(-85.8, abs=0.1)
 
     comp = build_city_comparison(list(bundles.values()))
     assert comp.shared_velocity_range_mm_yr == (-425.0, 425.0)

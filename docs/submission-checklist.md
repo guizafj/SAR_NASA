@@ -38,8 +38,12 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       so that command is effectively `-qq` and prints **no counts line at all** — judge by the exit
       code, not by a summary. Drop the `-q` (`./scripts/python.sh -m pytest tests`) to see counts.
       Do not quote a pass count here: it moves with every guard added.
-- [ ] `./scripts/python.sh -m src.domain.contracts` → `contract fingerprint: 049376b0…678ce1e` = the hash in
-      the `docs/data-contract-v1.md` header.
+- [ ] `./scripts/python.sh -m src.domain.contracts` → `contract fingerprint: <the 64 hex it prints>` = the
+      hash in the `docs/data-contract-v1.md` header. The 1.1 bump moves it, so read the printed line
+      instead of a remembered one. The retired v1.0 digest was `049376b0…678ce1e` <!-- fingerprint-historical: retired v1.0 digest, kept so the bump is visible; it does not describe this tree -->.
+- [ ] **Contract 1.1 carries Rol 1 + Rol 2 sign-off.** The contract's own rule (all three roles agree
+      to a `SCHEMA_VERSION` bump) makes the 1.1 adoption on `feat/contract-1.1` a proposal until they
+      agree: a green artefact gate is not approval (O-05, 2026-11-15).
 - [ ] `git status --porcelain` empty, then clean-tree reproduction (no `.git`, `.venv`, `data/raw`):
       ```bash
       rm -rf /tmp/freeze && mkdir -p /tmp/freeze/repo
@@ -70,7 +74,7 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 
 ## 4. Cut order if short on time (README §2, in order)
 
-1. [ ] Change-event pins — no events artefact in contract v1.0; post-MVP item 2.
+1. [ ] Change-event pins — no events artefact in contract v1.1; post-MVP item 2.
 2. [ ] Third city — keep `mexico-city` primary + `malaga` control (`config/study_cases.yaml`, one line).
 3. [ ] Everything except Málaga via EGMS — EGMS is Málaga-only, **manual portal download**
        (`egms.land.copernicus.eu`), because Mexico City and Jakarta are non-EU and ineligible
@@ -105,5 +109,7 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - [ ] **LOS sign convention is unvalidated.** `docs/nisar-gunw-layout.md` is verified against
       documentation, "not yet against a real 2026 granule"; `meta.provenance.method` keeps the
       "NOT yet validated against GNSS" sentence until runbook §7 flips a real median negative.
-- [ ] **Season is not separable** over the 4.5-month window — do not publish `seasonal_amp_mm`
-      (`meta.limitations`, README §13).
+- [ ] **Season was not separable** over the old 4.5-month window, which is why `seasonal_amp_mm` was
+      withheld (`meta.limitations` pre-1.1). Contract **v1.1** publishes the fitted amplitude, ratio and
+      regime because the window now spans 2 years, where the same identifiability gates pass
+      (O-05, 2026-11-15) — say that, and do not present the fitted seasonal term as a measured cycle.

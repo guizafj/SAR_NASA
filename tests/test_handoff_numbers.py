@@ -22,6 +22,10 @@ Tolerances — documented once, used everywhere, and *not* tuned to be green:
   shared symmetric scale        none          a stated requirement ("must cover the extremes"),
                                               not a measurement — it either covers max|v| or it does not
   date window, date count       exact         ISO dates and an integer count, compared verbatim
+  time constant T              ±5e-6 yr      the doc prints T (and its 732/365.25 restatement) to five
+                                              decimals; 5e-6 is half of that last digit
+  mean×T / median×T            ±0.1 mm       same one-decimal display as the velocities that produce
+                                              them; the multiplication itself is exact
   legend p05/p95                ±0.1 mm/yr    same one-decimal rounding as the velocities
   legend spread                 ±0.2 mm/yr    difference of two one-decimal numbers; rounding can add
                                               up to 0.1, so 0.2 covers the arithmetic
@@ -47,6 +51,8 @@ TABLE_HEADING = "What the current mock actually contains"
 TABLE_HEADER = ("case", "cells", "median mm/yr", "p05", "coherence", "land-use classes", "size")
 LEGEND_HEADING = "Shared vs independent legend"
 LEGEND_HEADER = ("case", "p05", "p95", "spread")
+CHART_HEADING = "KPI (median) and chart (mean×T)"
+CHART_HEADER = ("case", "mean mm/yr (chart)", "median mm/yr (kpi)", "mean×t", "median×t")
 
 MINUS_SIGNS = "\u2212\u2010\u2011\u2012\u2013\u2014\u2015\u2043\ufe63\uff0d"
 
@@ -55,6 +61,7 @@ TOL_COHERENCE = 0.005
 TOL_SIZE_MB = 0.02
 TOL_RATIO = 1.0
 TOL_LEGEND_SPREAD = 0.2
+TOL_TIME_CONSTANT_YR = 5e-6
 
 
 def _case_dirs() -> dict[str, pathlib.Path]:
@@ -226,6 +233,18 @@ def parse_table() -> dict[str, Row]:
     return table
 
 
+def _millimetres(cell: str, *, what: str, line_no: int, text: str) -> float:
+    raw = _clean(cell)
+    match = re.fullmatch(r"(.+?)\s*mm", raw, flags=re.IGNORECASE)
+    if not match:
+        pytest.fail(
+            f"docs/handoff-mock.md:{line_no}: cannot read {what} from {cell!r} in the row\n"
+            f"  {text.strip()}\n"
+            f"Expected millimetres, e.g. `-124.4 mm`."
+        )
+    return _number(match.group(1), what=what, line_no=line_no, text=text)
+
+
 def parse_legend_table() -> dict[str, Row]:
     """Parse the §3b percentile table (the independent-legend values)."""
     lines = _doc_lines()
@@ -252,6 +271,39 @@ def parse_legend_table() -> dict[str, Row]:
                 "p05": _number(cells[1], what="legend p05", line_no=line_no, text=text),
                 "p95": _number(cells[2], what="legend p95", line_no=line_no, text=text),
                 "spread": _number(cells[3], what="legend spread", line_no=line_no, text=text),
+            },
+            line_no=line_no,
+            text=text,
+        )
+    return table
+
+
+def parse_chart_table() -> dict[str, Row]:
+    """Parse the §3c mean-vs-median table (both the mm/yr rates and their ×T totals)."""
+    lines = _doc_lines()
+    header, raw_rows = _table(lines, CHART_HEADING)
+    if tuple(_clean(c).lower() for c in header) != CHART_HEADER:
+        pytest.fail(
+            f"docs/handoff-mock.md: the KPI/chart table header changed.\n"
+            f"  documented: {' | '.join(header)}\n"
+            f"  expected:   {' | '.join(CHART_HEADER)}\n"
+            f"  tolerance:  exact — this test parses the columns by position"
+        )
+    table: dict[str, Row] = {}
+    for line_no, text in raw_rows:
+        cells = _split_row(text)
+        if len(cells) != len(CHART_HEADER):
+            pytest.fail(
+                f"docs/handoff-mock.md:{line_no}: {len(cells)} columns where "
+                f"{len(CHART_HEADER)} are declared\n  {text.strip()}"
+            )
+        table[_clean(cells[0])] = Row(
+            case=_clean(cells[0]),
+            values={
+                "mean": _number(cells[1], what="chart mean mm/yr", line_no=line_no, text=text),
+                "median": _number(cells[2], what="KPI median mm/yr", line_no=line_no, text=text),
+                "mean_t": _millimetres(cells[3], what="mean×T", line_no=line_no, text=text),
+                "median_t": _millimetres(cells[4], what="median×T", line_no=line_no, text=text),
             },
             line_no=line_no,
             text=text,
@@ -557,8 +609,132 @@ def test_date_window_and_count_match_meta(
             f"(meta.json, data/processed/{case}/)\n"
             f"  tolerance:  exact — ISO dates and an integer count are compared verbatim\n"
             f"  doc line:   {line.strip()}\n"
-            f"  fix one of the two: a 12-date window is what makes the seasonal phase comparable "
-            f"across cases."
+            f"  fix one of the two: the two-year window is what identifies the annual harmonic "
+            f"(annual_coverage 2.004 against the 0.75 yr-per-harmonic gate), so a 12-date copy is "
+            f"a pre-1.1 artefact."
+        )
+    if report:
+        pytest.fail("\n\n".join(report))
+
+
+def test_time_constant_matches_the_meta_window(measured: dict[str, dict[str, object]]) -> None:
+    """The §2 map bindings publish T = days/365.25; a stale T silently rescales every height."""
+    line_no, line = prose_line(
+        r"T = \d+ days = [0-9.]+ yr, from \d+/365\.25 = [0-9.]+", what="the map-binding time constant"
+    )
+    match = re.search(
+        r"T = (\d+) days = ([0-9.]+) yr, from \d+/365\.25 = ([0-9.]+)", line
+    )
+    if match is None:  # pragma: no cover - prose_line already matched the same text
+        pytest.fail(f"docs/handoff-mock.md:{line_no}: cannot read T from {line!r}")
+    documented_days = int(match.group(1))
+    documented_yr = float(match.group(2))
+    documented_exact = float(match.group(3))
+
+    table_line = next(
+        (text for text in _doc_lines() if re.search(r"\|\s*time constant\s*\|", text)), None
+    )
+    if table_line is None:
+        pytest.fail(
+            "docs/handoff-mock.md: the §2 map-bindings table no longer has a `time constant` row. "
+            "A reader binds `height` to `delta_change` through it; restore the row instead of "
+            "leaving T implicit."
+        )
+    table_match = re.search(r"T\s*=\s*([0-9.]+)", table_line)
+    if table_match is None:
+        pytest.fail(f"docs/handoff-mock.md: cannot read T from the table row {table_line.strip()!r}")
+    table_yr = float(table_match.group(1))
+
+    report: list[str] = []
+    for case in CASES:
+        dates = measured[case]["dates"]
+        assert isinstance(dates, list)
+        days = (pd.Timestamp(dates[-1]) - pd.Timestamp(dates[0])).days
+        measured_yr = days / 365.25
+        if days != documented_days:
+            report.append(
+                _mismatch(
+                    metric="window days (T)",
+                    row=Row(case=case, values={}, line_no=line_no, text=line),
+                    documented=documented_days,
+                    measured_value=days,
+                    tolerance="exact",
+                    reason="T is (last date − first date) in whole days, from meta.dates",
+                )
+            )
+            continue
+        for label, documented in (
+            ("T (yr)", documented_yr),
+            ("days/365.25", documented_exact),
+            ("T (yr) in the table row", table_yr),
+        ):
+            if abs(documented - measured_yr) <= TOL_TIME_CONSTANT_YR:
+                continue
+            report.append(
+                _mismatch(
+                    metric=label,
+                    row=Row(case=case, values={}, line_no=line_no, text=line),
+                    documented=documented,
+                    measured_value=measured_yr,
+                    tolerance=f"±{TOL_TIME_CONSTANT_YR:g} yr (the doc prints five decimals)",
+                    reason="T must be the measured span in years, not a remembered constant",
+                )
+            )
+    if report:
+        pytest.fail("\n\n".join(report))
+
+
+def test_kpi_chart_table_matches_artefacts(
+    doc_table: dict[str, Row], measured: dict[str, dict[str, object]]
+) -> None:
+    """§3c mixes an aggregation (mean) with a KPI (median); both and their ×T totals are pinned."""
+    chart = parse_chart_table()
+    report: list[str] = []
+    for case in CASES:
+        row = chart.get(case)
+        if row is None:
+            pytest.fail(
+                f"docs/handoff-mock.md has no §3c chart row for {case!r}, which exists on disk.\n"
+                f"  documented: {', '.join(sorted(chart)) or '(none)'}\n"
+                f"  measured:   data/processed/{case}/"
+            )
+        got = measured[case]
+        grid = got["grid"]
+        assert isinstance(grid, pd.DataFrame)
+        dates = got["dates"]
+        assert isinstance(dates, list)
+        span_years = (pd.Timestamp(dates[-1]) - pd.Timestamp(dates[0])).days / 365.25
+        mean = float(grid["velocity_mm_yr"].mean())
+        median = float(got["median"])
+        _check(
+            report, metric="chart mean mm/yr", row=row,
+            documented=row.values["mean"], measured_value=mean,
+            tolerance=TOL_VELOCITY, unit="mm/yr",
+            reason="the chart is the grid mean; the doc prints one decimal",
+        )
+        _check(
+            report, metric="KPI median mm/yr", row=row,
+            documented=row.values["median"], measured_value=median,
+            tolerance=TOL_VELOCITY, unit="mm/yr",
+            reason="the KPI is meta.stats.median_velocity_mm_yr; the doc prints one decimal",
+        )
+        _check(
+            report, metric="mean×T", row=row,
+            documented=row.values["mean_t"], measured_value=mean * span_years,
+            tolerance=TOL_VELOCITY, unit="mm",
+            reason="mean × the measured T (732/365.25 yr); one decimal in the doc",
+        )
+        _check(
+            report, metric="median×T", row=row,
+            documented=row.values["median_t"], measured_value=median * span_years,
+            tolerance=TOL_VELOCITY, unit="mm",
+            reason="median × the measured T (732/365.25 yr); one decimal in the doc",
+        )
+    undocumented = sorted(set(chart) - set(doc_table))
+    if undocumented:
+        pytest.fail(
+            f"docs/handoff-mock.md §3c rows for {undocumented} have no case in the §1 table — "
+            f"the two tables describe the same published set."
         )
     if report:
         pytest.fail("\n\n".join(report))

@@ -40,7 +40,7 @@ them barely moves at all.
 
 | Capability | What the user does |
 |---|---|
-| **Time scrub** | Drag a date slider; charts and KPIs update across the 12 dates — the **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid) |
+| **Time scrub** | Drag a date slider; charts and KPIs update across the 62 dates — the **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid) |
 | **Click to interrogate** | Click a cell → displacement series, trend, quality (needs `--per-cell-series` artefacts; the committed set carries only the AOI aggregate) |
 | **Compare mode** | Three cities on **one shared colour scale** |
 | **Filter** | Coherence, land use, risk level, critical-velocity threshold |
@@ -74,13 +74,13 @@ Mexico City's bowl, Jakarta's coastal edge, and Málaga essentially blank. Gener
 ### Verify in 15 seconds
 
 ```bash
-./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.458 MB / 15 MB
+./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.687 MB / 15 MB
 ./scripts/preflight.sh         # fuller: seven gates, per-gate table, ends in a VERDICT line
 ```
 
 | case | cells | window | median mm/yr | product | source |
 |---|---:|---|---:|---|---|
-| `mexico-city` | 11,694 | 2026-07-02 → 2026-11-11 | −62.1 | mock | synthetic |
+| `mexico-city` | 11,694 | 2024-11-10 → 2026-11-12 | −62.1 | mock | synthetic |
 | `jakarta` | 4,811 | same window | −25.4 | mock | synthetic |
 | `malaga` | 2,645 | same window | −1.4 | mock | synthetic |
 
@@ -169,7 +169,7 @@ real data is a file replacement, not a code change.
 
 ---
 
-## 4. Data contract v1.0 — frozen
+## 4. Data contract v1.1 — frozen
 
 Four artefacts per case, under `data/processed/`. This is the whole interface between pipeline and
 app; it is versioned, validated in code and locked by a regression suite.
@@ -188,8 +188,8 @@ Source of truth (code): **[`src/domain/contracts.py`](src/domain/contracts.py)**
 
 | | |
 |---|---|
-| Version | `1.0`, revision 1, frozen 2026-11-14 |
-| Fingerprint | `049376b0…` (`contract_fingerprint()`) |
+| Version | `1.1`, revision 2, frozen 2026-11-14 |
+| Fingerprint | `ed92be80…` (`contract_fingerprint()`) |
 | Changing it | bump `SCHEMA_VERSION` + `CHANGELOG` entry + PR section `Impacto sobre el contrato:` + review by all three roles |
 | Enforced by | the contract, mock-plausibility and gate suites (`./scripts/python.sh -m pytest tests -q`); any silent rename, retype or enum drift fails the suite **and** the gate |
 
@@ -582,7 +582,7 @@ merged. Before submission:
 git checkout main && git merge --ff-only yuls && git push && git checkout yuls
 ```
 
-Everything under `data/processed/` is 1.73 MB (1.458 MB of artefacts plus the `_availability/`
+Everything under `data/processed/` is 1.97 MB (1.687 MB of artefacts plus the `_availability/`
 evidence), so it belongs in the repo; `data/raw/` never does.
 
 **Working safely with uncommitted work.** On 2026-11-14 a `git reset --hard` silently reverted every
@@ -666,10 +666,12 @@ Error budget, largest first: **unwrapping ≫ troposphere ≫ orbital ≫ DEM �
 
 *Cumulative displacement since the first acquisition, with Málaga's detection floor shaded (±1.5
 mm/yr over the window). The series are referenced to the first epoch, so they start at exactly 0 mm
-— and the seasonal bulge is visible mid-window rather than masquerading as secular motion.
-**Do not publish `seasonal_amp_mm` from a ~4.5-month stack:** the artefacts' own `limitations`
-record that the seasonal term is not separable from the secular one here, so this curve shows the
-shape, not a measured amplitude.*
+— and the seasonal bulge is visible mid-window rather than masquerading as secular motion. **The
+seasonal amplitude is a published fit, not a typed constant:** the window now spans two full annual
+cycles and the design sits well inside its conditioning limit, so `seasonal_amp_mm`, `ratio_R` and
+`regime` come from `harmonic_fit`. An earlier, much shorter window could not identify the annual
+harmonic at all, and those artefacts published it as unfitted — amplitude exactly zero, `ratio_R`
+null, the cannot-classify regime — rather than as a measurement.*
 
 **Limitations.** The per-case subset also ships inside each artefact's `meta.limitations`; the rest
 are project-level statements that no single artefact carries.
@@ -710,6 +712,18 @@ are project-level statements that no single artefact carries.
     now say `toward-sensor`, the default factor stays -1.0, and **no published number changed**
     (the mock synthesises millimetres directly, so none was ever at risk). What remains open is
     validation, not naming: the convention is still unvalidated against GNSS (`--validated-against`).
+13. **A stack shorter than three quarters of a year fits no annual harmonic, and still publishes a
+    grid.** `harmonic_order` returns 0 below `MIN_SEASONAL_COVERAGE_PER_HARMONIC` (0.75 yr), so the
+    case is a plain trend: `seasonal_amp_mm` is exactly 0.0 — meaning *"not fitted"*, never *"no
+    seasonality measured"*, which would be a claim about the ground — `ratio_R` is **null** (the
+    column is still required, but `|trend| / 0` is undefined, so no number is invented), and
+    `regime` is `"transitional"`, the contract's cannot-classify value, because the
+    secular-vs-seasonal comparison has no seasonal term to compare against. Where no cell in the
+    case fitted a harmonic, `stats.median_ratio_R` is null too, and `meta.limitations` says the term
+    was not fitted and what would publish one. A ~132-day real stack — the planned fetch — is
+    therefore schema-valid but seasonally unfitted: a fitted amplitude needs a chain spanning at
+    least 0.75 yr for one harmonic (≈276 d) or 1.5 yr for two. The two-year mock is unaffected — it
+    spans two annual cycles and does publish a fitted amplitude.
 
 ---
 

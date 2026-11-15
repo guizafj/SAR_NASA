@@ -397,7 +397,8 @@ def test_kpis_are_copied_from_meta_stats(loaded: dict[str, R.Case], case_id: str
         dt.date.fromisoformat(case.meta["dates"][-1])
         - dt.date.fromisoformat(case.meta["dates"][0])
     ).days
-    assert cards["window_days"] == 132  # handoff §1: all three cases span 12 dates / 132 days
+    # handoff §1: all three cases span 62 dates, 2024-11-10 -> 2026-11-12 (732 days = 2.00 cycles)
+    assert cards["window_days"] == 732
     assert cards["product"] == case.meta["product"] == "mock"
     assert cards["provenance_id"] == case.meta["provenance"]["provenance_id"]
 

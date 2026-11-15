@@ -81,7 +81,7 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert detail is not None and detail["cell_id"] == first_cid
 
     ts = loaders.load_timeseries("mexico-city", "aoi")
-    assert len(ts) == 12
+    assert len(ts) == 62  # 2-year mock window: 62 dates, 2024-11-10 -> 2026-11-12
 
     s_kpis = loaders.get_series_kpis("mexico-city", filters)
     assert [k["label"] for k in s_kpis] == [
@@ -89,9 +89,13 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
         "% de celdas por encima del umbral",
         "celdas críticas",
         "cobertura coherente",
+        # v1.1: fitted seasonal amplitude, published because the 2-year window identifies it
+        "amplitud estacional mediana",
     ]
+    assert s_kpis[-1]["value"] == 1.5  # meta.stats.median_seasonal_amp_mm for Mexico City
+    assert s_kpis[-1]["unit"] == "mm"
 
-    assert len(loaders.get_case_series("mexico-city", filters)) == 12
+    assert len(loaders.get_case_series("mexico-city", filters)) == 62
     assert len(loaders.get_land_use_bars("mexico-city", filters)) == 1
 
     comp = loaders.get_scale_comparison("Común a todos los casos")

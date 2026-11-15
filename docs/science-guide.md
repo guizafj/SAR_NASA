@@ -368,8 +368,8 @@ print(round(float(V.vertical_from_los(-phase * lam / (4 * math.pi) * 1000, theta
 ```
 
 What the pipeline adds on top of this arithmetic: the H3 cell value is the **mean of its pixels**, the
-annual rate is the **fitted slope over the stack's epochs** (12 in the mock, 13 for a 12-file plan —
-§3.1), and the sign belongs to the declared `--los-sign` convention rather than to the formula above.
+annual rate is the **fitted slope over the stack's epochs** (62 in the mock; a 12-file plan chains 13
+— §3.1), and the sign belongs to the declared `--los-sign` convention rather than to the formula above.
 
 ---
 
@@ -442,29 +442,51 @@ Design matrix for `K = 1`, `T = 1 yr`:
 
 **Why "recovers to floating-point precision" is not contradicted by "ill-conditioned" below.** Same
 basis, different data. The mock's series *is* the generating basis: one spatial noise draw per cell
-(`noise_mm_yr`, fixed across the 12 dates), then the secular ramp plus the centred harmonic — no
-temporal noise to propagate, so `pinv` recovers the slope exactly. A real stack over the same 132 days
-conditions at 67 (§3.3): the slope survives, the amplitude does not.
+(`noise_mm_yr`, fixed across the 62 dates), then the secular ramp plus the centred harmonic — no
+temporal noise to propagate, so `pinv` recovers the slope exactly. That exactness is a property of a
+noise-free field, not of an easy design: the published 2-year design conditions at 4.12
+(`meta.stats.design_condition`, limit 30), and a real stack over the same span would carry the
+per-epoch scatter this mock omits. On the old 132-day window a real stack conditioned at ≈ 67 (§3.3):
+there the slope survived and the amplitude did not.
 
-**Harmonic centring** is the subtle part, and it is where this repo already had a bug. With a window
-of ~0.36 yr (132 days), a harmonic anchored at `t = 0` is not a cycle — it is a *monotone slice* of
-one:
+**Harmonic centring** is the subtle part, and it is where this repo already had a bug. How much it
+buys is a property of the window, not of the code: the two anchorings agree only when the last epoch
+falls at a whole number of cycles after the first. The algebra is window-independent —
 
 ```
-anchored at t=0:      d(t) = v·t + A·cos(2πt)          d(0) = +A,  d(T) < 0
-                      => the seasonal dip reads as extra subsidence
+anchored at t=0:      d(t) = v·t + A·cos(2πt)          d(0) = +A,  d(t_end) = +A·cos(2πt_end)
+                      => each endpoint carries whatever phase the window's span leaves it at
 centred on c = t_end/2:
                       d(t) = v·t + A·[cos(2π(t-c)) - cos(2πc)]
                       => d(0) and d(t_end) carry the SAME seasonal offset (offset = 0)
 ```
 
-ASCII picture of a 132-day window (secular trend downwards, one annual cycle). Both sketches
-exaggerate the seasonal term for legibility — in the committed mock `A` is 1.5 / 12 / 3.5 mm against
-≈ 152 / 108 / 1.1 mm of secular motion over the window (Mexico City / Jakarta / Málaga):
+ASCII picture of the **current 2-year window** (secular trend downwards, 2.00 annual cycles). The
+seasonal term is drawn far larger than life: the real amplitudes are 1.5 / 12.0 / 3.5 mm against
+172 / 81 / 2.8 mm of secular motion across the whole window (Mexico City / Jakarta / Málaga, from
+the published AOI row: `trend_mm_yr` × the 2.004 yr span). Because 2.004 cycles leave the last epoch
+at almost the same phase as the first, an anchored and a centred harmonic put nearly equal offsets
+at the two ends, so the two anchorings differ only marginally in `delta_change` here:
 
 ```
    mm
-   0 |*                                   d(t), centred harmonic
+   0 |*
+     | *                                  d(t), centred harmonic
+     |  *  ~.        ~.        ~.         2.00 annual cycles
+     |   *    `~._  .'  `~._  .'  `~._    both endpoints at 0 seasonal offset
+     |    *        ``       ``       ```
+     |     *
+     |      *                              secular trend (vertical scale not to scale)
+     +----------------------------------  days (0 → 732)
+```
+
+The construction is kept because it is the general fix, and the window that exposed the bug was the
+**old 132-day window** (0.36 cycles), where a harmonic anchored at `t = 0` is not a cycle — it is a
+*monotone slice* of one. That window is kept below as history: it is the shape the gate calibration
+in §3.3 is tuned against.
+
+```
+   0 |*                                   d(t), centred harmonic, 132-day window
      | *                                  both endpoints at 0 seasonal offset
      |  *      ******
      |   *   ***     ***        <-- mid-window bulge (~0.58·A), then return
@@ -474,10 +496,11 @@ exaggerate the seasonal term for legibility — in the committed mock `A` is 1.5
      +----------------------------------  days (0 → 132)
 ```
 
-Symmetrically, an **anchored** harmonic over the same window looks like:
+Symmetrically, an **anchored** harmonic over that short window looked like extra subsidence — the
+endpoint completes barely a third of a period, so its cosine has not come back up:
 
 ```
-   0 |**                                  d(t), harmonic anchored at t=0
+   0 |**                                  d(t), harmonic anchored at t=0, 132-day window
      |  ***
      |     ***
      |        ****
@@ -486,12 +509,13 @@ Symmetrically, an **anchored** harmonic over the same window looks like:
      +----------------------------------  days (0 → 132)
 ```
 
-Numbers from the fix (precise digits: decision D-02; `docs/handoff-mock.md` §1 rounds them to
-"2–8×" and never states the cell count): before centring, `delta_change/T` overstated the trend by
-**2.1–7.9×** and disagreed in *sign* on up to **601 cells** — the map rose where the slider fell.
+Numbers from the fix, measured on that 132-day window (precise digits: decision D-02;
+`docs/handoff-mock.md` §1 rounds them to "2–8×" and never states the cell count): before centring,
+`delta_change/T` overstated the trend by **2.1–7.9×** and disagreed in *sign* on up to **601 cells**
+— the map rose where the slider fell.
 These were measured on 2026-11-14 against the pre-fix code and no committed test reproduces them
 (reproducing means reverting `cumulative_series`), so treat them as a recorded measurement, not a
-guarded number. After centring,
+guarded number. After centring — on the current 2-year mock as on that old window —
 `delta_change/T ÷ velocity_mm_yr = 1.000` for every published cell and there are **zero** sign
 disagreements. The code that does it:
 
@@ -510,73 +534,106 @@ series = velocity[:, None] * t_years[None, :] + seasonal[None, :]
 
 ### 3.3 Identifiability: when a seasonal amplitude is *not publishable*
 
-A good `r²` does not mean the harmonic was measured. Over a 132-day window the annual pair is nearly
-collinear with `[1, t]`; the fit can report `r² ≈ 0.95` and still have an amplitude that is a fitted
-artefact. The module encodes two gates:
+> **2026-11-15 — the demo window is two years, not 132 days, and the gates now pass.** The
+> short-window failure this section is built around is still the reason contract 1.1's seasonal fields
+> are a *fit result* rather than typed constants (O-05 in [the decisions](decisions.md)): on the
+> 2-year window `annual_coverage` (2.004) and the design condition (4.12) both clear their gates with
+> margin, so `seasonal_amp_mm`, `ratio_R` and `regime` are published. The 0.36 yr figures below are the
+> historical 132-day measurement, kept because they are what the gates are calibrated against; each is
+> labelled as such rather than presented as current behaviour.
+
+A good `r²` does not mean the harmonic was measured. On the **old 132-day window** the annual pair was
+nearly collinear with `[1, t]`; the fit could report `r² ≈ 0.95` and still have an amplitude that was
+a fitted artefact. The **current 2-year window** does not inherit that ambiguity — `annual_coverage`
+is 2.004 and the design conditions at 4.12 (one harmonic: 4.02) — which is the point: identifiability
+is a property of the design matrix, not of `r²`. The module encodes two gates:
 
 | Gate | Constant | Value | What it means |
 |---|---|---:|---|
 | coverage | `MIN_SEASONAL_COVERAGE_PER_HARMONIC` | 0.75 | harmonic `k` needs ≥ `0.75·k` years of span; annual → 0.75 yr, second → 1.5 yr |
 | conditioning | `MAX_DESIGN_CONDITION` | 30 | condition number of the **column-normalised** design matrix |
 
-Measured condition numbers: well-identified designs sit at 4–12; the degenerate cases sit at 67
-(132 d, one harmonic), 1.0e3 (132 d, two harmonics) and 5.5e4 (dates clustered in five weeks). 30
-sits in the empty band: 2.5× above the worst well-identified design (30/12) and 2.2× below the
-mildest degenerate one (67/30).
+Measured condition numbers: well-identified designs sit at 4–12 (the committed 2-year mock at 4.12);
+the degenerate cases sit at 67 (the old 132 d window, one harmonic), 1.0e3 (132 d, two harmonics)
+and 5.5e4 (dates clustered in five weeks). 30 sits in the empty band: 2.5× above the worst
+well-identified design (30/12) and 2.2× below the mildest degenerate one (67/30).
 
 What the number means: the condition number of a design matrix bounds how much a small error in the
 data can be amplified into the fitted coefficients. When `[1, t]` and a cosine observed over a third
 of its cycle are nearly parallel, the fit can trade one against the other, and **both** coefficients
-absorb the error — but not equally. On 132 d of 12 dates the slope's standard error rises from
+absorb the error — but not equally. On the old 132 d of 12 dates the slope's standard error rose from
 ≈ 2.5 mm/yr per mm of noise (pure line) to ≈ 37 with one harmonic and ≈ 518 with two, while the
-amplitude's variance inflation is comparable from the start. One harmonic is therefore tolerable for
-the trend and fatal for the amplitude; a second harmonic is fatal for both. That is why the gate
-withholds the amplitude and keeps the trend.
+amplitude's variance inflation is comparable from the start. On such a window one harmonic is
+tolerable for the trend and fatal for the amplitude; a second harmonic is fatal for both. That is why
+the gate withholds the amplitude on such a window and keeps the trend.
 
 Below the gate the **behaviour is warn, not raise**:
 
 ```python
 fit = V.harmonic_fit(t_years, disp_mm, period_years=1.0, n_harmonics=1)
 
+# committed 2-year mock, 62 dates, 2024-11-10 -> 2026-11-12
 fit.trend_mm_yr                 # published (identified by the span)
-fit.seasonal_identifiable       # False over a 132-day window
-fit.warnings                    # ('seasonal harmonic 1 ... do not publish seasonal_amp_mm ...',)
-fit.annual_coverage             # 0.36
-fit.design_condition            # e.g. 67.0
-fit.regime                      # forced to "transitional" when not identifiable
+fit.seasonal_identifiable       # True
+fit.warnings                    # ()
+fit.annual_coverage             # 2.004  (gate: MIN_SEASONAL_COVERAGE_PER_HARMONIC per harmonic)
+fit.design_condition            # 4.02 with one harmonic; 4.12 for the 2-harmonic design the mock fits
+fit.regime                      # a fit result: "inelastic" (Mexico City, Jakarta), "elastic" (Malaga)
+
+# the old 132-day window, kept because it is what the gates are calibrated against:
+#   seasonal_identifiable False, annual_coverage 0.36, design_condition ~67,
+#   warnings ('seasonal harmonic 1 ... do not publish seasonal_amp_mm ...',),
+#   regime forced to "transitional" when not identifiable
 ```
 
 Why warn and not raise: `process_case.py` catches `ValueError` and drops the cell, so raising would
 silently empty the whole grid *and* throw away `velocity_mm_yr`, the one number the contract needs.
-The trend survives a short window far better than the amplitude (slope standard error ≈ 37 mm/yr per
-mm of noise on 132 d with one harmonic, versus ≈ 518 mm/yr with two).
+The trend survives a short window far better than the amplitude (on the old 132 d window the slope
+standard error was ≈ 37 mm/yr per mm of noise with one harmonic, versus ≈ 518 mm/yr with two).
 
 The honest harmonic order is chosen by a ladder, not by taste (`process_case._harmonic_order`):
 
 | Span | Epochs | Harmonics fitted |
 |---|---:|---|
-| ≥ 1.0 yr | ≥ 6 | 2 |
-| ≥ 0.5 yr | ≥ 4 | 1 |
-| otherwise | ≥ 4 | 0 (pure linear fit) |
+| ≥ 1.5 yr | ≥ 6 | 2 |
+| ≥ 0.75 yr | ≥ 4 | 1 |
+| otherwise | any | 0 (pure linear fit) |
 
 A ~0.36 yr window therefore gets **zero** harmonics from the real path (`_harmonic_order` returns 0
-below a 0.5 yr span), i.e. a pure linear fit — so the coverage gate never fires on the demo window.
-It matters for a stack that does span 0.5–0.75 yr: one harmonic is fitted there, and the gate then
-marks its amplitude unpublishable. Fitting and publishing are deliberately separate decisions.
+below the 0.75 yr annual gate), i.e. a pure linear fit — so on the old 132-day demo window the
+coverage gate never fired. It mattered historically: while the ladder cut at 0.5 yr, a 0.5–0.75 yr
+stack was fitted one harmonic and the gate then marked its amplitude unpublishable. With the cut
+aligned to the coverage constant the ladder cannot request what that gate rejects by span, so the
+remaining span-shaped rejection is conditioning (dates clustered in a short sub-window). The demo
+stack now spans 2 years (62 epochs, 732 d, 2.004 cycles), where `_harmonic_order` asks for the
+2-harmonic order and both gates pass (`meta.stats.seasonal_n_harmonics` is 2), so the fitted
+amplitude is published (O-05). Fitting and publishing are still separate decisions.
 
-> **Contract v1.0 has no seasonal field.** `seasonal_amp_mm` exists on `HarmonicFit` (a diagnostic for
-> a test or a notebook) and is dropped at the artefact boundary: `GRID_FIELDS` has no such column, so
-> no `meta.json`, parquet column or UI card carries it in v1.0. The repeated "do not publish
-> `seasonal_amp_mm`" line in `limitations` is a guard against a future field, not a description of one
-> that exists. `regime` is dropped for the same reason — see §3.4. Other branches may carry newer
-> contract versions with fields such as `seasonal_amp_mm`, `ratio_R`, and `regime`, so a consumer
-> must check `meta.schema_version` before assuming this v1.0 callout applies.
+A stack below the annual gate takes the **not-fitted** path instead: `harmonic_order` returns `0`,
+the design is `[1, t]` alone, and contract 1.1 still requires the seasonal triple, so the grid
+publishes `seasonal_amp_mm = 0.0` (**not fitted**, never "no seasonality"), `ratio_R = null` and
+`regime = "transitional"` (§3.4). At the declared 12-day revisit that gate is ≈276 d of cover —
+roughly 23 pairs — so this is the corner a short stack lands in, not a hypothetical.
 
-### 3.4 Regime index (computed, not published)
+> **Contract v1.1 publishes the seasonal fields; v1.0 did not.** In v1.0 `seasonal_amp_mm` existed
+> only on `HarmonicFit` (a diagnostic for a test or a notebook) and was dropped at the artefact
+> boundary: `GRID_FIELDS` had no such column, so no `meta.json`, parquet column or UI card carried it.
+> The "do not publish `seasonal_amp_mm`" line in `limitations` was written for that boundary — a
+> guard against a field, not a description of one that existed. `regime` was dropped for the same
+> reason (§3.4). Contract **v1.1** (`SCHEMA_VERSION "1.1"`, `CONTRACT_REVISION 2`) makes grid
+> `seasonal_amp_mm`/`ratio_R`/`regime`, timeseries `trend_mm_yr`/`seasonal_mm` and stats
+> `median_seasonal_amp_mm`/`median_ratio_R`/`dominant_regime` **required**, and they ship as a **fit
+> result** from the same `harmonic_fit` the real path uses — not a typed constant. That is only
+> honest because the window moved to 2 years, where the gates above pass. Either way a consumer must
+> check `meta.schema_version` before assuming a shape.
 
-*`R` is computed and never published — same as `seasonal_amp_mm` (§3.3). If you came looking for the
-field, it does not exist (see `GRID_FIELDS`, [the data contract](data-contract-v1.md)); the app *bands* `risk_level`, and the colour
-itself is `velocity_mm_yr` ([the mock handoff](handoff-mock.md)).*
+### 3.4 Regime index (computed, and published since v1.1)
+
+*`R` and `regime` are computed by `classify_regime` and, since contract v1.1, **published**: `ratio_R`
+and `regime` are required grid columns, and `median_ratio_R` / `dominant_regime` are required stats
+(see `GRID_FIELDS`, [the data contract](data-contract-v1.md)). Under v1.0 they were computed and
+dropped, because the 132-day window could not measure the denominator (§3.3). The app still *bands*
+`risk_level`, and the colour itself is `velocity_mm_yr` ([the mock handoff](handoff-mock.md)).*
 
 ```
 R = |ṫ| / A_seasonal
@@ -585,10 +642,33 @@ R > 2        -> "inelastic"     (secular dominates: permanent, non-recoverable)
 R < 1        -> "elastic"       (seasonal dominates: recoverable)
 ```
 
+**A stack that fits no harmonic publishes "not fitted", not a number.** When `harmonic_order` returns
+`0` the model has no seasonal column at all, and the three required fields carry what the design can
+actually support rather than a value the fit cannot certify:
+
+- `seasonal_amp_mm = 0.0`. The zero is the coefficient of an absent basis column: it says **"not
+  fitted"**, not "we measured no seasonality". Reading it as a measurement would turn the absence of
+  a seasonal *term* into a claim about the ground — the same category error as trusting `r² ≈ 0.95`
+  for an amplitude on a window that cannot separate the annual pair from `[1, t]` (§3.3).
+- `ratio_R = null`. The column is required, but `R = |ṫ| / 0` is undefined — not small and not large.
+  `inf` is not a publishable float (it breaks the finite, non-negative rule the column carries
+  everywhere else) and a sentinel such as `1e9` would be read as "extremely inelastic" by a person
+  and by `classify_regime`. Null is the only honest value, and it travels with its reason:
+  `meta.stats.median_ratio_R` is JSON `null` when no cell fitted a harmonic, and `meta.limitations`
+  states that the seasonal term was not fitted.
+- `regime = "transitional"`. `classify_regime`'s existing rule — `A_seasonal == 0` with a non-zero
+  trend ⇒ `"inelastic"`, `R = ∞` — is right for a fit that *resolved* a near-zero amplitude: the
+  secular term really does dominate a seasonal one the fit could see. It is vacuous for a fit that
+  never had a seasonal column, where there is no denominator to dominate. So `harmonic_fit` with
+  `n_harmonics == 0` returns `"transitional"`, this module's existing spelling for "the ratio carries
+  no regime information" — the same choice it makes whenever `seasonal_identifiable` is `False`.
+
 This is the physical thesis of the three cities: Mexico City's lacustrine clay is inelastic, Málaga's
-karst is elastic. But `R` is **not published**: `transforms.classify_regime` computes it,
-`HarmonicFit.regime` carries it, and no contract field transports it — because over a 0.36 yr window
-the denominator is not measurable. What the app *bands* is `risk_level` (the colour itself is
+karst is elastic. Under v1.0 `R` was **not published**: `transforms.classify_regime` computed it and
+`HarmonicFit.regime` carried it, but no contract field transported it — over a 0.36 yr window the
+denominator was not measurable. That was a property of the window, not of the quantity: on the 2-year
+window `seasonal_amp_mm` is identifiable (§3.3), so v1.1 transports the ratio as `ratio_R` and the
+label as `regime`. What the app *bands* is still `risk_level` (the colour itself is
 `velocity_mm_yr`, [the mock handoff](handoff-mock.md)), and a band is a frozen velocity threshold, not a regime.
 
 **What the split means physically.** Subsidence in these cities is **interbed compaction**: pumping
@@ -627,31 +707,36 @@ X mm/yr" — never as a measurement precision.
 
 **What is actually published, and what would be computed.** The committed Málaga artefact carries
 `1.5 mm/yr` because `config/study_cases.yaml` *declares* it (`detection_limit_mm_yr: 1.5`) and the
-mock copies the constant. The formula above, applied to an **assumed** σ = 1.2 mm over the 0.3614 yr
-span, gives ≈ 6.1 mm/yr with 12 epochs and ≈ 9.4 mm/yr with the two-epoch default. That 1.2 is a
+mock copies the constant. The formula above, applied to an **assumed** σ = 1.2 mm over the current
+2.004 yr span, gives ≈ 0.52 mm/yr with the 62 published epochs and ≈ 1.69 mm/yr with the two-epoch
+default (on the old 0.3614 yr window the same σ gave ≈ 6.1 mm/yr with 12 epochs and ≈ 9.4 mm/yr with
+two — the window this section was written for). That 1.2 is a
 *placeholder*, not a measurement: it is Málaga's `noise_mm_yr` borrowed from `config/study_cases.yaml`,
 whose unit is a noise **velocity** (mm/yr), not a per-epoch displacement scatter — and the mock's own
 residual about the fitted model is ≈ 2.5e-10 mm precisely because its field is exact (§3.2). So the
 formula is a sanity check of the shape of the bound, not this stack's own number. The
-declared 1.5 is a **recorded decision**, not yet an output of that arithmetic. Only the real
+declared 1.5 is a **recorded decision**, not an output of that arithmetic — it sits between the
+current window's 0.52 and 1.69 and below the old window's 6.1 and 9.4. Only the real
 `process_case.py` path computes the bound, and that path has never run on a granule.
 
 ```python
 from pipeline.science import transforms as V
 
-V.detection_limit_mm_yr(velocity_noise_mm=1.2, span_years=0.3614)          # two-epoch bound
-V.detection_limit_mm_yr(velocity_noise_mm=1.2, span_years=0.3614, n_epochs=12)
+V.detection_limit_mm_yr(velocity_noise_mm=1.2, span_years=2.0041)          # two-epoch bound -> 1.69
+V.detection_limit_mm_yr(velocity_noise_mm=1.2, span_years=2.0041, n_epochs=62)   # -> 0.52
 # more epochs buy 1/sqrt(n) only: the span, not the count, sets the floor
+# (the old 0.3614 yr window: 9.39 two-epoch, 6.11 with 12 epochs)
 ```
 
 ![Cumulative displacement series](figures/timeseries_three_cities.png)
 
 *Cumulative displacement since the first acquisition, with Málaga's detection floor shaded
-(±1.5 mm/yr expressed as ±0.54 mm over the 132-day window). Every series starts at exactly 0 mm
-because it is referenced to the first epoch. The seasonal bulge is visible mid-window in the Málaga
-and (weakly) Jakarta series. Mexico City's configured trend dominates its small seasonal term over
-this window, so its series is monotonic; monotonicity alone would **not** prove absence of a
-seasonal component. The contrast is a property of this synthetic model, not a measured regime.*
+(±1.5 mm/yr expressed as ±3.0 mm over the 732-day window: 1.5 × 732/365.25). Every series starts at
+exactly 0 mm because it is referenced to the first epoch. The seasonal swing shows up as two annual
+cycles in the Málaga and (weakly) Jakarta series. Mexico City's configured trend dominates its small
+seasonal term over this window, so its series is monotonic; monotonicity alone would **not** prove
+absence of a seasonal component. The contrast is a property of this synthetic model, not a measured
+regime.*
 
 ### 3.6 Helpers outside the published artefacts
 

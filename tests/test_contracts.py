@@ -1,4 +1,4 @@
-"""Regression suite for the FROZEN data contract v1.0 (`src/domain/contracts.py`).
+"""Regression suite for the FROZEN data contract v1.1 (`src/domain/contracts.py`).
 
 These tests are deliberately brittle. If one fails, either the change was agreed by all three
 roles and the golden snapshot must move with a `SCHEMA_VERSION` bump, or someone drifted the
@@ -33,6 +33,11 @@ def grid_row(**overrides):
         "val_t2": -7.4,
         "delta_change": -7.4,
         "velocity_mm_yr": -128.0,
+        # Contract 1.1: |trend| / amplitude, with a positive amplitude, and the regime the
+        # pipeline's rule (R = |trend| / A: >2 inelastic, 1..2 transitional, <1 elastic) gives.
+        "seasonal_amp_mm": 9.4,
+        "ratio_R": 128.0 / 9.4,
+        "regime": "inelastic",
         "coherence": 0.82,
         "land_use": "urban-dense",
         "risk_level": "critico",
@@ -63,6 +68,8 @@ def timeseries():
                 "cell_id": "aoi",
                 "date": "2026-07-02",
                 "value": 0.0,
+                "trend_mm_yr": -128.0,
+                "seasonal_mm": 0.0,
                 "unit": "mm",
                 "sensor": "nisar",
                 "product": "nisar-gunw",
@@ -74,6 +81,10 @@ def timeseries():
                 "cell_id": "aoi",
                 "date": "2026-07-14",
                 "value": -4.2,
+                # value - trend_mm_yr*t - seasonal_mm == 0 on both rows: the published trend and
+                # seasonal really are the decomposition of the published cumulative displacement.
+                "trend_mm_yr": -128.0,
+                "seasonal_mm": 0.0,
                 "unit": "mm",
                 "sensor": "nisar",
                 "product": "nisar-gunw",
@@ -87,7 +98,7 @@ def timeseries():
 @pytest.fixture()
 def meta():
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "case_id": "mexico-city",
         "name": "Mexico City, MX",
         "bbox": [-99.35, 19.20, -98.85, 19.65],
@@ -117,6 +128,9 @@ def meta():
             "n_cells": 15482,
             "n_dates": 12,
             "median_velocity_mm_yr": -128.0,
+            "median_seasonal_amp_mm": 9.4,
+            "median_ratio_R": 128.0 / 9.4,
+            "dominant_regime": "inelastic",
             "p05_velocity_mm_yr": -410.0,
             "p95_velocity_mm_yr": 12.0,
         },
@@ -153,14 +167,17 @@ def context():
 
 
 def test_schema_version_and_revision_are_frozen():
-    assert C.SCHEMA_VERSION == "1.0"
-    assert C.CONTRACT_REVISION == 1
-    assert C.CHANGELOG[0][0] == "1.0"
+    assert C.SCHEMA_VERSION == "1.1"
+    assert C.CONTRACT_REVISION == 2
+    assert C.CHANGELOG[0][0] == "1.1"
+    # The previous freeze is still recorded: a bump appends, it never rewrites history.
+    assert [version for version, _ in C.CHANGELOG] == ["1.1", "1.0"]
 
 
 def test_grid_field_order_is_frozen():
     assert [f.name for f in C.GRID_FIELDS] == [
         "cell_id", "lat", "lon", "val_t1", "val_t2", "delta_change", "velocity_mm_yr",
+        "seasonal_amp_mm", "ratio_R", "regime",
         "coherence", "land_use", "risk_level", "case_id", "sensor", "product", "unit",
         "velocity_unit", "source", "acquisition_date", "provenance_id",
     ]
@@ -168,8 +185,8 @@ def test_grid_field_order_is_frozen():
 
 def test_timeseries_field_order_is_frozen():
     assert [f.name for f in C.TIMESERIES_FIELDS] == [
-        "case_id", "cell_id", "date", "value", "unit", "sensor", "product", "quality",
-        "provenance_id",
+        "case_id", "cell_id", "date", "value", "trend_mm_yr", "seasonal_mm", "unit",
+        "sensor", "product", "quality", "provenance_id",
     ]
 
 
@@ -186,7 +203,8 @@ def test_required_key_lists_are_frozen():
         "limitations", "null_policy",
     )
     assert C.STATS_REQUIRED_KEYS == (
-        "n_cells", "n_dates", "median_velocity_mm_yr", "p05_velocity_mm_yr", "p95_velocity_mm_yr",
+        "n_cells", "n_dates", "median_velocity_mm_yr", "median_seasonal_amp_mm",
+        "median_ratio_R", "dominant_regime", "p05_velocity_mm_yr", "p95_velocity_mm_yr",
     )
     assert C.PROVENANCE_REQUIRED_KEYS == (
         "source", "product_id", "processing_date", "method", "retrieved_utc", "reference",
@@ -206,6 +224,8 @@ def test_enums_are_frozen():
     )
     assert C.RISK_LEVELS == ("estable", "moderado", "critico")
     assert C.QUALITY == ("good", "fair", "poor")
+    # 1.1 enums: exactly three regimes, and the transition is spelled "transitional".
+    assert C.REGIMES == ("inelastic", "elastic", "transitional")
     assert C.CONTEXT_LAYERS == ("land_use", "infrastructure", "water", "admin_boundary")
     assert C.UNIT == "mm"
     assert C.VELOCITY_UNIT == "mm/year"
@@ -219,6 +239,47 @@ def test_every_product_has_a_profile_and_profiles_are_unique_per_sensor():
         assert profile.sensor in C.SENSORS
         assert profile.persistence == "2of3"
         assert profile.min_area_m2 == 500
+
+
+# ---------------------------------------------------------------------------------------------
+# Contract 1.1 additions: declared dtype/unit/enum, required (not optional) so a 1.0-only
+# generator fails closed instead of silently omitting the thesis metrics.
+# ---------------------------------------------------------------------------------------------
+
+V11_FIELD_DECLARATIONS = [
+    pytest.param(
+        C.GRID_FIELDS, "seasonal_amp_mm", "float64", C.UNIT, None,
+        id="grid.seasonal_amp_mm",
+    ),
+    pytest.param(C.GRID_FIELDS, "ratio_R", "float64", "-", None, id="grid.ratio_R"),
+    pytest.param(C.GRID_FIELDS, "regime", "string", None, C.REGIMES, id="grid.regime"),
+    pytest.param(
+        C.TIMESERIES_FIELDS, "trend_mm_yr", "float64", C.VELOCITY_UNIT, None,
+        id="timeseries.trend_mm_yr",
+    ),
+    pytest.param(
+        C.TIMESERIES_FIELDS, "seasonal_mm", "float64", C.UNIT, None,
+        id="timeseries.seasonal_mm",
+    ),
+]
+
+
+@pytest.mark.parametrize(("fields", "name", "dtype", "unit", "enum"), V11_FIELD_DECLARATIONS)
+def test_contract_11_fields_are_required_with_the_frozen_dtype_unit_and_enum(
+    fields, name, dtype, unit, enum
+):
+    declared = {field.name: field for field in fields}
+    assert name in declared, f"contract 1.1 declares {name!r}"
+    field = declared[name]
+    assert field.required is True
+    assert field.dtype == dtype
+    assert field.unit == unit
+    assert field.enum == enum
+
+
+def test_contract_11_stats_keys_are_required():
+    for key in ("median_seasonal_amp_mm", "median_ratio_R", "dominant_regime"):
+        assert key in C.STATS_REQUIRED_KEYS
 
 
 # ---------------------------------------------------------------------------------------------
@@ -301,6 +362,28 @@ def test_grid_rejects_product_sensor_mismatch():
     assert any("is produced from sensor 'sentinel-1'" in p for p in problems)
 
 
+@pytest.mark.parametrize("column", ["seasonal_amp_mm", "ratio_R", "regime"])
+def test_grid_rejects_missing_contract_11_column(grid, column):
+    """A 1.0-only generator omits these, so the omission itself must fail closed."""
+    problems = C.validate_grid(grid.drop(columns=[column]))
+    assert any(f"missing required column {column!r}" in p for p in problems)
+
+
+def test_grid_rejects_negative_seasonal_amplitude():
+    problems = C.validate_grid(pd.DataFrame([grid_row(seasonal_amp_mm=-9.4)]))
+    assert any("seasonal_amp_mm must be non-negative" in p for p in problems)
+
+
+def test_grid_rejects_negative_ratio():
+    problems = C.validate_grid(pd.DataFrame([grid_row(ratio_R=-13.6)]))
+    assert any("ratio_R must be non-negative" in p for p in problems)
+
+
+def test_grid_rejects_undeclared_regime():
+    problems = C.validate_grid(pd.DataFrame([grid_row(regime="recoverable")]))
+    assert any("regime: undeclared value" in p for p in problems)
+
+
 # ---------------------------------------------------------------------------------------------
 # timeseries negatives.
 # ---------------------------------------------------------------------------------------------
@@ -336,6 +419,12 @@ def test_timeseries_rejects_bad_quality(timeseries):
     assert any("quality: undeclared value" in p for p in problems)
 
 
+@pytest.mark.parametrize("column", ["trend_mm_yr", "seasonal_mm"])
+def test_timeseries_rejects_missing_contract_11_column(timeseries, column):
+    problems = C.validate_timeseries(timeseries.drop(columns=[column]))
+    assert any(f"missing required column {column!r}" in p for p in problems)
+
+
 # ---------------------------------------------------------------------------------------------
 # meta.json negatives.
 # ---------------------------------------------------------------------------------------------
@@ -358,6 +447,26 @@ def test_meta_rejects_product_sensor_mismatch(meta):
 def test_meta_rejects_missing_stats_key(meta):
     stats = {k: v for k, v in meta["stats"].items() if k != "n_cells"}
     assert any("stats missing 'n_cells'" in p for p in C.validate_meta({**meta, "stats": stats}))
+
+
+@pytest.mark.parametrize("key", ["median_seasonal_amp_mm", "median_ratio_R", "dominant_regime"])
+def test_meta_rejects_missing_contract_11_stat(meta, key):
+    stats = {k: v for k, v in meta["stats"].items() if k != key}
+    problems = C.validate_meta({**meta, "stats": stats})
+    assert any(f"stats missing {key!r}" in p for p in problems)
+
+
+def test_meta_rejects_undeclared_dominant_regime(meta):
+    stats = {**meta["stats"], "dominant_regime": "recoverable"}
+    problems = C.validate_meta({**meta, "stats": stats})
+    assert any("dominant_regime" in p and "is not one of" in p for p in problems)
+
+
+@pytest.mark.parametrize("key", ["median_seasonal_amp_mm", "median_ratio_R"])
+def test_meta_rejects_negative_seasonal_stat(meta, key):
+    stats = {**meta["stats"], key: -1.0}
+    problems = C.validate_meta({**meta, "stats": stats})
+    assert any(f"stats.{key} must be non-negative" in p for p in problems)
 
 
 def test_meta_rejects_null_result_without_detection_limit(meta):

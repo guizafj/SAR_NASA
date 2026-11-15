@@ -1,4 +1,4 @@
-"""Frozen data contract v1.0 — NASA Space Apps 2026, "Dancing with the SARs".
+"""Frozen data contract v1.1 — NASA Space Apps 2026, "Dancing with the SARs".
 
 This module is the machine-readable half of `docs/data-contract-v1.md`. Both are normative and
 must agree; when they disagree, this file wins and the doc is wrong.
@@ -20,9 +20,27 @@ Hard rules
 4. Thresholds are per `(sensor, product)` and never pooled. NISAR's 12-day revisit is not
    Sentinel-1's 6-day revisit; the same coherence number means different things.
 
+What 1.1 adds (all required, so a 1.0-only generator fails closed)
+-----------------------------------------------------------------
+The thesis metrics, as *fitted* values rather than typed constants: ``seasonal_amp_mm`` /
+``ratio_R`` / ``regime`` on the grid, ``trend_mm_yr`` / ``seasonal_mm`` on the timeseries, and
+``median_seasonal_amp_mm`` / ``median_ratio_R`` / ``dominant_regime`` in ``meta.stats``. The
+seasonal pair is only publishable when the stack's own identifiability gate passes
+(``pipeline/science/transforms.py``: >= 0.75 yr per harmonic, design condition <= 30), which is
+why the study window is two years long: at the previous 132-day window the pipeline measured
+``annual_coverage = 0.3614`` and ``cond = 66.84``, i.e. an amplitude that must not be published.
+
+One narrow exception, because the columns are required: a stack shorter than the gate fits **no**
+seasonal harmonic, and then ``seasonal_amp_mm`` is ``0.0`` (the model has no seasonal term) while
+``ratio_R`` is **null** — ``|trend| / 0`` is undefined, and a number there would be fabricated.
+Null is legal in ``ratio_R`` exactly where ``seasonal_amp_mm == 0``, ``meta.stats.median_ratio_R``
+may be JSON null for the same reason, and the fit reports ``regime = "transitional"`` (this module's
+spelling for "no regime information", see ``transforms.harmonic_fit``). Everywhere else both
+columns are finite, non-negative numbers.
+
 Freeze record
 -------------
-    SCHEMA_VERSION = "1.0"    CONTRACT_REVISION = 1    frozen 2026-11-14
+    SCHEMA_VERSION = "1.1"    CONTRACT_REVISION = 2    frozen 2026-11-14
 """
 
 from __future__ import annotations
@@ -35,11 +53,19 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
-SCHEMA_VERSION = "1.0"
-CONTRACT_REVISION = 1
+SCHEMA_VERSION = "1.1"
+CONTRACT_REVISION = 2
 CONTRACT_FROZEN_UTC = "2026-11-14T00:00:00Z"
 
 CHANGELOG: tuple[tuple[str, str], ...] = (
+    (
+        "1.1",
+        "Adds the thesis metrics: seasonal_amp_mm, ratio_R and regime to the grid, plus "
+        "trend_mm_yr and seasonal_mm to timeseries and aggregate thesis statistics to meta. "
+        "They are fitted values (harmonics of the README §6 trend/seasonal split), never typed "
+        "constants, and the seasonal trio is only publishable when the span/conditioning gate of "
+        "pipeline/science/transforms.py passes.",
+    ),
     (
         "1.0",
         "Initial freeze. Resolves six ambiguities in flujo §5: delta_change is cumulative mm and "
@@ -118,6 +144,15 @@ GRID_FIELDS: tuple[Field, ...] = (
     Field("val_t2", "float64", True, UNIT, note="Modelled displacement at last date (mm, up +)"),
     Field("delta_change", "float64", True, UNIT, note="val_t2 - val_t1 (negative = subsidence)"),
     Field("velocity_mm_yr", "float64", True, VELOCITY_UNIT, note="Fitted linear trend (FROZEN ADDITION)"),
+    Field("seasonal_amp_mm", "float64", True, UNIT, note="Fitted seasonal amplitude"),
+    Field(
+        "ratio_R",
+        "float64",
+        True,
+        "-",
+        note="abs(trend) / seasonal amplitude; null iff seasonal_amp_mm == 0 (no harmonic fitted)",
+    ),
+    Field("regime", "string", True, enum=REGIMES, note="Secular versus seasonal regime"),
     Field("coherence", "float64", True, "-", note="0..1, bias-corrected temporal mean"),
     Field("land_use", "string", True, enum=LAND_USE),
     Field("risk_level", "string", True, enum=RISK_LEVELS, note="Derived by risk_level_from_velocity"),
@@ -137,6 +172,8 @@ TIMESERIES_FIELDS: tuple[Field, ...] = (
     Field("cell_id", "string", True, note="'aoi' for the case aggregate; an H3 index for drill-down"),
     Field("date", "string", True, note="ISO YYYY-MM-DD, member of meta.dates"),
     Field("value", "float64", True, UNIT, note="Cumulative displacement, mm, up positive"),
+    Field("trend_mm_yr", "float64", True, VELOCITY_UNIT, note="Offline secular trend"),
+    Field("seasonal_mm", "float64", True, UNIT, note="Offline seasonal component"),
     Field("unit", "string", True, enum=(UNIT,)),
     Field("sensor", "string", True, enum=SENSORS),
     Field("product", "string", True, enum=PRODUCTS),
@@ -195,6 +232,9 @@ STATS_REQUIRED_KEYS: tuple[str, ...] = (
     "n_cells",
     "n_dates",
     "median_velocity_mm_yr",
+    "median_seasonal_amp_mm",
+    "median_ratio_R",
+    "dominant_regime",
     "p05_velocity_mm_yr",
     "p95_velocity_mm_yr",
 )
@@ -304,6 +344,7 @@ def contract_fingerprint() -> str:
         "timeseries": [(f.name, f.dtype, f.required, f.unit, f.enum) for f in TIMESERIES_FIELDS],
         "context": [(f.name, f.dtype, f.required, f.unit, f.enum) for f in CONTEXT_FIELDS],
         "meta_required": META_REQUIRED_KEYS,
+        "stats_required": STATS_REQUIRED_KEYS,
         "profiles": {
             k: [v.sensor, v.product, v.revisit_days, v.coherence_min, v.k_sigma, v.min_ddB]
             for k, v in sorted(SENSOR_PROFILES.items())
@@ -376,24 +417,70 @@ def validate_grid(
         except Exception:  # noqa: BLE001
             return None
 
-    for column in ("lat", "lon", "val_t1", "val_t2", "delta_change", "velocity_mm_yr", "coherence"):
+    for column in (
+        "lat",
+        "lon",
+        "val_t1",
+        "val_t2",
+        "delta_change",
+        "velocity_mm_yr",
+        "seasonal_amp_mm",
+        "ratio_R",
+        "coherence",
+    ):
         if column not in columns:
             continue
         values = numeric(column)
         if values is None:
             continue
         try:
-            if values.isna().any():
-                problems.append(f"grid: {column} has {int(values.isna().sum())} null(s)")
+            if column == "ratio_R":
+                # A fitted amplitude is a number; a not-fitted one (amplitude exactly 0, because
+                # `transforms.harmonic_order` returned 0) makes |trend|/0 undefined, and null is
+                # the only honest value. The window is narrow on purpose: a null where an
+                # amplitude WAS fitted would be a computed ratio the publisher hid.
+                nulls = values.isna()
+                amplitude = numeric("seasonal_amp_mm")
+                if nulls.any():
+                    if amplitude is None:
+                        problems.append(
+                            f"grid: ratio_R has {int(nulls.sum())} null(s) but there is no "
+                            "seasonal_amp_mm column to justify them"
+                        )
+                    else:
+                        fitted = amplitude.fillna(0.0) > 0.0
+                        unjustified = nulls & fitted
+                        if unjustified.any():
+                            problems.append(
+                                f"grid: ratio_R has {int(unjustified.sum())} null(s) where "
+                                "seasonal_amp_mm > 0; a fitted harmonic has a defined ratio, so "
+                                "publish it (null is only legal where nothing was fitted)"
+                            )
+                observed = values.dropna()
+            else:
+                if values.isna().any():
+                    problems.append(f"grid: {column} has {int(values.isna().sum())} null(s)")
+                observed = values
             if column == "lat" and not values.between(-90, 90).all():
                 problems.append("grid: lat outside [-90, 90]")
             if column == "lon" and not values.between(-180, 180).all():
                 problems.append("grid: lon outside [-180, 180]")
             if column == "coherence" and not values.dropna().between(0, 1).all():
                 problems.append("grid: coherence outside [0, 1]")
-            if column in ("val_t1", "val_t2", "delta_change", "velocity_mm_yr"):
-                if not values.dropna().map(_math.isfinite).all():
+            if column in (
+                "val_t1",
+                "val_t2",
+                "delta_change",
+                "velocity_mm_yr",
+                "seasonal_amp_mm",
+                "ratio_R",
+            ):
+                if not observed.map(_math.isfinite).all():
                     problems.append(f"grid: {column} contains non-finite values")
+            if column == "seasonal_amp_mm" and not observed.ge(0).all():
+                problems.append("grid: seasonal_amp_mm must be non-negative (an amplitude)")
+            if column == "ratio_R" and not observed.ge(0).all():
+                problems.append("grid: ratio_R must be non-negative (abs(trend)/amplitude)")
         except Exception:  # noqa: BLE001 - non-numeric column reported below
             problems.append(f"grid: {column} is not numeric")
 
@@ -472,6 +559,22 @@ def validate_timeseries(series: Any, *, dates: Sequence[str] | None = None) -> l
     for field in TIMESERIES_FIELDS:
         if field.name in columns:
             _enum_problems(series, field, problems)
+
+    # The numeric columns are what every consumer plots; a null or a non-finite value would be
+    # rendered as a real measurement. `trend_mm_yr`/`seasonal_mm` are 1.1 additions and were not
+    # validated at all before this check, so a NaN fit could reach the app unchallenged.
+    for column in ("value", "trend_mm_yr", "seasonal_mm"):
+        if column not in columns:
+            continue
+        try:
+            values = _series(series, column).astype("float64")
+        except Exception:  # noqa: BLE001 - non-numeric column reported here, not below
+            problems.append(f"timeseries: {column} is not numeric")
+            continue
+        if values.isna().any():
+            problems.append(f"timeseries: {column} has {int(values.isna().sum())} null(s)")
+        elif not values.map(math.isfinite).all():
+            problems.append(f"timeseries: {column} contains non-finite values")
 
     if "date" in columns:
         try:
@@ -588,6 +691,21 @@ def validate_meta(meta: Mapping[str, Any]) -> list[str]:
         for key in STATS_REQUIRED_KEYS:
             if key not in stats:
                 problems.append(f"meta: stats missing {key!r}")
+        dominant = stats.get("dominant_regime")
+        if dominant is not None and str(dominant) not in REGIMES:
+            problems.append(
+                f"meta: stats.dominant_regime {dominant!r} is not one of {list(REGIMES)}"
+            )
+        for key in ("median_seasonal_amp_mm", "median_ratio_R"):
+            value = stats.get(key)
+            # `median_ratio_R` may be JSON null when no cell fitted a harmonic, but a non-finite
+            # number is never legal: NaN/inf cannot survive a strict JSON reader and would hide a
+            # broken fit behind a value that merely looks numeric.
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if not math.isfinite(float(value)):
+                    problems.append(f"meta: stats.{key} must be finite or null, got {value!r}")
+                elif value < 0.0:
+                    problems.append(f"meta: stats.{key} must be non-negative, got {value!r}")
         median = stats.get("median_velocity_mm_yr")
         if isinstance(median, (int, float)) and abs(median) < NULL_RESULT_MM_YR:
             if not isinstance(stats.get("detection_limit_mm_yr"), (int, float)):
@@ -683,6 +801,9 @@ def _selfcheck() -> int:
             "val_t2": -7.4,
             "delta_change": -7.4,
             "velocity_mm_yr": -128.0,
+            "seasonal_amp_mm": 9.4,
+            "ratio_R": 128.0 / 9.4,
+            "regime": "inelastic",
             "coherence": 0.82,
             "land_use": "urban-dense",
             "risk_level": "critico",
@@ -701,8 +822,8 @@ def _selfcheck() -> int:
     grid = pd.DataFrame(rows)
     series = pd.read_csv(
         io.StringIO(
-            "case_id,cell_id,date,value,unit,sensor,product,quality,provenance_id\n"
-            f"mexico-city,aoi,2026-07-02,0.0,mm,nisar,nisar-gunw,good,{rows[0]['provenance_id']}\n"
+            "case_id,cell_id,date,value,trend_mm_yr,seasonal_mm,unit,sensor,product,quality,provenance_id\n"
+            f"mexico-city,aoi,2026-07-02,0.0,-128.0,0.0,mm,nisar,nisar-gunw,good,{rows[0]['provenance_id']}\n"
         )
     )
     meta = {
@@ -736,6 +857,9 @@ def _selfcheck() -> int:
             "n_cells": 15500,
             "n_dates": 12,
             "median_velocity_mm_yr": -128.0,
+            "median_seasonal_amp_mm": 9.4,
+            "median_ratio_R": 128.0 / 9.4,
+            "dominant_regime": "inelastic",
             "p05_velocity_mm_yr": -410.0,
             "p95_velocity_mm_yr": 12.0,
         },
@@ -775,10 +899,23 @@ def _selfcheck() -> int:
     # Negative tests: each must be caught, otherwise the freeze is decorative.
     negatives = {
         "delta_change arithmetic": validate_grid(pd.DataFrame([{**rows[0], "delta_change": 1.0}])),
+        "negative seasonal amplitude": validate_grid(pd.DataFrame([{**rows[0], "seasonal_amp_mm": -1.5}])),
+        "negative ratio_R": validate_grid(pd.DataFrame([{**rows[0], "ratio_R": -2.0}])),
+        "undeclared regime": validate_grid(pd.DataFrame([{**rows[0], "regime": "recoverable"}])),
+        "null ratio_R where a harmonic was fitted": validate_grid(
+            pd.DataFrame([{**rows[0], "ratio_R": None}])
+        ),
         "pooled threshold": validate_meta({**meta, "product": "nisar-gunw", "sensor": "sentinel-1"}),
         "null result without bound": validate_meta(
             {**meta, "stats": {**meta["stats"], "median_velocity_mm_yr": -1.2}}
         ),
+        "undeclared dominant_regime": validate_meta(
+            {**meta, "stats": {**meta["stats"], "dominant_regime": "recoverable"}}
+        ),
+        "non-finite median_ratio_R": validate_meta(
+            {**meta, "stats": {**meta["stats"], "median_ratio_R": float("nan")}}
+        ),
+        "non-finite trend_mm_yr": validate_timeseries(series.assign(trend_mm_yr=float("nan"))),
         "undeclared product": validate_meta({**meta, "product": "opera-disp-s1", "sensor": "nisar"}),
     }
     for label, problems in negatives.items():
@@ -787,6 +924,21 @@ def _selfcheck() -> int:
         else:
             failed = True
             print(f"FAIL negative: {label} was accepted")
+
+    # Positive acceptance for the one narrow null: a not-fitted harmonic publishes amplitude 0
+    # and an undefined (null) ratio, and that must NOT be reported as an error.
+    not_fitted = pd.DataFrame(
+        [{**rows[0], "seasonal_amp_mm": 0.0, "ratio_R": None, "regime": "transitional"}]
+    )
+    problems = validate_grid(not_fitted)
+    if problems:
+        failed = True
+        print("FAIL positive: not-fitted amplitude with a null ratio_R rejected")
+        for problem in problems:
+            print(f"  - {problem}")
+    else:
+        print("PASS positive: not-fitted harmonic (amplitude 0, null ratio_R) accepted")
+
     print(f"\ncontract fingerprint: {contract_fingerprint()}")
     return 1 if failed else 0
 

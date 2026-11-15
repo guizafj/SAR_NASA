@@ -277,6 +277,18 @@ def get_map_kpis(
             "unit": None,
             "provenance_id": prov_id,
         },
+        {
+            # v1.1: fitted, not typed — `seasonal_amp_mm` comes from the harmonic fit of each
+            # cell's own series, so the card and the parquet can never disagree.
+            "label": "amplitud estacional mediana",
+            "value": (
+                round(kpis.median_seasonal_amp_mm, 2)
+                if kpis.median_seasonal_amp_mm is not None
+                else None
+            ),
+            "unit": C.UNIT,
+            "provenance_id": prov_id,
+        },
     ]
 
 
@@ -301,6 +313,17 @@ def get_cell_detail(
         "val_t2": float(row["val_t2"]),
         "delta_change": float(row["delta_change"]),
         "velocity_mm_yr": float(row["velocity_mm_yr"]),
+        # v1.1: the fitted seasonal pair. Present only when the artefact carries it, so a v1.0
+        # tree still renders instead of raising a KeyError in the detail panel. A not-fitted cell
+        # publishes amplitude 0.0 with a *null* ratio (|trend|/0 is undefined), which is reported
+        # as None rather than as NaN — NaN is not valid JSON and would poison a JSON consumer.
+        "seasonal_amp_mm": float(row["seasonal_amp_mm"]) if "seasonal_amp_mm" in row else None,
+        "ratio_R": (
+            float(row["ratio_R"])
+            if "ratio_R" in row and pd.notna(row["ratio_R"])
+            else None
+        ),
+        "regime": str(row["regime"]) if "regime" in row else None,
         "coherence": float(row["coherence"]),
         "land_use": str(row["land_use"]),
         "risk_level": str(row["risk_level"]),
@@ -324,6 +347,12 @@ def get_cell_detail(
                 "cell_id": str(r.cell_id),
                 "date": str(r.date),
                 "value": float(r.value),
+                "trend_mm_yr": (
+                    float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None
+                ),
+                "seasonal_mm": (
+                    float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None
+                ),
                 "unit": str(r.unit),
                 "sensor": str(r.sensor),
                 "product": str(r.product),
@@ -405,6 +434,21 @@ def get_series_kpis(
             "provenance_id": prov_id,
             "note": f"coherence >= {coh_floor:g}",
         },
+        {
+            "label": "amplitud estacional mediana",
+            "value": (
+                round(kpis.median_seasonal_amp_mm, 2)
+                if kpis.median_seasonal_amp_mm is not None
+                else None
+            ),
+            "unit": C.UNIT,
+            "provenance_id": prov_id,
+            "note": (
+                f"ajuste armónico, R = |tendencia|/A; régimen dominante {kpis.dominant_regime}"
+                if kpis.dominant_regime
+                else "ajuste armónico, no un valor de configuración"
+            ),
+        },
     ]
 
 
@@ -414,7 +458,11 @@ def get_case_series(
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> list[dict[str, Any]]:
-    """Return the published `cell_id == 'aoi'` series (`mm`) for Tab 2's line chart."""
+    """Return the published `cell_id == 'aoi'` series (`mm`) for Tab 2's line chart.
+
+    v1.1 adds the fitted ``trend_mm_yr`` / ``seasonal_mm`` columns of each row (``None`` when a
+    v1.0 tree is on disk), so the chart can draw the decomposition without re-fitting anything.
+    """
     del filters  # AOI series is a case-level artefact; per-cell series are optional (contract §4)
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     aoi = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == "aoi"]
@@ -422,6 +470,8 @@ def get_case_series(
         {
             "date": str(r.date),
             "value": float(r.value),
+            "trend_mm_yr": float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None,
+            "seasonal_mm": float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None,
             "unit": str(r.unit),
             "provenance_id": str(r.provenance_id),
         }

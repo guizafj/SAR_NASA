@@ -16,6 +16,16 @@ val_t1 = d(first date);  val_t2 = d(last date);  delta_change = val_t2 - val_t1
 velocity = trend coefficient of the joint [1, t, cos, sin] fit
 ```
 
+The seasonal columns the mock publishes are the **output of `harmonic_fit`**, run per cell on the
+synthetic `cumulative_series` with the order `harmonic_order` derives from the window — the same
+function the real chain calls, not the injected `seasonal_amplitude_mm` copied into the artefacts.
+Because the mock window is two years (2.004 annual cycles), the fit is identifiable at order 2 and
+recovers the injected amplitude (1.5 / 12.0 / 3.5 mm for Mexico City, Jakarta and Málaga); that
+agreement is a check on the generator and the fit, not a shortcut around either. The not-fitted path
+is only the short-stack contrast here: on a stack too short to carry an annual harmonic the fit has
+no seasonal column, so `seasonal_amp_mm = 0` means "not fitted", `ratio_R` is `null`, and `regime`
+is `"transitional"`. The 2-year mock never reaches that corner.
+
 ## Parameters and interpretation
 
 All case parameters come from `config/study_cases.yaml`, never from constants hidden in the model.

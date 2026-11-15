@@ -21,7 +21,7 @@ from src.domain.map_adapter import (
     build_pydeck_layer_specs,
     column_elevation_from_delta,
 )
-from tests.conftest import write_synthetic_case
+from tests.conftest import classify_regime, write_synthetic_case
 
 
 def _case_with_signed_deltas(
@@ -33,18 +33,36 @@ def _case_with_signed_deltas(
     `write_synthetic_case` emits a strictly negative-to-positive ramp that never contains an exact
     zero, so the signed-height tests need one hermetic fixture with a known -x / 0 / +x triple.
     Only value columns change; row counts (the sole cross-artefact check) stay identical.
+
+    Contract 1.1 ties three columns to `velocity_mm_yr`, so rewriting it obliges this helper to
+    rewrite them too or the bundle fails closed on load: `ratio_R == |velocity| / amplitude`
+    (`src/data/validation.py::_seasonal_column_problems`), `regime` by the pipeline's own rule,
+    and `stats.median_ratio_R`, which must stay the grid's median.
     """
     write_synthetic_case(tmp_path, "malaga", n_rings=1)
     grid_path = tmp_path / "malaga" / "nisar_grid.parquet"
     grid = pd.read_parquet(grid_path)
     assert len(grid) >= len(deltas_mm)
     for idx, delta in enumerate(deltas_mm):
+        amplitude_mm = float(grid.loc[idx, "seasonal_amp_mm"])
         grid.loc[idx, "val_t1"] = 0.0
         grid.loc[idx, "val_t2"] = float(delta)
         grid.loc[idx, "delta_change"] = float(delta)
         grid.loc[idx, "velocity_mm_yr"] = float(delta)
+        grid.loc[idx, "ratio_R"] = abs(float(delta)) / amplitude_mm
+        grid.loc[idx, "regime"] = classify_regime(float(delta), amplitude_mm)
         grid.loc[idx, "risk_level"] = C.risk_level_from_velocity(float(delta))
     grid.to_parquet(grid_path, index=False)
+
+    meta_path = tmp_path / "malaga" / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["stats"]["median_ratio_R"] = round(float(grid["ratio_R"].median()), 6)
+    regime_counts = grid["regime"].astype(str).value_counts()
+    # Same estimator and tie-break as `src/data/validation.py::_seasonal_stat_problems`.
+    meta["stats"]["dominant_regime"] = sorted(
+        regime_counts.items(), key=lambda item: (-int(item[1]), str(item[0]))
+    )[0][0]
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return grid_path
 
 

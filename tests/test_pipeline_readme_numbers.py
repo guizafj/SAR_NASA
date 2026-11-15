@@ -102,11 +102,12 @@ ALLOWLIST: tuple[tuple[str, str], ...] = (
         "not a quantity measured from the tree",
     ),
     (
-        r"contract v1\.0",
-        "schema version pinned in contracts.SCHEMA_VERSION, not an artefact statistic",
+        r"contract v1\.1",
+        "schema version pinned in contracts.SCHEMA_VERSION (now 1.1), not an artefact statistic; "
+        "the same header line names v1.0 as the version the bump came from",
     ),
     (
-        r"049376b0",
+        r"ed92be80",
         "contract_fingerprint() abbreviated on the page; a code-derived hash cross-checked by "
         "tests/test_fingerprint_consistency.py, not a quantity measured from the tree",
     ),
@@ -147,6 +148,17 @@ ALLOWLIST: tuple[tuple[str, str], ...] = (
     (
         r"\b20 m\b",
         "the alternative coherence-layer posting, same open question as 80 m",
+    ),
+    (
+        r"MAX_DESIGN_CONDITION\s*=\s*30",
+        "transforms.MAX_DESIGN_CONDITION: the frozen collinearity gate (a code constant), printed "
+        "next to the measured design condition 4.12 so a reader can divide the two",
+    ),
+    (
+        r"design condition\s+66\.8",
+        "the OLD 132-day window's design condition, recorded in meta.limitations (the artefact's "
+        "own history line): a past measurement, not a statistic of the current tree — 4.12 is "
+        "the value compared against meta.stats",
     ),
     (
         r"~200 m",
@@ -438,6 +450,42 @@ def _measure_case(case: str) -> dict[str, object]:
         "seed": meta["provenance"].get("mock_seed"),
         "source": str(meta["provenance"].get("source", "")),
         "detection_limit": stats.get("detection_limit_mm_yr"),
+        # the seasonal publication claim (§7 limitation 4): the meta verdict *and* the columns it
+        # says were published, so "published as fit results" is checked against the grid itself
+        "annual_coverage": stats.get("annual_coverage"),
+        "design_condition": stats.get("design_condition"),
+        "seasonal_n_harmonics": stats.get("seasonal_n_harmonics"),
+        "seasonal_amp": stats.get("median_seasonal_amp_mm"),
+        "ratio_R": stats.get("median_ratio_R"),
+        "regime": stats.get("dominant_regime"),
+        "limitations": list(meta.get("limitations") or []),
+        "seasonal_columns": sorted(
+            column for column in ("seasonal_amp_mm", "ratio_R", "regime") if column in grid.columns
+        ),
+        "seasonal_nulls": int(
+            sum(
+                grid[column].isna().sum()
+                for column in ("seasonal_amp_mm", "ratio_R", "regime")
+                if column in grid.columns
+            )
+        ),
+        # contract §3: ratio_R = |velocity_mm_yr| / seasonal_amp_mm on the same row
+        "ratio_consistent": bool(
+            all(column in grid.columns for column in ("seasonal_amp_mm", "ratio_R"))
+            and (
+                (
+                    grid.loc[grid["seasonal_amp_mm"] > 0, "ratio_R"].astype(float)
+                    - (
+                        grid.loc[grid["seasonal_amp_mm"] > 0, "velocity_mm_yr"].astype(float).abs()
+                        / grid.loc[grid["seasonal_amp_mm"] > 0, "seasonal_amp_mm"].astype(float)
+                    )
+                ).abs()
+                <= 1e-3
+            ).all()
+        ),
+        "grid_regimes": sorted(
+            set(grid["regime"].dropna().astype(str)) if "regime" in grid.columns else set()
+        ),
     }
 
 
@@ -1106,6 +1154,211 @@ def test_stack_length_in_days(measured: dict[str, dict[str, object]]) -> None:
             tolerance=0.0,
             tolerance_label="0 (exact) — integer days between the first and last meta.dates",
         )
+    if report:
+        pytest.fail("\n\n".join(report))
+
+
+# --------------------------------------------------------------------------------------------
+# §7: seasonality — is the annual term identified, or is the amplitude a typed constant?
+# --------------------------------------------------------------------------------------------
+
+
+def _match(pattern: str, line: str, *, line_no: int, key: str) -> re.Match[str]:
+    match = re.search(pattern, line)
+    if match is None:
+        pytest.fail(
+            f"pipeline/README.md:{line_no}: cannot read the seasonal-identifiability claim "
+            f"({key}) from the doc line\n  {line.strip()}\n"
+            f"  expected: text matching {pattern!r}\n"
+            f"  tolerance: n/a — the sentence is parsed at run time, so a reword moves this regex"
+        )
+    return match
+
+
+def test_seasonal_identifiability_claim(
+    measured: dict[str, dict[str, object]], doc_table: dict[str, Row]
+) -> None:
+    """§7 limitation 4: the 2-year window identifies the annual term, the 132-day one did not.
+
+    Two claims in one sentence, and both can be re-derived: the *current* coverage/condition are
+    `meta.stats`, the *published* amplitude/ratio/regime are the grid's own columns, and the
+    past-tense half is the same gate applied to the numbers `meta.limitations` records for the
+    old window. A doc that quietly stopped publishing the amplitude would leave the prose true
+    and the artefacts empty, so the columns are checked, not just the sentence.
+    """
+    line_no, line = _line(
+        r"annual coverage\s+\d+(?:\.\d+)?\s*yr", what="the seasonal-identifiability limitation"
+    )
+
+    coverage = float(_match(r"annual coverage\s+([\d.]+)\s*yr", line,
+                            line_no=line_no, key="annual coverage").group(1))
+    cycles_match = _match(
+        r"\(([\d.]+)\s*cycles against the ([\d.]+)\s*yr-per-harmonic gate\)", line,
+        line_no=line_no, key="annual coverage in cycles and the coverage gate",
+    )
+    cycles, doc_coverage_gate = float(cycles_match.group(1)), float(cycles_match.group(2))
+    condition_match = _match(
+        r"at design condition\s+([\d.]+)\s*\(limit `MAX_DESIGN_CONDITION = ([\d.]+)`\)", line,
+        line_no=line_no, key="design condition and its limit",
+    )
+    condition, doc_condition_limit = float(condition_match.group(1)), float(condition_match.group(2))
+    amps = [float(v) for v in _match(
+        r"median_seasonal_amp_mm`\s*([\d.]+)\s*/\s*([\d.]+)\s*/\s*([\d.]+)\s*mm", line,
+        line_no=line_no, key="per-case median seasonal amplitudes",
+    ).groups()]
+    ratios = [float(v) for v in _match(
+        r"median_ratio_R`\s*([\d.]+)\s*/\s*([\d.]+)\s*/\s*([\d.]+)", line,
+        line_no=line_no, key="per-case median ratio R",
+    ).groups()]
+    regimes = list(_match(
+        r"dominant_regime`\s*([a-z]+)\s*/\s*([a-z]+)\s*/\s*([a-z]+)", line,
+        line_no=line_no, key="per-case dominant regime",
+    ).groups())
+    old_match = _match(
+        r"old\s+(\d+)-day window\s*\(([\d.]+)\s*annual cycles, design condition\s+([\d.]+)\)",
+        line, line_no=line_no, key="the historical 132-day window",
+    )
+    old_days, old_cycles, old_condition = (
+        int(old_match.group(1)), float(old_match.group(2)), float(old_match.group(3)),
+    )
+
+    order = [case for case in doc_table if case in measured]
+    if set(order) != set(CASES):
+        pytest.fail(
+            f"pipeline/README.md:{line_no} lists the seasonal medians in the order of the headline "
+            f"table, but the two disagree about which cases exist\n"
+            f"  documented rows: {', '.join(order) or '(none)'}\n"
+            f"  measured cases:  {', '.join(CASES) or '(none)'}\n"
+            f"  tolerance:  n/a — see test_doc_and_disk_cover_the_same_cases"
+        )
+
+    report: list[str] = []
+    for case, amp, ratio, regime in zip(order, amps, ratios, regimes):
+        got = measured[case]
+        for metric, documented, key, tolerance, label in (
+            ("annual coverage (yr)", coverage, "annual_coverage", 0.005,
+             "±0.005 yr — three decimals printed; `annual_coverage` is span / period"),
+            ("annual coverage (cycles)", cycles, "annual_coverage", 0.005,
+             "±0.005 cycles — two decimals printed, the same quantity as the years above"),
+            ("design condition", condition, "design_condition", 0.005,
+             "±0.005 — two decimals printed; `meta.stats.design_condition`"),
+            ("median seasonal amplitude (mm)", amp, "seasonal_amp", 0.05,
+             "±0.05 mm — one decimal printed; `meta.stats.median_seasonal_amp_mm`"),
+            ("median ratio R", ratio, "ratio_R", 0.005,
+             "±0.005 — two decimals printed; `meta.stats.median_ratio_R`"),
+            ("dominant regime", regime, "regime", 0.0,
+             "0 (exact) — a `contracts.REGIMES` value, compared verbatim"),
+        ):
+            _check(
+                report, metric=f"{metric} for {case!r}", line_no=line_no, text=line,
+                documented=documented, measured_value=got[key],
+                tolerance=tolerance, tolerance_label=label,
+            )
+
+    # The gates named in the sentence must still be the frozen code constants.
+    _check(
+        report, metric="coverage gate (yr per harmonic)", line_no=line_no, text=line,
+        documented=doc_coverage_gate,
+        measured_value=transforms.MIN_SEASONAL_COVERAGE_PER_HARMONIC,
+        tolerance=0.0, tolerance_label="0 (exact) — a frozen code constant, not a statistic",
+    )
+    _check(
+        report, metric="design-condition limit", line_no=line_no, text=line,
+        documented=doc_condition_limit, measured_value=transforms.MAX_DESIGN_CONDITION,
+        tolerance=0.0, tolerance_label="0 (exact) — a frozen code constant, not a statistic",
+    )
+
+    # The sentence promises a *verdict*: the gates pass, so the amplitude is publishable — and the
+    # grid must actually carry the published columns, not a typed constant.
+    for case in CASES:
+        got = measured[case]
+        harmonics = max(int(got["seasonal_n_harmonics"] or 0), 1)
+        needed = transforms.MIN_SEASONAL_COVERAGE_PER_HARMONIC * harmonics
+        coverage_ok = float(got["annual_coverage"]) >= needed
+        condition_ok = float(got["design_condition"]) <= transforms.MAX_DESIGN_CONDITION
+        if not (coverage_ok and condition_ok):
+            report.append(
+                f"pipeline/README.md:{line_no} — the doc says the annual term IS identifiable, "
+                f"but the gate rejects {case!r}\n"
+                f"  documented: identifiable (coverage {coverage:g} yr, condition {condition:g})\n"
+                f"  measured:   coverage {float(got['annual_coverage']):.6f} yr vs gate "
+                f"{needed:g}, condition {float(got['design_condition']):.6f} vs limit "
+                f"{transforms.MAX_DESIGN_CONDITION:g}\n"
+                f"  tolerance:  none — the sentence says 'the annual term is separable'\n"
+                f"  doc line:   {line.strip()}"
+            )
+        expected_columns = ["ratio_R", "regime", "seasonal_amp_mm"]
+        if got["seasonal_columns"] != expected_columns:
+            report.append(
+                f"data/processed/{case}/nisar_grid.parquet — the doc says the amplitude, ratio_R "
+                f"and regime are published as fit results, but the grid lacks a column\n"
+                f"  documented: {', '.join(expected_columns)}\n"
+                f"  measured:   {', '.join(got['seasonal_columns']) or '(none)'}\n"
+                f"  tolerance:  exact — contract v1.1 §3 names all three"
+            )
+            continue
+        if int(got["seasonal_nulls"]) != 0:
+            report.append(
+                f"data/processed/{case}/nisar_grid.parquet — the seasonal columns are not fully "
+                f"published\n  documented: a fitted value in every cell\n"
+                f"  measured:   {got['seasonal_nulls']} null(s) across the three columns\n"
+                f"  tolerance:  0 (exact) — a withheld amplitude would make the doc's claim false"
+            )
+        if not got["ratio_consistent"]:
+            report.append(
+                f"data/processed/{case}/nisar_grid.parquet — `ratio_R` is not |velocity| / "
+                f"`seasonal_amp_mm` on the same row\n"
+                f"  documented: ratio_R is derived from the fitted pair (contract §3)\n"
+                f"  measured:   rows where the identity breaks\n"
+                f"  tolerance:  1e-3 absolute — a ratio typed independently of the fit fails here"
+            )
+        stray = set(got["grid_regimes"]) - set(contracts.REGIMES)
+        if stray:
+            report.append(
+                f"data/processed/{case}/nisar_grid.parquet — unknown `regime` value\n"
+                f"  documented: one of {', '.join(contracts.REGIMES)}\n"
+                f"  measured:   {', '.join(sorted(stray))}\n"
+                f"  tolerance:  0 (exact) — a contract enum"
+            )
+
+    # The past-tense half: the same gate, applied to the old window the sentence names. Its
+    # numbers are history, so they are pinned to `meta.limitations` (the artefact's own record)
+    # rather than to any current statistic.
+    _check(
+        report, metric="old window in annual cycles", line_no=line_no, text=line,
+        documented=old_cycles, measured_value=old_days / transforms.DAYS_PER_YEAR,
+        tolerance=0.005,
+        tolerance_label=f"±0.005 cycles — two decimals printed; {old_days} d / "
+                        f"{transforms.DAYS_PER_YEAR:g} d·yr⁻¹",
+    )
+    if old_cycles >= transforms.MIN_SEASONAL_COVERAGE_PER_HARMONIC:
+        report.append(
+            f"pipeline/README.md:{line_no} — the doc says the old window could not identify the "
+            f"annual term, but its coverage clears the gate\n"
+            f"  documented: {old_cycles:g} cycles, below the {doc_coverage_gate:g} gate\n"
+            f"  measured:   {old_days / transforms.DAYS_PER_YEAR:.6f} cycles vs gate "
+            f"{transforms.MIN_SEASONAL_COVERAGE_PER_HARMONIC:g}\n"
+            f"  tolerance:  none — the past-tense claim is the gate's own verdict"
+        )
+    if old_condition <= transforms.MAX_DESIGN_CONDITION:
+        report.append(
+            f"pipeline/README.md:{line_no} — the doc says the old window was not conditioned "
+            f"enough to separate the terms, but its design condition is inside the limit\n"
+            f"  documented: {old_condition:g} against a limit of {doc_condition_limit:g}\n"
+            f"  measured:   {transforms.MAX_DESIGN_CONDITION:g}\n"
+            f"  tolerance:  none — the past-tense claim is the gate's own verdict"
+        )
+    for case in CASES:
+        limitations = " | ".join(str(item) for item in measured[case]["limitations"])
+        if f"{old_days}-day" not in limitations or f"{old_condition:g}" not in limitations:
+            report.append(
+                f"data/processed/{case}/meta.json — the historical window in the doc has no "
+                f"record in the artefact\n"
+                f"  documented: {old_days}-day window, design condition {old_condition:g}\n"
+                f"  measured:   meta.limitations does not name both\n"
+                f"  tolerance:  exact — history that no file records is an invented number; "
+                f"drop the parenthetical or record it in meta.limitations"
+            )
     if report:
         pytest.fail("\n\n".join(report))
 

@@ -1062,12 +1062,21 @@ def build_fixture(root: Path, case_id: str = "mexico-city") -> Path:
 
     provenance = _fixture_provenance(case_id)
     dates = ["2026-07-02", "2026-07-14"]
+    # The v1.1 seasonal trio is derived here by the pipeline's own rule, so the fixture cannot
+    # drift from `transforms.classify_regime` without the self-test noticing.
+    from pipeline.science.transforms import classify_regime  # noqa: PLC0415 - fixture-only import
+
+    # Published cumulative series: 0 -> -7.4 mm over the 12-day window of the fixture.
+    aoi_values = (0.0, -7.4)
+    aoi_trend = aoi_values[-1] / (12.0 / 365.25)
+    seasonal_amp_mm = 9.4
 
     rows = []
     for index, cell in enumerate(_FIXTURE_CELLS):
         val_t1 = 0.0
         val_t2 = (-7.4, -3.1, -0.4)[index]
         velocity = (-128.0, -60.0, 4.0)[index]
+        ratio = abs(velocity) / seasonal_amp_mm
         rows.append(
             {
                 "cell_id": cell,
@@ -1077,6 +1086,9 @@ def build_fixture(root: Path, case_id: str = "mexico-city") -> Path:
                 "val_t2": val_t2,
                 "delta_change": val_t2 - val_t1,
                 "velocity_mm_yr": velocity,
+                "seasonal_amp_mm": seasonal_amp_mm,
+                "ratio_R": ratio,
+                "regime": classify_regime(velocity, seasonal_amp_mm),
                 "coherence": 0.82 - index * 0.05,
                 "land_use": "urban-dense",
                 "risk_level": C.risk_level_from_velocity(velocity),
@@ -1100,13 +1112,15 @@ def build_fixture(root: Path, case_id: str = "mexico-city") -> Path:
                 "cell_id": "aoi",
                 "date": date,
                 "value": value,
+                "trend_mm_yr": aoi_trend,
+                "seasonal_mm": 0.0,
                 "unit": C.UNIT,
                 "sensor": "nisar",
                 "product": "nisar-gunw",
                 "quality": "good",
                 "provenance_id": provenance,
             }
-            for date, value in zip(dates, (0.0, -7.4), strict=True)
+            for date, value in zip(dates, aoi_values, strict=True)
         ]
     )
     series.to_csv(case_dir / TIMESERIES_ARTEFACT, index=False)
@@ -1143,6 +1157,9 @@ def build_fixture(root: Path, case_id: str = "mexico-city") -> Path:
             "n_cells": len(rows),
             "n_dates": len(dates),
             "median_velocity_mm_yr": -60.0,
+            "median_seasonal_amp_mm": seasonal_amp_mm,
+            "median_ratio_R": 60.0 / seasonal_amp_mm,
+            "dominant_regime": "inelastic",
             "p05_velocity_mm_yr": -128.0,
             "p95_velocity_mm_yr": 4.0,
         },
@@ -1407,6 +1424,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"per-case and total size budget in MB (default: {DEFAULT_BUDGET_MB:g})",
     )
     parser.add_argument(
+        "--require-cases",
+        action="store_true",
+        dest="require_cases",
+        help=(
+            "fail when zero case directories are found. This gate already behaves that way "
+            "(a zero-case run proves nothing); the flag exists so this invocation matches the "
+            "`src.data.validation` gate, which needs it explicitly"
+        ),
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="build a temp fixture, prove PASS, then inject one defect at a time",
@@ -1432,6 +1459,14 @@ def main(argv: list[str] | None = None) -> int:
         strict=args.strict,
         allow_empty=args.allow_empty,
     )
+    if args.require_cases and not report.cases:
+        # Redundant by design (validate_tree already fails a zero-case run unless --allow-empty),
+        # stated here so the flag can never look like it silently changed the outcome. It wins over
+        # --allow-empty on purpose: "require cases" is the stricter instruction.
+        report.problems.append(
+            "--require-cases: zero case directories were validated under "
+            f"{_relative(report.processed)!r}"
+        )
     if args.as_json:
         print(json.dumps(report_to_dict(report), indent=2, ensure_ascii=False))
     else:

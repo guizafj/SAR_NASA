@@ -5,13 +5,21 @@ Model (all parameters come from `config/study_cases.yaml`, never hard-coded here
     v(x)      = peak_velocity_mm_yr * exp(-d(peak_lonlat)/falloff_km) + N(0, noise_mm_yr)
     d(t)      = v * (t - t_first)/yr + A_seasonal * (cos(2*pi*(t-c)/yr) - cos(2*pi*c/yr))
     val_t1    = d(first date), val_t2 = d(last date), delta_change = val_t2 - val_t1
-    velocity  = trend coefficient of the joint fit [1, t, cos, sin] (README §6, step P6)
+    velocity  = trend coefficient of the joint fit [1, t, cos, sin, ...] (README §6, step P6)
 
-The harmonic is centred on the window (``c`` = its midpoint), not anchored at the first date: over
-a ~0.36 yr window an anchored harmonic is a monotone slice of the annual cycle, which reads as extra
-subsidence and makes ``delta_change/T`` overstate the trend by 2-8x. Centring keeps both endpoints'
-seasonal offset equal, so ``delta_change`` tracks the secular rate while the seasonal dip stays
-visible mid-window.
+The harmonic is centred on the window (``c`` = its midpoint) rather than anchored at the first
+date. That keeps both endpoints' seasonal offset equal, so ``delta_change`` tracks the secular rate
+while the seasonal swing stays visible mid-window; the constant ``-A·cos(2πc/T)`` is absorbed by the
+fit's intercept, so the injected amplitude is recovered exactly. (The centring was introduced when
+the window was 0.36 yr and an anchored harmonic was a monotone slice of the annual cycle; it is kept
+on the 2-year window because it still makes ``val_t1 = 0`` and ``delta_change = trend·span`` exact.)
+
+**The published seasonal fields are fitted, not typed.** `contracts` 1.1 requires
+``seasonal_amp_mm`` / ``ratio_R`` / ``regime`` and the timeseries ``trend_mm_yr`` / ``seasonal_mm``.
+They all come out of :func:`fit_series`, which calls the pipeline's own
+``pipeline.science.transforms.harmonic_fit`` per cell — the same function the real chain uses — so
+the mock proves the contract can be filled from a fit. A config value copied into a column would
+prove nothing, and this module no longer does that.
 
 The annual harmonic is inside the fit basis, so the published `velocity_mm_yr` is the *secular*
 trend and not a seasonal artefact — which is what "fitted trend" means in the contract.
@@ -29,6 +37,7 @@ import pandas as pd
 import shapely
 from shapely.geometry import Polygon
 
+from pipeline.science import transforms as V
 from src.domain import contracts as C
 
 from . import geography as G
@@ -60,6 +69,13 @@ class CaseModel:
     val_t2: np.ndarray
     delta_change: np.ndarray
     series: np.ndarray  # (n_cells, n_dates) cumulative displacement, mm
+    seasonal_mm: np.ndarray  # (n_cells, n_dates) FITTED seasonal component, mm
+    seasonal_amp_mm: np.ndarray  # FITTED amplitude of the first harmonic, mm
+    ratio_R: np.ndarray  # |fitted trend| / fitted amplitude
+    regime: np.ndarray  # from transforms.classify_regime, the pipeline's own rule
+    n_harmonics: int  # order asked of harmonic_fit (see transforms.harmonic_order)
+    annual_coverage: float  # span in annual cycles, from the fit's own diagnostic
+    design_condition: float  # column-normalised design condition number, from the fit
     dates: tuple[str, ...]
 
     @property
@@ -114,45 +130,70 @@ def velocity_field(case: CaseSpec, lat: np.ndarray, lon: np.ndarray) -> tuple[np
     return smooth, distance_km
 
 
-def cumulative_series(
-    case: CaseSpec, dates: tuple[str, ...], velocity: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Cumulative displacement (mm, up positive) per cell per date + the fitted secular trend.
+def elapsed_years(dates: tuple[str, ...]) -> np.ndarray:
+    """Years since the first acquisition, the time axis every fit in this repo uses."""
+    first = dt.date.fromisoformat(dates[0])
+    return np.array(
+        [(dt.date.fromisoformat(date) - first).days for date in dates], dtype=float
+    ) / SECONDS_PER_YEAR
 
-    Returns `(series, velocity_from_fit)`. The fit uses the same annual harmonic that generated
-    the series, so `velocity_from_fit` recovers `velocity` to floating-point precision; that is
-    the check that `velocity_mm_yr` is really a fitted trend and not a relabelled config value.
 
-    The series is referenced to the first acquisition (`val_t1 == 0`, as InSAR cumulative
+def cumulative_series(case: CaseSpec, dates: tuple[str, ...], velocity: np.ndarray) -> np.ndarray:
+    """Generated cumulative displacement (mm, up positive) per cell per date.
+
+    ``d(t) = v·t + A_seasonal·(cos(2π(t−c)/T) − cos(2πc/T))``, with ``c`` the centre of the window.
+    The series is referenced to the first acquisition (``val_t1 == 0``, as InSAR cumulative
     displacement is referenced to an epoch, not to absolute ground motion).
 
-    **Seasonal anchoring matters and was wrong before.** The window is only ~0.36 yr long, so a
-    harmonic anchored at ``t = 0`` is a monotone slice of the annual cycle: it reads as extra
-    subsidence and makes ``delta_change / T`` overstate the trend by 2-8x, so the map (coloured by
-    ``velocity_mm_yr``) and the date slider (driven by ``delta_change``) disagreed in sign for
-    hundreds of cells. The harmonic is now centred on the window, so both endpoints carry the same
-    seasonal offset (``s(0) = s(t_end) = 0``) and ``delta_change`` tracks the secular rate, while
-    the mid-window bulge (~0.58·A) keeps the seasonal story visible in the curve.
+    **Seasonal anchoring matters and was wrong before.** Centring the harmonic keeps both endpoints'
+    seasonal offset identical, so ``delta_change`` tracks the secular rate and the map (coloured by
+    ``velocity_mm_yr``) cannot disagree in sign with the date slider (driven by ``delta_change``).
+    The subtracted constant is absorbed by the fit's intercept, so the injected amplitude survives
+    the fit exactly — which is what :func:`fit_series` verifies below.
     """
-    first = dt.date.fromisoformat(dates[0])
-    t_days = np.array([(dt.date.fromisoformat(d) - first).days for d in dates], dtype=float)
-    t_years = t_days / SECONDS_PER_YEAR  # referenced to the first acquisition
+    t_days = elapsed_years(dates) * SECONDS_PER_YEAR  # days since the first acquisition
     season_centre_days = float(t_days[-1]) / 2.0 if t_days.size else 0.0
     anchor = np.cos(2.0 * np.pi * season_centre_days / SEASONAL_PERIOD_DAYS)
     season_phase = 2.0 * np.pi * (t_days - season_centre_days) / SEASONAL_PERIOD_DAYS
     seasonal = case.field.seasonal_amplitude_mm * (np.cos(season_phase) - anchor)
-    series = velocity[:, None] * t_years[None, :] + seasonal[None, :]
+    return velocity[:, None] * elapsed_years(dates)[None, :] + seasonal[None, :]
 
-    design = np.column_stack(
-        [
-            np.ones_like(t_years),
-            t_years,
-            np.cos(season_phase),
-            np.sin(season_phase),
-        ]
-    )
-    coefficients = np.linalg.pinv(design) @ series.T  # (4, n_cells)
-    return series, coefficients[1]
+
+def fit_series(
+    dates: tuple[str, ...], series: np.ndarray
+) -> tuple[list[V.HarmonicFit], np.ndarray]:
+    """Fit the pipeline's harmonic model per cell and refuse an unpublishable seasonal term.
+
+    One ``transforms.harmonic_fit`` call per cell — the function the real chain
+    (`pipeline/process_case.py`) uses — with the order chosen by ``transforms.harmonic_order`` (two
+    annual harmonics on a ≥1.5 yr span, one on ≥0.75 yr, none below). Returns the fits and the time
+    axis in years.
+
+    The mock injects a non-zero seasonal amplitude, so a fit that reports
+    ``seasonal_identifiable=False`` (or an amplitude of zero) means the *window* or the *fit* is
+    broken, not that the ground stopped moving seasonally. It raises instead of publishing a
+    number the pipeline's own gate would reject: that is the whole point of the 1.1 change.
+    """
+    t_years = elapsed_years(dates)
+    order = V.harmonic_order(len(dates), float(t_years[-1]))
+    fits = [V.harmonic_fit(t_years, row, n_harmonics=order) for row in series]
+    unidentifiable = [fit for fit in fits if not fit.seasonal_identifiable]
+    if unidentifiable:
+        raise ValueError(
+            f"the mock window cannot publish a seasonal amplitude: {len(unidentifiable)} of "
+            f"{len(fits)} cells are seasonal_identifiable=False "
+            f"({unidentifiable[0].warnings[0] if unidentifiable[0].warnings else 'no reason given'}). "
+            "A 1.1 grid requires a fitted seasonal_amp_mm, so lengthen processing.dates_count in "
+            "config/study_cases.yaml until the span clears the coverage and conditioning gates."
+        )
+    amplitudes = np.array([fit.seasonal_amp_mm for fit in fits], dtype=float)
+    if not np.all(amplitudes > 0.0):
+        raise ValueError(
+            "the mock injected a non-zero seasonal amplitude but harmonic_fit recovered "
+            f"{float(np.min(amplitudes)):.3e} mm for at least one cell: the centred harmonic is no "
+            "longer representable in the fitted basis (see cumulative_series)"
+        )
+    return fits, t_years
 
 
 def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
@@ -291,12 +332,18 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         cell_ids, lat, lon, rho = cell_ids[keep], lat[keep], lon[keep], rho[keep]
         land_use, coherence, secular = land_use[keep], coherence[keep], secular[keep]
 
-    series, fitted = cumulative_series(case, study.dates, secular)
+    series = cumulative_series(case, study.dates, secular)
+    fits, t_years = fit_series(study.dates, series)
+    trend = np.array([fit.trend_mm_yr for fit in fits], dtype=float)
+    amplitude = np.array([fit.seasonal_amp_mm for fit in fits], dtype=float)
+    ratio = np.abs(trend) / amplitude  # finite: fit_series refuses a zero amplitude
+    regime = np.array([fit.regime for fit in fits], dtype=object)
+    seasonal = np.vstack([V.seasonal_component_mm(t_years, fit) for fit in fits])
 
     val_t1 = series[:, 0].copy()
     val_t2 = series[:, -1].copy()
     delta = val_t2 - val_t1
-    risk = np.array([C.risk_level_from_velocity(v) for v in fitted], dtype=object)
+    risk = np.array([C.risk_level_from_velocity(v) for v in trend], dtype=object)
 
     return CaseModel(
         case=case,
@@ -308,7 +355,7 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         prefilter_cell_id=prefilter_cell_id.astype(str),
         prefilter_coherence=prefilter_coherence,
         secular_velocity=secular,
-        velocity_mm_yr=fitted,
+        velocity_mm_yr=trend,
         coherence=coherence,
         land_use=land_use,
         risk_level=risk,
@@ -316,6 +363,13 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         val_t2=val_t2,
         delta_change=delta,
         series=series,
+        seasonal_mm=seasonal,
+        seasonal_amp_mm=amplitude,
+        ratio_R=ratio,
+        regime=regime,
+        n_harmonics=int(fits[0].n_harmonics),
+        annual_coverage=float(fits[0].annual_coverage),
+        design_condition=float(fits[0].design_condition),
         dates=tuple(study.dates),
     )
 
@@ -336,6 +390,9 @@ def grid_frame(model: CaseModel, sensor: str, product: str, source: str, provena
             "val_t2": model.val_t2.astype("float64"),
             "delta_change": model.delta_change.astype("float64"),
             "velocity_mm_yr": model.velocity_mm_yr.astype("float64"),
+            "seasonal_amp_mm": model.seasonal_amp_mm.astype("float64"),
+            "ratio_R": model.ratio_R.astype("float64"),
+            "regime": model.regime.astype(str),
             "coherence": model.coherence.astype("float64"),
             "land_use": model.land_use.astype(str),
             "risk_level": model.risk_level.astype(str),
@@ -358,6 +415,11 @@ def aoi_series_frame(model: CaseModel, sensor: str, product: str, provenance: st
     `value` is the mean cumulative displacement of every cell present at that date, so the first
     and last AOI values equal `mean(val_t1)` / `mean(val_t2)` of the parquet exactly. `quality`
     comes from the mean coherence of those same cells.
+
+    `trend_mm_yr` / `seasonal_mm` are the **fitted** secular trend and seasonal component of that
+    same aggregate: least squares is linear in ``y`` and every mock cell shares one design
+    (identical dates, no NaN), so the mean of the per-cell fits *is* the fit of the mean series —
+    the AOI row and the drill-down rows can never disagree about the trend/seasonal split.
     """
     n_dates = len(model.dates)
     quality = quality_from_coherence(float(np.mean(model.coherence)))
@@ -367,6 +429,8 @@ def aoi_series_frame(model: CaseModel, sensor: str, product: str, provenance: st
             "cell_id": np.full(n_dates, "aoi", dtype=object),
             "date": np.array(model.dates, dtype=object),
             "value": model.series.mean(axis=0).astype("float64"),
+            "trend_mm_yr": np.full(n_dates, model.velocity_mm_yr.mean(), dtype="float64"),
+            "seasonal_mm": model.seasonal_mm.mean(axis=0).astype("float64"),
             "unit": np.full(n_dates, C.UNIT, dtype=object),
             "sensor": np.full(n_dates, sensor, dtype=object),
             "product": np.full(n_dates, product, dtype=object),
@@ -396,6 +460,8 @@ def per_cell_series_frame(
             "cell_id": model.cell_id[cell_rows].astype(str),
             "date": np.array(model.dates, dtype=object)[date_rows],
             "value": model.series[cell_rows, date_rows].astype("float64"),
+            "trend_mm_yr": model.velocity_mm_yr[cell_rows].astype("float64"),
+            "seasonal_mm": model.seasonal_mm[cell_rows, date_rows].astype("float64"),
             "unit": np.full(cell_rows.size, C.UNIT, dtype=object),
             "sensor": np.full(cell_rows.size, sensor, dtype=object),
             "product": np.full(cell_rows.size, product, dtype=object),

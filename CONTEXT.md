@@ -16,7 +16,7 @@ turning a weak signal into a confident claim.
 
 Current repository evidence is deliberately limited:
 
-- Contract **v1.0**, revision 1, fingerprint `049376b0…`, is implemented in
+- Contract **v1.1**, revision 2, fingerprint `ed92be80…`, is implemented in
   `src/domain/contracts.py` and described by `docs/data-contract-v1.md`.
 - Three contract-conformant artefact sets exist under `data/processed/`.
 - **Every committed case value is synthetic** (`product: "mock"`). It demonstrates schema,
@@ -101,7 +101,9 @@ point. Values are aggregated into H3 resolution-9 cells, then fitted per cell:
 - The seasonal harmonic is centred in the synthetic model so a partial seasonal cycle does not leak
   into endpoint change.
 - Span and design-conditioning gates decide whether a seasonal amplitude is identifiable. Contract
-  v1.0 does not publish seasonal amplitude or regime fields.
+  v1.1 publishes the seasonal amplitude and regime fields; v1.0 did not. A stack too short to fit a
+  harmonic publishes `seasonal_amp_mm = 0` ("not fitted"), `ratio_R = null` and
+  `regime = "transitional"`.
 - A near-zero median requires `stats.detection_limit_mm_yr`; Málaga is the deliberate negative
   control, not an empty result to hide.
 

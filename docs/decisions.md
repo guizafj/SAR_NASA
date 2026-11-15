@@ -17,10 +17,12 @@ same commit — otherwise the change is invisible.
 
 ## A. Contract and domain model
 
-### D-01 — Freeze schema v1.0 behind a fingerprint
-**Decision.** `SCHEMA_VERSION = "1.0"`, `CONTRACT_REVISION = 1`. The contract's own hash is printed
-by `./scripts/python.sh -m src.domain.contracts` and must be quoted by anyone claiming conformance.
-Current value: `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e`.
+### D-01 — Freeze the schema behind a fingerprint
+**Decision.** `SCHEMA_VERSION = "1.1"`, `CONTRACT_REVISION = 2` (bumped from `"1.0"` / `1` on
+2026-11-15 under the O-05 reversal; the bump moves the fingerprint with it). The contract's own hash
+is printed by `./scripts/python.sh -m src.domain.contracts` and must be quoted by anyone claiming
+conformance. Re-derive that value on the commit you are claiming and never quote a remembered one;
+the retired v1.0 digest `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e` is kept as history <!-- fingerprint-historical: retired v1.0 digest, recorded so the 1.1 bump is visible; it is not a claim about this tree -->.
 **Why.** Three people build against the artefacts in parallel; an unversioned schema means a silent
 shape change reaches the UI as a mysterious `KeyError`. The fingerprint makes "did the contract
 move?" a one-command question instead of a diff review.
@@ -134,14 +136,18 @@ filter something to remove.
 **Evidence.** `config/study_cases.yaml` (mock block); `src/domain/contracts.py` (`SENSOR_PROFILES`).
 **Reverse if.** Real data shows an urban coherence floor above 0.35.
 
-### D-12 — Do not publish a seasonal amplitude from a 4.5-month window
-**Decision.** `seasonal_amp_mm` is computed internally for regime classification but never published
-from this stack.
+### D-12 — Do not publish a seasonal amplitude from a 4.5-month window *(superseded 2026-11-15)*
+**Decision.** `seasonal_amp_mm` was computed internally for regime classification but never published
+from the 132-day stack.
 **Why.** 132 days is 0.36 of a year: a "seasonal" amplitude fitted to less than one cycle is
 aliased with the trend. The elastic/inelastic classification (Málaga 3.5 mm seasonal > trend;
-Mexico City 1.5 mm seasonal < trend) is a model statement, not a measured seasonality claim.
+Mexico City 1.5 mm seasonal < trend) was a model statement, not a measured seasonality claim.
 **Evidence.** `config/study_cases.yaml` (`limitations`, per case); `pipeline/process_case.py`.
-**Reverse if.** ≥ 1 year of epochs.
+**Reverse if.** ≥ 1 year of epochs. **Reversed 2026-11-15 by its own condition:** the window is now
+2 years (62 dates, 732 days), so `seasonal_amp_mm`, `ratio_R` and `regime` are published on contract
+1.1 as values fitted by `harmonic_fit`, not typed constants (O-05). The rule the entry encodes does
+not change: an amplitude is published only where the identifiability gates pass, never derived from a
+window that cannot support it.
 
 ---
 
@@ -326,7 +332,7 @@ a contract 1.1 that the pipeline itself rejects), the backend on `pozo`. Integra
 branch keeps the diff reviewable and means the default branch never carries a schema the pipeline
 cannot satisfy.
 **Evidence.** `./scripts/preflight.sh` → `VERDICT: READY` 7/7 on `f2dd5a8`; `tests/test_contracts.py`
-pins 1.0 and the field order; contract fingerprint `049376b0…` after every merge.
+pins 1.0 and the field order; contract fingerprint `049376b0…` after every merge. <!-- fingerprint-historical: the v1.0 digest this integration re-verified while the tree was pinned to 1.0; superseded by the 2026-11-15 bump -->
 **Correction (2026-11-14, same day).** The first version of this entry claimed `origin/main` was an
 ancestor of `yuls` and that landing the work was "a zero-conflict fast-forward". That was true for
 about an hour: `origin/main` then advanced to `5c9a59c` with the cockpit UI, a docker fix and a
@@ -341,7 +347,7 @@ the integration point and this entry is deleted rather than edited.
 | **N-10a** | `data/processed/_availability/*.json` from `origin/main` were **pre-AOI-refresh** (generated 14:36, old bbox `-99.35..-98.85`, granule sizes stripped) and the merge removed 3,775 lines of this branch's refreshed 22:28 evidence | `tests/test_docs_commands.py` — the documented dry-run's exit code flipped from 0 to 5, which is how it surfaced. The artefact gate does **not** cover `_availability` |
 | **N-10b** | `src/domain/contracts.py` auto-merged **with no conflict** and kept `origin/main`'s 1.1 body (`SCHEMA_VERSION "1.1"`, three new required grid fields, three stats keys) while `tests/test_contracts.py` kept matching 1.1 assertions — a clean merge that would have shipped the wrong schema | the contract self-check + the frozen-field-order tests; **nothing in the merge itself** |
 
-Both sides were restored from `HEAD` and re-verified (fingerprint `049376b0…`, `PHASE A/B: PASS`). The
+Both sides were restored from `HEAD` and re-verified (fingerprint `049376b0…`, `PHASE A/B: PASS`). <!-- fingerprint-historical: the v1.0 digest of that 14 Nov restoration; superseded by the 2026-11-15 bump --> The
 lesson recorded here: on a file both sides rewrote, a clean auto-merge is the *dangerous* outcome — it
 has to be read, not trusted.
 
@@ -357,11 +363,13 @@ telemetry, mock detection against our three-layer map — so adopting it loses n
 competing frontends. (3) Those four files assert a contract version we do not ship and name
 individuals; *docs/ui-data-needs.md* was kept because `src/data/ui_bridge.py` and
 `tests/test_ui_bridge.py` reference it, so deleting it would leave production references dangling.
-**Evidence.** `src/domain/contracts.py` restored from HEAD (fingerprint `049376b0…`);
+**Evidence.** `src/domain/contracts.py` restored from HEAD (fingerprint `049376b0…`) <!-- fingerprint-historical: the v1.0 digest of that 14 Nov merge; superseded by the 2026-11-15 bump -->;
 `pipeline/generate_mock.py --check` passes and a full regeneration is byte-identical to the committed
 artefacts (1.39 MiB / 15 MB); `app.py` is `origin/main`'s 246-line file by hash.
 **Reverse if.** The team adopts 1.1 or 1.2 (O-05 option B/C), in which case the excluded request docs
 become current again and should be restored from `origin/main` rather than rewritten.
+*(O-05 was reversed on 2026-11-15 in favour of 1.1 with a 2-year window; the exclusion above is
+still recorded here as what the 14 Nov merge did, not as a claim about the contract that ships now.)*
 
 ---
 
@@ -429,11 +437,14 @@ nothing has to be inferred from `meta.stats` (N-09; `tests/test_demo_numbers.py`
 consumer must report coverage without running the card.
 
 ### O-05 — Contract 1.0 vs 1.1 vs 1.2 (the merge blocker)
+**Superseded 2026-11-15 — read the reversal at the end of this entry before acting on anything
+below.** The 14 Nov record is kept verbatim as the audit trail; where it and the reversal disagree,
+the reversal is current.
 `origin/main` (`c4f0fb7`, the default branch) moved the contract to `SCHEMA_VERSION "1.1"` /
 `CONTRACT_REVISION 2` (fingerprint `9a749cea…` <!-- fingerprint-historical: origin/main's 1.1 hash, quoted to show what the default branch moved to; it is not this tree's -->), adding **required** fields: grid
 `seasonal_amp_mm`, `ratio_R`, `regime`; timeseries `trend_mm_yr`, `seasonal_mm`; stats
 `median_seasonal_amp_mm`, `median_ratio_R`, `dominant_regime`. This branch (`yuls`) is at 1.0
-(`049376b0…`), and all three cases fail 1.1 validation with 10 problems each
+(`049376b0…`), and all three cases fail 1.1 validation with 10 problems each <!-- fingerprint-historical: the digest this branch shipped while it was pinned to 1.0, before the 2026-11-15 reversal -->
 (`grid: missing required column 'seasonal_amp_mm'`, and the same for `ratio_R` and `regime`).
 
 **Why it is not a formality.** `harmonic_fit` on our 132-day stacks reports `annual_coverage 0.36`
@@ -452,9 +463,10 @@ from the validator alone, so 1.0 costs the app nothing.
 `seasonal_amp_mm`/`ratio_R`/`seasonal_mm`/`median_*` plus a required boolean `seasonal_identifiable`,
 where `false` forces the nulls and `"transitional"` — about 19 files, and the fingerprint moves.
 
-**Blocks.** Merging to a green default branch: `main` ships the 1.1 contract with **zero artefacts**,
-this branch ships the artefacts with no app, and `yuls` is 3 behind / 4 ahead, so a `--ff-only`
-merge is no longer possible.
+**Blocks.** Merging to a green default branch. The 14 Nov premise — `main` shipping the 1.1 contract
+with **zero artefacts** — is stale: `main` now ships **15 files** (it merged fradiaz's branch) on top
+of that contract, so the divergence is wider than described here and a `--ff-only` merge is not
+possible (the `3 behind / 4 ahead` count is the 14 Nov audit's, not a fresh measurement).
 
 **Owner.** All three roles: the contract's own rule requires agreement for a version bump, and this
 one was merged without Rol 3's sign-off.
@@ -469,9 +481,53 @@ against the 0.75 a harmonic needs and a design condition number of 66.8 against 
 `seasonal_identifiable` is False and the pipeline says do not publish `seasonal_amp_mm`. No consumer
 reads the 1.1 fields (`grep -rn` over `app.py` and `src/` returns nothing), so the reversion costs the
 UI nothing. Executed as: `src/domain/contracts.py` and `tests/test_contracts.py` restored from this
-branch, `docs/data-contract-v1.md` kept at 1.0, and the fingerprint re-verified as `049376b0…` (D-28,
+branch, `docs/data-contract-v1.md` kept at 1.0, and the fingerprint re-verified as `049376b0…` <!-- fingerprint-historical: option A's v1.0 digest; superseded by the 2026-11-15 reversal --> (D-28,
 PR #3). Option C (1.2 with nullable seasonal fields) stays the technically honest version if the
 project outlives the hackathon.
+
+**Superseded 2026-11-15 — the reversal below replaces this answer.** The reversion described above is
+undone: this branch adopts 1.1 and widens the mock window instead, which removes the reason option A
+existed without publishing an amplitude the design cannot support.
+
+**Owner reversed 2026-11-15 — adopt contract 1.1, and make it honest by widening the mock window.**
+The reason option A existed was that 1.1 makes `seasonal_amp_mm`/`ratio_R`/`regime` (grid),
+`trend_mm_yr`/`seasonal_mm` (timeseries) and `median_seasonal_amp_mm`/`median_ratio_R`/
+`dominant_regime` (stats) REQUIRED, while on the 132-day window `harmonic_fit` measured
+`annual_coverage 0.3614` against `MIN_SEASONAL_COVERAGE_PER_HARMONIC = 0.75` and a design condition
+number of `66.84` against `MAX_DESIGN_CONDITION = 30` → `seasonal_identifiable False`, so publishing
+the amplitude would be dishonest. That objection was right about the window, not about the field.
+
+**Why the reversal is honest.** The window moves to **2 years — 62 dates at the 12-day cadence, 732
+days** — where the same gates measure `annual_coverage 2.004` and condition `4.02`: identifiable
+with margin, including the 2-harmonic order (`_harmonic_order` asks for 2 harmonics at span ≥ 1.0 yr,
+and the 1.5-yr coverage gate is why 1 yr was rejected; 0.75 yr was a knife-edge at 2 days of slack).
+So the published seasonal fields are a **fit result** from the same `harmonic_fit` the real path uses,
+not a typed constant. Option B was rejected on 14 Nov for exactly the dishonesty this removes; option
+C (nullable fields) is no longer needed, though it remains available if a future case cannot be
+widened.
+
+**`origin/main`'s 1.1 is not a model to copy.** It publishes `median_seasonal_amp_mm = 1.5`,
+`median_ratio_R = 41.377` and `dominant_regime = "inelastic"` on a 132-day window while its own
+`meta.limitations` says *"A ~4.5-month window cannot separate seasonal from secular motion: do not
+publish seasonal_amp_mm from this stack"*. Both statements ship in the same artefact set; the
+limitation is the one to believe. Copying the field list without widening the window would publish a
+number the pipeline's own gate refuses. (Those three values happen to coincide with this branch's
+Mexico City stats — the mock's amplitude is a config constant and the series is noise-free in time, so
+the fitted number is the injected one — which is exactly why the window and the gates, not the digits,
+are what make a published amplitude honest.)
+
+**Status and owner.** Implemented on branch `feat/contract-1.1` (contract, mock generator, artefacts
+and a new acceptance test). The bump's own fingerprint is
+`ed92be802ff8846fe369058d9a80c9545c2a694a17896de6a5f1844146e302ae`, printed by
+`./scripts/python.sh -m src.domain.contracts`; the retired 1.0 digest survives only in lines tagged
+`fingerprint-historical` (a bare re-quote would fail `tests/test_fingerprint_consistency.py`).
+`tests/test_contract_11_honesty.py` is the guard that keeps
+this honest: it re-fits the published series with `harmonic_fit`, checks the coverage and
+conditioning gates, checks the published medians/mode against the grid, and fails if a case's
+`limitations` forbids publishing something the artefact publishes — the exact `origin/main` defect.
+The contract's own rule requires all three roles' agreement for a `SCHEMA_VERSION` bump, so this
+**needs Rol 1 and Rol 2 sign-off before it lands on a shared branch**. It is a proposal with its
+evidence attached, not an approved change: nothing here implies the other roles have reviewed it.
 
 ### O-06 — Reconcile granule identity before the first real stack
 `pipeline/ingest/02_search_download.py` and `pipeline/process_case.py` assigned different filename

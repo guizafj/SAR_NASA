@@ -16,6 +16,7 @@ not a linter with opinions.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from pipeline.science import transforms as V
 from src.domain import contracts as C
 
 from . import model as M
@@ -40,6 +42,9 @@ class CaseReport:
     n_context_features: int
     land_use: dict[str, int]
     median_velocity: float
+    median_seasonal_amp: float
+    median_ratio_R: float
+    dominant_regime: str
     p05_velocity: float
     p95_velocity: float
     median_coherence: float
@@ -247,6 +252,31 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         "risk_level was not produced by contracts.risk_level_from_velocity",
         failures,
     )
+    # The 1.1 seasonal trio must be derived from the fitted pair, not copied from the config:
+    # ratio_R is |trend|/amplitude and regime is the pipeline's own classify_regime on the same
+    # numbers, so a hard-coded amplitude cannot survive this check.
+    expected_ratio = (grid["velocity_mm_yr"].abs() / grid["seasonal_amp_mm"]).to_numpy()
+    ratio_residual = float(np.max(np.abs(grid["ratio_R"].to_numpy() - expected_ratio))) if len(grid) else 0.0
+    _require(
+        ratio_residual <= 1e-6,
+        f"ratio_R is not abs(velocity_mm_yr)/seasonal_amp_mm (max residual {ratio_residual:.3e})",
+        failures,
+    )
+    expected_regime = [
+        V.classify_regime(float(trend), float(amp))
+        for trend, amp in zip(grid["velocity_mm_yr"], grid["seasonal_amp_mm"], strict=True)
+    ]
+    _require(
+        grid["regime"].astype(str).tolist() == expected_regime,
+        "regime was not produced by pipeline.science.transforms.classify_regime on the published "
+        "(velocity_mm_yr, seasonal_amp_mm) pair",
+        failures,
+    )
+    _require(
+        bool((grid["seasonal_amp_mm"] > 0.0).all()),
+        "a fitted seasonal_amp_mm is 0: the mock injected a non-zero amplitude, so the fit lost it",
+        failures,
+    )
     _require(
         bool(grid["coherence"].between(float(meta["thresholds"]["coherence_min"]), 0.95).all()),
         f"coherence outside [{meta['thresholds']['coherence_min']}, 0.95]: a published cell must "
@@ -272,7 +302,8 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         failures,
     )
     checks.append(
-        f"derived: risk bands from velocity, coherence in "
+        f"derived: risk bands from velocity, ratio_R = |trend|/amplitude (max residual "
+        f"{ratio_residual:.1e}), regime from classify_regime, coherence in "
         f"[{meta['thresholds']['coherence_min']}, 0.95], land_use classes {len(land_use_counts)}"
     )
 
@@ -294,17 +325,83 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     stats = meta["stats"]
     _require(stats["n_cells"] == len(grid), f"stats.n_cells {stats['n_cells']} != {len(grid)}", failures)
     _require(stats["n_dates"] == len(meta_dates), "stats.n_dates != len(meta.dates)", failures)
-    for key, actual_value in (
-        ("median_velocity_mm_yr", float(grid["velocity_mm_yr"].median())),
-        ("p05_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.05))),
-        ("p95_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.95))),
+    regime_counts = grid["regime"].astype(str).value_counts()
+    dominant = sorted(regime_counts.items(), key=lambda item: (-int(item[1]), str(item[0])))[0][0]
+    for key, actual_value, tolerance in (
+        ("median_velocity_mm_yr", float(grid["velocity_mm_yr"].median()), 1e-2),
+        ("median_seasonal_amp_mm", float(grid["seasonal_amp_mm"].median()), 1e-2),
+        ("median_ratio_R", float(grid["ratio_R"].median()), 1e-4),
+        ("p05_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.05)), 1e-2),
+        ("p95_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.95)), 1e-2),
     ):
         _require(
-            abs(float(stats[key]) - actual_value) <= 1e-2,
+            abs(float(stats[key]) - actual_value) <= tolerance,
             f"stats.{key} {stats[key]} != recomputed {actual_value:.3f}",
             failures,
         )
-    checks.append("stats recomputed from the parquet (n_cells, median, p05, p95)")
+    _require(
+        str(stats["dominant_regime"]) == str(dominant),
+        f"stats.dominant_regime {stats['dominant_regime']!r} != most frequent grid regime {dominant!r}",
+        failures,
+    )
+    checks.append(
+        "stats recomputed from the parquet (n_cells, median velocity/amplitude/ratio_R, "
+        "p05, p95, dominant_regime)"
+    )
+
+    # -- 9b. the seasonal columns are the fit of the published series ------------------------
+    # `value = intercept + trend_mm_yr*t + seasonal_mm` must hold for every row: the published
+    # trend/seasonal pair has to be the decomposition of the very numbers next to it. Then re-run
+    # harmonic_fit on the aoi series and compare its seasonal component with the published column,
+    # which is the check a typed constant cannot pass.
+    years = np.array(
+        [(dt.date.fromisoformat(str(day)) - dt.date.fromisoformat(meta_dates[0])).days for day in series["date"]],
+        dtype=float,
+    ) / V.DAYS_PER_YEAR
+    residuals = (
+        series["value"] - series["trend_mm_yr"] * years - series["seasonal_mm"]
+    ).to_numpy(dtype=float)
+    spread = float(np.max(np.abs(residuals - residuals[0]))) if residuals.size else 0.0
+    _require(
+        spread <= 1e-6,
+        f"value - trend_mm_yr*t - seasonal_mm is not constant across dates (spread {spread:.3e} mm); "
+        "the published split does not decompose the published series",
+        failures,
+    )
+    order = V.harmonic_order(len(meta_dates), float(years.max()) - float(years.min()))
+    aoi_sorted = aoi.sort_values("date", kind="stable")
+    aoi_years = np.array(
+        [
+            (dt.date.fromisoformat(str(day)) - dt.date.fromisoformat(meta_dates[0])).days
+            for day in aoi_sorted["date"]
+        ],
+        dtype=float,
+    ) / V.DAYS_PER_YEAR
+    refit = V.harmonic_fit(aoi_years, aoi_sorted["value"].to_numpy(dtype=float), n_harmonics=order)
+    seasonal_refit = V.seasonal_component_mm(aoi_years, refit)
+    published_aoi_seasonal = aoi_sorted["seasonal_mm"].to_numpy(dtype=float)
+    seasonal_residual = float(np.max(np.abs(seasonal_refit - published_aoi_seasonal)))
+    _require(
+        refit.seasonal_identifiable,
+        f"the published stack is not seasonally identifiable: {refit.warnings}",
+        failures,
+    )
+    _require(
+        seasonal_residual <= 1e-6,
+        f"timeseries.seasonal_mm disagrees with a fresh harmonic_fit of the aoi series by "
+        f"{seasonal_residual:.3e} mm",
+        failures,
+    )
+    _require(
+        abs(refit.trend_mm_yr - float(aoi["trend_mm_yr"].iloc[0])) <= 1e-6,
+        "timeseries.trend_mm_yr disagrees with a fresh harmonic_fit of the aoi series",
+        failures,
+    )
+    checks.append(
+        f"seasonal columns decompose the series (value-trend*t-seasonal constant to {spread:.1e} mm) "
+        f"and a refit of the aoi series reproduces seasonal_mm to {seasonal_residual:.1e} mm "
+        f"(order {order}, coverage {refit.annual_coverage:.3f}, cond {refit.design_condition:.2f})"
+    )
 
     # -- 10. null-result case: Málaga stays flat and publishes its bound ---------------------
     median = float(grid["velocity_mm_yr"].median())
@@ -357,6 +454,9 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         n_context_features=len(context["features"]),
         land_use=land_use_counts,
         median_velocity=median,
+        median_seasonal_amp=float(grid["seasonal_amp_mm"].median()),
+        median_ratio_R=float(grid["ratio_R"].median()),
+        dominant_regime=str(dominant),
         p05_velocity=float(grid["velocity_mm_yr"].quantile(0.05)),
         p95_velocity=float(grid["velocity_mm_yr"].quantile(0.95)),
         median_coherence=float(grid["coherence"].median()),
@@ -370,7 +470,8 @@ def summary_table(reports: list[CaseReport]) -> str:
     """Per-case summary table, plus the grand total against the 15 MB budget."""
     header = (
         f"{'case':<12} {'cells':>7} {'dates':>5} {'series':>7} {'ctx':>4} "
-        f"{'median v':>9} {'p05':>9} {'p95':>9} {'parquet':>8} {'csv':>8} {'geojson':>8} {'meta':>6} {'case MB':>8}"
+        f"{'median v':>9} {'A_med':>8} {'R_med':>9} {'regime':<13} {'p05':>9} {'p95':>9} "
+        f"{'parquet':>8} {'csv':>8} {'geojson':>8} {'meta':>6} {'case MB':>8}"
     )
     lines = [header, "-" * len(header)]
     total = 0
@@ -379,14 +480,18 @@ def summary_table(reports: list[CaseReport]) -> str:
         sizes = report.sizes
         lines.append(
             f"{report.case_id:<12} {report.n_cells:>7} {report.n_dates:>5} {report.n_series_rows:>7} "
-            f"{report.n_context_features:>4} {report.median_velocity:>9.2f} {report.p05_velocity:>9.2f} "
+            f"{report.n_context_features:>4} {report.median_velocity:>9.2f} "
+            f"{report.median_seasonal_amp:>8.3f} {report.median_ratio_R:>9.3f} "
+            f"{report.dominant_regime:<13} "
+            f"{report.p05_velocity:>9.2f} "
             f"{report.p95_velocity:>9.2f} {sizes['nisar_grid.parquet'] / 1024:>8.1f} "
             f"{sizes['timeseries.csv'] / 1024:>8.1f} {sizes['context_layers.geojson'] / 1024:>8.1f} "
             f"{sizes['meta.json'] / 1024:>6.1f} {report.total_bytes / 1024 / 1024:>8.2f}"
         )
     lines.append("-" * len(header))
     lines.append(
-        f"{'TOTAL':<12} {'':>7} {'':>5} {'':>7} {'':>4} {'':>9} {'':>9} {'':>9} "
+        f"{'TOTAL':<12} {'':>7} {'':>5} {'':>7} {'':>4} {'':>9} {'':>8} {'':>9} {'':<13}"
+        f"{'':>9} {'':>9} "
         f"{'':>8} {'':>8} {'':>8} {'':>6} {total / 1024 / 1024:>8.2f}"
         f"   (budget {TOTAL_BUDGET_BYTES / 1024 / 1024:.0f} MB, KiB per file)"
     )

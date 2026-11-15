@@ -8,6 +8,8 @@ control, so this module parses the documents and recomputes every number from th
 * ``pipeline/science/transforms.DAYS_PER_YEAR`` -- 365.25 d;
 * ``config/study_cases.yaml`` -- the mock peak rate and the declared revisit;
 * ``src.domain.contracts.contract_fingerprint()`` -- the frozen contract digest.
+* ``data/processed/*/meta.json`` -- the 2-year demo window that ``docs/science-guide.md`` narrates:
+  its span and coverage, the two design conditions, the injected amplitudes, the detection band.
 
 Nothing here hardcodes a second copy of a formula.  The one value that is not exported by the
 science module is the 39 degree incidence angle (it is a study-case geometry, stated in
@@ -31,11 +33,14 @@ a bbox-envelope figure is never presented as coverage of the AOI.
 
 from __future__ import annotations
 
+import datetime
+import json
 import math
 import pathlib
 import re
 import sys
 
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
@@ -96,6 +101,11 @@ DAYS_RE = re.compile(r"(\d+)[\-\u2011\u2013]?\s*day\s+pair", re.IGNORECASE)
 DECIMAL_PERCENT_RE = re.compile(r"(\d+\.\d+)\s*%")
 FULL_HASH_RE = re.compile(r"\b[0-9a-f]{64}\b")
 ABBREV_HASH_RE = re.compile(r"\b([0-9a-f]{6,64})\s*(?:\u2026|\.{3})\s*([0-9a-f]{2,64})?")
+
+#: A line carrying this marker is a DELIBERATE historical quote (see ``docs/decisions.md``), not a
+#: claim about this tree. Mirrors ``tests/test_fingerprint_consistency.py`` so the two guards agree
+#: on what history is; it must never excuse a stale live quote.
+HISTORICAL_MARKER = "fingerprint-historical"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -611,13 +621,15 @@ def test_coverage_denominators_are_never_conflated() -> None:
 def test_contract_fingerprint_matches_the_contracts_module() -> None:
     fingerprint = C.contract_fingerprint()
     assert (
-        fingerprint == "049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e"
+        fingerprint == "ed92be802ff8846fe369058d9a80c9545c2a694a17896de6a5f1844146e302ae"
     ), "the frozen contract digest moved; every document must be updated in the same change"
 
     report: list[str] = []
     full_seen = 0
     for relative, text in _documents().items():
         for match in FULL_HASH_RE.finditer(text):
+            if HISTORICAL_MARKER in _line_text(text, _line_number(text, match.start())):
+                continue
             full_seen += 1
             if match.group(0) != fingerprint:
                 report.append(
@@ -625,6 +637,8 @@ def test_contract_fingerprint_matches_the_contracts_module() -> None:
                     f"{match.group(0)} != contract_fingerprint() {fingerprint}"
                 )
         for match in ABBREV_HASH_RE.finditer(text):
+            if HISTORICAL_MARKER in _line_text(text, _line_number(text, match.start())):
+                continue
             prefix, suffix = match.group(1), match.group(2)
             if not fingerprint.startswith(prefix) or (suffix and not fingerprint.endswith(suffix)):
                 report.append(
@@ -633,4 +647,174 @@ def test_contract_fingerprint_matches_the_contracts_module() -> None:
                 )
 
     assert full_seen, "no document states the full contract fingerprint"
+    _report_failures(report)
+
+
+# ---------------------------------------------------------------------------------------------
+# 5. The 2-year demo window: the identifiability numbers the science guide quotes
+# ---------------------------------------------------------------------------------------------
+
+PROCESSED = ROOT / "data" / "processed"
+SCIENCE_GUIDE = pathlib.Path("docs/science-guide.md")
+
+#: The order the guide lists the three cases in when it quotes their amplitudes and secular motion.
+CASE_ORDER: tuple[str, ...] = ("mexico-city", "jakarta", "malaga")
+
+
+def _mock_metas() -> dict[str, dict]:
+    """Committed ``meta.json`` per case id; empty when this checkout has no artefacts."""
+    metas: dict[str, dict] = {}
+    for path in sorted(PROCESSED.glob("*/meta.json")):
+        metas[path.parent.name] = json.loads(path.read_text(encoding="utf-8"))
+    return metas
+
+
+def test_science_guide_quotes_the_current_demo_window() -> None:
+    """The guide's *current* mock paragraph must quote the 2-year window, not the old 132-day one.
+
+    Widening ``processing.dates_count`` from 132 d to 2 years is what makes ``seasonal_amp_mm``
+    publishable (contract 1.1).  The guide restates that argument with numbers — coverage 2.004,
+    design conditions 4.02 (one harmonic) and 4.12 (the two the mock fits), the injected amplitudes,
+    the detection band — so each is recomputed here from the published dates and the config.  The
+    old-window numbers (``annual_coverage 0.36``, ``design_condition ~67``) stay in the prose, but
+    as history: the guard fails if the live snippet claims ``seasonal_identifiable # False`` again.
+    """
+    metas = _mock_metas()
+    if not metas:
+        pytest.skip("no committed mock artefacts under data/processed")
+    guide = (ROOT / SCIENCE_GUIDE).read_text(encoding="utf-8")
+    config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+
+    report: list[str] = []
+    windows: dict[str, tuple[int, int, np.ndarray, dict]] = {}
+    for case, meta in sorted(metas.items()):
+        dates = meta["dates"]
+        first = datetime.date.fromisoformat(dates[0])
+        span_days = (datetime.date.fromisoformat(dates[-1]) - first).days
+        t_years = np.array(
+            [(datetime.date.fromisoformat(day) - first).days for day in dates], dtype=float
+        ) / T.DAYS_PER_YEAR
+        windows[case] = (len(dates), span_days, t_years, meta["stats"])
+
+        # The published coverage must be the span the dates actually give, and the published
+        # design condition must be the 2-harmonic design of those same dates.
+        coverage = float(meta["stats"]["annual_coverage"])
+        if abs(coverage - float(t_years[-1])) > 1e-6:
+            report.append(
+                f"{case}: stats.annual_coverage {coverage} is not the {t_years[-1]:.6f} yr span of "
+                f"meta.dates ({dates[0]} -> {dates[-1]})"
+            )
+        two_harmonic = T._design_condition(T._harmonic_design(t_years, 1.0, 2))
+        frozen = float(meta["stats"]["design_condition"])
+        if abs(frozen - two_harmonic) > 1e-6:
+            report.append(
+                f"{case}: stats.design_condition {frozen} is not the 2-harmonic design condition "
+                f"{two_harmonic:.6f} of its own dates"
+            )
+
+        # The guide says the mock is noise-free in time, so the published amplitude is the injected
+        # config constant and not a fit residual.
+        injected = float(config["cases"][case]["mock"]["seasonal_amplitude_mm"])
+        published = float(meta["stats"]["median_seasonal_amp_mm"])
+        if abs(published - injected) > 1e-6:
+            report.append(
+                f"{case}: median_seasonal_amp_mm {published} != the injected "
+                f"seasonal_amplitude_mm {injected}; the guide's 'matches exactly' claim is false"
+            )
+
+    # The guide narrates one demo window; all three cases must still share it.
+    spans = {(count, days) for count, days, _t, _s in windows.values()}
+    if len(spans) != 1:
+        report.append(f"the committed cases no longer share one window: {sorted(spans)}")
+        _report_failures(report)
+    n_dates, span_days, t_years, _stats = next(iter(windows.values()))
+    coverage = float(t_years[-1])
+    one_harmonic = T._design_condition(T._harmonic_design(t_years, 1.0, 1))
+    two_harmonic = T._design_condition(T._harmonic_design(t_years, 1.0, 2))
+
+    # Every number the current-mock paragraphs print, formatted exactly as the guide prints it.
+    quoted = {
+        "date count": f"{n_dates} dates",
+        "span (days)": f"{span_days}-day window",
+    }
+    if all(case in windows for case in CASE_ORDER):
+        amplitudes = [
+            float(metas[case]["stats"]["median_seasonal_amp_mm"]) for case in CASE_ORDER
+        ]
+        quoted["injected amplitudes"] = " / ".join(f"{value:.1f}" for value in amplitudes) + " mm"
+    for label, token in quoted.items():
+        if token not in guide:
+            report.append(
+                f"{SCIENCE_GUIDE}: the current-mock paragraph no longer prints the {label} "
+                f"{token!r} that this window gives"
+            )
+
+    # The live ``harmonic_fit`` snippet is checked on its own, not just against the whole file: a
+    # stale snippet is exactly the failure this section exists to catch.
+    snippet = next(
+        (
+            block
+            for block in re.findall(r"```python\n(.*?)```", guide, re.S)
+            if "fit.seasonal_identifiable" in block
+        ),
+        "",
+    )
+    if not snippet:
+        report.append(
+            f"{SCIENCE_GUIDE}: the harmonic_fit snippet with seasonal_identifiable is gone"
+        )
+    else:
+        for label, token in (
+            ("coverage", f"{coverage:.3f}"),
+            ("one-harmonic condition", f"{one_harmonic:.2f}"),
+            ("two-harmonic condition", f"{two_harmonic:.2f}"),
+        ):
+            if token not in snippet:
+                report.append(
+                    f"{SCIENCE_GUIDE}: the harmonic_fit snippet does not print the {label} "
+                    f"{token!r} of the published dates"
+                )
+
+    # The detection band: a rate on a displacement axis is mm/yr x years (the same arithmetic
+    # ``scripts/make_figures.py`` uses to shade it).
+    if "malaga" in metas:
+        sigma = float(config["cases"]["malaga"]["mock"]["noise_mm_yr"])
+        limit = metas["malaga"]["stats"].get("detection_limit_mm_yr")
+        if f"σ = {sigma:g} mm" not in guide:
+            report.append(
+                f"{SCIENCE_GUIDE}: the assumed per-epoch scatter is no longer stated as the "
+                f"config noise_mm_yr ({sigma:g} mm)"
+            )
+        if limit is not None:
+            band = float(limit) * span_days / T.DAYS_PER_YEAR
+            if f"±{band:.1f} mm over the {span_days}-day window" not in guide:
+                report.append(
+                    f"{SCIENCE_GUIDE}: the shaded detection floor should read "
+                    f"'±{band:.1f} mm over the {span_days}-day window' "
+                    f"({float(limit):g} mm/yr x {span_days}/{T.DAYS_PER_YEAR:g})"
+                )
+        for n_epochs in (n_dates, None):
+            computed = float(T.detection_limit_mm_yr(
+                velocity_noise_mm=sigma, span_years=coverage, n_epochs=n_epochs
+            ))
+            label = "two-epoch default" if n_epochs is None else f"{n_epochs} epochs"
+            if f"{computed:.2f}" not in guide:
+                report.append(
+                    f"{SCIENCE_GUIDE}: the detection arithmetic for {label} gives "
+                    f"{computed:.2f} mm/yr over the {coverage:.4f} yr span; the guide does not "
+                    "state it"
+                )
+
+    # The old window may stay as history, but never as the live result of the snippet.
+    if "fit.seasonal_identifiable       # True" not in guide:
+        report.append(
+            f"{SCIENCE_GUIDE}: the harmonic_fit snippet no longer shows "
+            "'fit.seasonal_identifiable       # True' for the published window"
+        )
+    if "# False over a 132-day window" in guide:
+        report.append(
+            f"{SCIENCE_GUIDE}: 'seasonal_identifiable # False over a 132-day window' is presented "
+            "as the current result; the published 2-year window reports True"
+        )
+
     _report_failures(report)
