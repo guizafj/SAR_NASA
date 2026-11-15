@@ -27,11 +27,11 @@ Reglas de presentación del stub (no copiar a loaders reales):
 ## Mock y umbral
 
 - Aviso **DEMONSTRATION DATA** si `product == "mock"` o `provenance.source` contiene `mock`.
-- Cabecera: `sensor`, `product`, `unit`, `dates`, `coherence_threshold` (omite ausentes).
+- Cabecera: `sensor`, `product`, `unit`, `dates`, `coherence_threshold` (omite ausentes); si esa clave falta, imprime el suelo de `thresholds.coherence_min` como `coherence floor`.
 - Slider: `coherence_threshold` o `thresholds.coherence_min`.
 
 ## Pestañas 2–4
 
 - Series/KPIs/escala: hooks en `ui_bridge` (`get_series_kpis`, `get_case_series`, `get_land_use_bars`, `get_scale_comparison`). La UI solo pinta.
 - Pestaña 3: `load_context_layers()`; sin dossier ni mitigaciones inventadas.
-- Pestaña 4: sin copy científico de Rol 3; solo caveat README cuando el loader lo expone.
+- Pestaña 4: sin copy científico de Rol 3. Bloques del artefacto (tarjetas de `meta.stats`, `null_policy`, `limitations`), caveat y limitaciones del README cuando el loader los expone, y el bloque `meta.json`.
