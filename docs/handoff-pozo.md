@@ -24,17 +24,29 @@
    uplift and in flat mode, so `+50 mm` never rises like `-50 mm`. Never reintroduce
    `abs(delta_change)` as a substitute for the sign — `tests/test_height_sign_parity.py` fails if
    you do.
-4. **How artefact hot-swap (mock → real) works:** Drop the four files into
-   `data/processed/{case_id}/`. `loaders.py` keys its cache by file `mtime_ns` +
-   `contract_fingerprint()`, validates every rule before returning, and needs zero UI changes.
 5. **How artefact hot-swap (mock → real) works:** Drop the four files into
    `data/processed/{case_id}/`. `loaders.py` keys its cache by file `mtime_ns` +
    `contract_fingerprint()`, validates every rule before returning, and needs zero UI changes.
-6. **The one thing that will break if ignored:** Emitting an undeclared column (e.g. `polarization`),
+6. **How to prove CI will be green before pushing (Python 3.12 parity):** GitHub Actions runs
+   `3.12`, this WSL only ships `3.14`, so the suite can pass locally and still fail upstream
+   (different `repr(float)`, different BLAS paths). Build a throwaway parity venv — it is ignored by
+   `.gitignore` (`.*`), so nothing lands in the tree:
+   ```bash
+   uv python install 3.12
+   uv venv --python 3.12 --seed .venv312
+   .venv312/bin/python -m pip install -r requirements.txt
+   SAR_PYTHON=.venv312/bin/python ./scripts/python.sh -m pytest tests -q
+   ```
+   `SAR_PYTHON` is the wrapper's interpreter override (`scripts/python.sh` pins it to an absolute
+   path, and `scripts/preflight.sh` gives the clone gate a symlinked `.venv` so the override cannot
+   leak in as a relative path). Verified on `3.12.16` / `pandas 3.1.1` / `pyarrow 26.0.1`:
+   contract self-check, the full `pytest tests -q` suite, the artefact gate, `check_phase_a.sh` and
+   `preflight.sh --fast` are all green.
+7. **The one thing that will break if ignored:** Emitting an undeclared column (e.g. `polarization`),
    mismatching `meta.stats.n_cells != len(grid)`, or omitting `detection_limit_mm_yr` when
    `|median_velocity_mm_yr| < 5` (Málaga) causes `ArtifactValidationError` by design — fix the
    pipeline output, never silence `validation.py`.
-7. **Which contract is frozen:** `v1.0`, fingerprint
+8. **Which contract is frozen:** `v1.0`, fingerprint
    `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e`, revision `1`. Schema `1.1`
    (seasonal amplitude / `ratio_R` / regime) was **rejected** by the science owner
    (`docs/decisions.md` D-28 / O-05) and is never published; `tests/test_flujo_contract_section.py`

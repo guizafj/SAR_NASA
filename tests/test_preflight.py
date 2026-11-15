@@ -51,7 +51,7 @@ ALL_GATES = [
 #: Files copied into the scratch repo used to prove the clone gate catches a broken committed doc.
 #: `.venv` is symlinked instead (it is 500 MB and only needed for its interpreter).
 COPY_IGNORE = shutil.ignore_patterns(
-    ".git", ".venv", "__pycache__", ".pytest_cache", ".mypy_cache", "node_modules"
+    ".git", ".venv", ".venv*", ".venv312", "__pycache__", ".pytest_cache", ".mypy_cache", "node_modules"
 )
 
 
@@ -227,7 +227,9 @@ def _scratch_repo_from_worktree(tmp_path: Path) -> Path:
     return repo
 
 
-def _run_gate_clone_alone(repo: Path, tmp_root: Path) -> tuple[str, str, str]:
+def _run_gate_clone_alone(
+    repo: Path, tmp_root: Path, extra_env: dict[str, str] | None = None
+) -> tuple[str, str, str]:
     """Source the real script (PREFLIGHT_LIB_ONLY=1) and call gate_clone() on ``repo``.
 
     Returns (status, evidence, combined output). This exercises the shipped gate function, not a
@@ -247,6 +249,7 @@ fi
     env = dict(os.environ)
     env["TMPDIR"] = str(tmp_root)
     env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
+    env.update(extra_env or {})
     completed = subprocess.run(
         ["bash", "-c", driver, "scripts/preflight.sh"],
         cwd=repo,
@@ -261,6 +264,26 @@ fi
     evidence = re.search(r"^GATE_EVIDENCE=(.*)$", completed.stdout, re.MULTILINE)
     assert status is not None and evidence is not None, output
     return status.group(1), evidence.group(1), output
+
+
+def test_clone_gate_survives_a_relative_sar_python_override(tmp_path: Path) -> None:
+    """A dev pinning `SAR_PYTHON=.venv/...` must not turn the clone gate red.
+
+    The clone is a fresh `git clone`, so `.venv` is not in it: a relative override would resolve
+    against the clone's own cwd and look like a missing interpreter — the gate then reports
+    "doc guards failed" for a tree that is perfectly green. That is a false negative on the one
+    gate that protects teammates' checkouts, so it gets its own regression test.
+    """
+    tmp_root = tmp_path / "tmp"
+    tmp_root.mkdir()
+    repo = _scratch_repo_from_worktree(tmp_path)
+
+    status, evidence, output = _run_gate_clone_alone(
+        repo, tmp_root, extra_env={"SAR_PYTHON": ".venv/bin/python"}
+    )
+
+    assert status == "PASS", f"a relative SAR_PYTHON broke a green clone gate:\n{evidence}\n{output}"
+    assert "doc guards ok" in evidence, evidence
 
 
 def test_clone_gate_fails_on_a_committed_doc_that_breaks_the_guards(tmp_path: Path) -> None:
