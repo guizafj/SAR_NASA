@@ -274,7 +274,9 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     )
     exposure_note = (
         f'<p class="kpi-note">Nearest filtered H3 cell per feature — {critical} on Critical, '
-        f"{moderate} on Moderate. Proximity is informative, not an exposure model.</p>"
+        f"{moderate} on Moderate. Proximity is informative, not an exposure model. An administrative "
+        f"envelope is summarised by its representative point, so its distance is the envelope's, not a "
+        f"site's.</p>"
         if has_exposure
         else ""
     )
