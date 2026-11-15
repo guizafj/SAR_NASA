@@ -521,6 +521,13 @@ python3 -m venv .venv
 #    Raise `--max-gb` only to the size the probe printed (a deliberate act, recorded in
 #    `provenance.json.max_gb`), never blind — see step 5.
 
+# 4c. Spend one granule first, not the stack: `--max-granules N` keeps the FIRST N granules in
+#     reference-date order (O-01), which is the cheapest way to prove the HDF5 reader against a
+#     real file before paying for a whole chain. A plan below `MIN_FIT_POINTS` epochs still
+#     proceeds but warns: one granule is for inspecting the file, not for fitting a case.
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city mexico-city --source nisar_gunw --stack recommended --max-granules 1 --probe-sizes --dry-run
+
 # 5. Download (needs Earthdata credentials AND the one-time ASF application approval;
 #    fails closed, with an actionable message, when either is missing)
 export EARTHDATA_USER=... EARTHDATA_PASS=...
