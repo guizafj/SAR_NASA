@@ -10,7 +10,7 @@ La app no lee Parquet, CSV, GeoJSON ni `meta.json`. El único seam vivo es `src/
 
 | Regla | Dónde está | Qué debe hacer la UI |
 |---|---|---|
-| Positivo = hacia arriba | `AGENTS.md`, `RISK_THRESHOLDS_MM_YR` | Decirlo junto a velocidad y desplazamiento. No recalcular el signo. |
+| Positivo = hacia el sensor | `docs/requests.md` (respuesta Rol 3, punto 5), `README.md`, `pipeline` `--los-sign` | Decirlo junto a velocidad y desplazamiento, con la salvedad de que es convención registrada y no validada contra GNSS. En la geometría del mock coincide con uplift porque `u_up = cos θ > 0`. No recalcular el signo. |
 | `product == "mock"` | artefacto | Aviso permanente **DEMONSTRATION DATA**. No es una observación. |
 | Málaga es control | `meta.stats.detection_limit_mm_yr` solo en `malaga` | Un nulo es límite de detección, no un fallo. No calcular el límite. |
 | `risk_level` | derivado de `\|velocity_mm_yr\|` | Banda, no una medición aparte. Umbrales del contrato: `< 5` estable, `< 25` moderado, si no critico. El filtro envía el valor del contrato; la etiqueta visible puede ser Stable / Moderate / Critical. |
@@ -70,7 +70,7 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Resumen | `load_context_layers` | `path`, `summary.n_features`, `summary.layers`. |
 | Tabla | mismo payload | `layer`, `class`, `name`, `source`, `provenance_id`. |
 
-En los tres artefactos actuales no hay `name`. La columna sale vacía. Las `class` incluyen valores que no están en `LAND_USE` (`metro-station`, `water-well`, `coastline`, `canal`, `reservoir`, `aoi`). Son clases de contexto, no el `land_use` de la grilla. Hay que separar esas dos listas en la lectura, no mezclarlas en un filtro.
+Corrección de Rol 3 (`docs/requests.md`, 2026-11-15): el GeoJSON **sí** trae `name`, en 6 de las 12 features; son nombres sintéticos etiquetados como mock y llegan en español. La UI los cita tal cual, sin traducir, y pinta `—` donde la feature no tiene nombre. Las `class` incluyen valores que no están en `LAND_USE` (`metro-station`, `water-well`, `coastline`, `canal`, `reservoir`, `aoi`). Son clases de contexto, no el `land_use` de la grilla. Hay que separar esas dos listas en la lectura, no mezclarlas en un filtro.
 
 ### 4. Provenance and limits — `src/ui/educational.py`
 
@@ -114,6 +114,14 @@ Cada bloque se contrastó contra el hook que lo alimenta. Cambios de presentaci�
 Los nombres de feature del GeoJSON llegan en español desde el artefacto. La UI los cita, no los traduce: petición abierta en `docs/requests.md`.
 
 El parser de `load_documented_limits` une ahora las líneas de continuación de cada ítem numerado del README, así que el punto 5 y los ítems 9–13 se leen completos. La UI solo recibe el texto; no lo reconstruye.
+
+## Rol 3 respondió (2026-11-15, `3d6b858`)
+
+`docs/requests.md` trae la respuesta de Rol 3 medida sobre el árbol. Efectos en esta UI:
+
+- **Punto 4 cerrado por el código:** `mexico-city` publica `seasonal_amp_mm` y `ratio_R` en las 11 694 celdas y su limitación afirma que la ventana de dos años sí identifica el término estacional. No hay campo que suprimir ni marcar: el inspector los muestra con unidad y fuente, como hace hoy.
+- **Punto 5 con corrección de lectura:** positivo no es «hacia arriba» sin más, es **hacia el sensor** (por defecto `toward-sensor`), que coincide con uplift en la geometría del mock. La línea de signo del inspector cita ahora esa formulación y añade que la convención está registrada, no validada contra GNSS. No se da por cerrada.
+- **Puntos 1–3 no declarados:** sigue sin haber párrafo aprobado por caso, módulo educativo ni frases de glosario por `layer`. La UI no inventa: la pestaña 4 no muestra bloque educativo y el aviso de ausencia se mantiene. Los nombres en español del GeoJSON se citan tal cual (Rol 3 los confirma sintéticos y etiquetados como mock).
 
 ## Plan
 

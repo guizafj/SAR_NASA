@@ -285,7 +285,10 @@ def _render_inspector(
         (
             "Deformation",
             [
-                "Sign: positive = up",
+                # Rol 3 (docs/requests.md, 2026-11-15): positive is toward the sensor,
+                # which reads as uplift in this geometry. Recorded, not GNSS-validated.
+                "Sign: positive = toward the sensor (uplift in this geometry). "
+                "Recorded convention, not yet validated against GNSS.",
                 _figure_line("Displacement at first date", detail.get("val_t1"), unit_text),
                 _figure_line("Displacement at last date", detail.get("val_t2"), unit_text),
                 _figure_line("Displacement change", detail.get("delta_change"), unit_text),
