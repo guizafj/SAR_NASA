@@ -331,13 +331,31 @@ gate_clone() {
     [[ -n $why ]] || G_EVIDENCE="git clone failed (git unavailable or clone refused)"
     return 0
   fi
-  ln -s "$ROOT/.venv" "$clone/.venv" >>"$G_LOG" 2>&1 || true
+  # The clone borrows an interpreter (it is 500 MB and not part of the artefact contract). If the
+  # caller pinned one via `SAR_PYTHON`, resolve it *here*, from the caller's cwd, and symlink the
+  # clone's `.venv` to that venv root: a relative `SAR_PYTHON` cannot resolve inside a fresh clone,
+  # and silently falling back would report "guards failed" for a missing interpreter.
+  local venv_src="$ROOT/.venv"
+  if [[ -n ${SAR_PYTHON:-} ]]; then
+    local venv_hint=""
+    if [[ $SAR_PYTHON == /* ]]; then
+      venv_hint=$(dirname "$SAR_PYTHON")
+    else
+      venv_hint=$(cd "$(dirname "$SAR_PYTHON")" 2>/dev/null && pwd) || venv_hint=""
+    fi
+    if [[ -n $venv_hint && -x $venv_hint/python ]]; then
+      venv_src=$(dirname "$venv_hint")
+    fi
+  fi
+  ln -s "$venv_src" "$clone/.venv" >>"$G_LOG" 2>&1 || true
 
+  # Nested runs always use the clone's own `.venv`, so the gate tests what a teammate's checkout
+  # has — never the caller's override leaking in as a relative path.
   local crc=0 vrc=0 drc=0
   progress "    contracts + artefact gate inside the clone"
-  (cd "$clone" && ./scripts/python.sh -m src.domain.contracts) \
+  (cd "$clone" && env -u SAR_PYTHON ./scripts/python.sh -m src.domain.contracts) \
     >"$TMP_PF/clone-contracts.log" 2>&1 || crc=$?
-  (cd "$clone" && ./scripts/python.sh pipeline/validate_artifacts.py \
+  (cd "$clone" && env -u SAR_PYTHON ./scripts/python.sh pipeline/validate_artifacts.py \
     --processed data/processed --strict-size-mb 15) \
     >"$TMP_PF/clone-gate.log" 2>&1 || vrc=$?
 
@@ -345,7 +363,7 @@ gate_clone() {
   # so a teammate's checkout is not green even though the artefacts/fingerprint are fine. These
   # four guards are filesystem-only (~20 s) and are the ones that execute the documented commands.
   progress "    doc guards inside the clone (docs_commands, docs_links, README numbers)"
-  (cd "$clone" && ./scripts/python.sh -m pytest \
+  (cd "$clone" && env -u SAR_PYTHON ./scripts/python.sh -m pytest \
     tests/test_docs_commands.py tests/test_docs_links.py \
     tests/test_readme_numbers.py tests/test_pipeline_readme_numbers.py \
     -q -x -p no:cacheprovider) >"$TMP_PF/clone-docs.log" 2>&1 || drc=$?
