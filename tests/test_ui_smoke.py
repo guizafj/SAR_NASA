@@ -64,6 +64,23 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert not app.sidebar.selectbox
 
 
+def test_page_title_is_a_heading_and_map_focus_is_visible() -> None:
+    from src.ui.theme import _CSS
+
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    text = "\n".join(node.value for node in app.markdown)
+    assert text.count('<h1 class="mission-title">') == 1
+    assert '<p class="mission-title">' not in text
+    assert '.st-key-map-slot canvas[role="region"]:focus-visible' in _CSS
+    assert 'outline: 2px solid var(--accent)' in _CSS
+    mobile_css = _CSS.split('@media (max-width: 640px)', 1)[1]
+    assert '[role="tablist"]' in mobile_css
+    assert 'flex-wrap: wrap !important' in mobile_css
+    assert '[data-testid="stTabsScrollRight"]' in mobile_css
+    assert 'display: none !important' in mobile_css
+
+
 def test_url_params_seed_the_session_and_mirror_back() -> None:
     from src.data import loaders
 

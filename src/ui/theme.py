@@ -657,6 +657,20 @@ body,
 }}
 
 @media (max-width: 640px) {{
+  [data-testid="stTabs"] [role="tablist"] {{
+    display: flex !important;
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    gap: 0.5rem !important;
+    padding-inline: 0 !important;
+  }}
+  [data-testid="stTabs"] [data-testid="stTabsScrollLeft"],
+  [data-testid="stTabs"] [data-testid="stTabsScrollRight"] {{
+    display: none !important;
+  }}
   .legend-inline {{
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1243,6 +1257,12 @@ button[data-baseweb="tab"]:focus-visible {{
 .st-key-map-slot canvas {{
   max-width: 100% !important;
   max-height: var(--map-height) !important;
+}}
+
+.st-key-map-slot canvas[role="region"]:focus-visible {{
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -4px !important;
+  border-radius: var(--radius);
 }}
 
 /* KPI cards in one row must share a height: stretch the column chain and let

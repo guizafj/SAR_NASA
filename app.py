@@ -298,7 +298,7 @@ def render_header(
     )
     st.markdown(
         '<header class="mission-bar">'
-        f'<p class="mission-title">{html.escape(TITLE)}{case}</p>'
+        f'<h1 class="mission-title">{html.escape(TITLE)}{case}</h1>'
         f"{telemetry}"
         "</header>",
         unsafe_allow_html=True,
