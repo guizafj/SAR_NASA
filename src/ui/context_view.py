@@ -11,8 +11,6 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from src.ui.formatters import format_json_block
-
 _TABLE_FIELDS = ("layer", "class", "name", "source", "provenance_id")
 
 
@@ -57,6 +55,30 @@ def _render_table(frame: pd.DataFrame) -> str:
     )
 
 
+def _stat_card(column: Any, label: str, value: str, note: str | None = None) -> None:
+    note_html = f'<p class="kpi-note">{html.escape(note)}</p>' if note else ""
+    column.markdown(
+        '<div class="cockpit-card">'
+        f'<p class="kicker">{html.escape(label)}</p>'
+        f'<p class="kpi-value">{html.escape(value)}</p>'
+        f"{note_html}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _layer_counts(rows: list[dict[str, Any]], summary: dict[str, Any]) -> dict[str, int]:
+    """Prefer the loader summary; otherwise count the delivered features."""
+    layers = summary.get("layers") if isinstance(summary, dict) else None
+    if isinstance(layers, dict) and layers:
+        return {str(key): int(value) for key, value in layers.items()}
+    counts: dict[str, int] = {}
+    for row in rows:
+        layer = str(row.get("layer") or "")
+        if layer:
+            counts[layer] = counts.get(layer, 0) + 1
+    return counts
+
+
 def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     loader = getattr(loaders, "load_context_layers", None)
     case_id = filters.get("case_id")
@@ -78,16 +100,17 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         return
 
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-    st.markdown(
-        '<div class="cockpit-card">'
-        '<p class="kicker">Delivered layers</p>'
-        f"<p>{html.escape(str(payload.get('path', 'declared')))}</p>"
-        f'{format_json_block(summary, "Layer summary")}'
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
     rows = _features(payload)
+    counts = _layer_counts(rows, summary)
+    total = summary.get("n_features")
+    if not isinstance(total, int) or isinstance(total, bool):
+        total = len(rows)
+    breakdown = ", ".join(f"{layer} {count}" for layer, count in sorted(counts.items()))
+    columns = st.columns(3)
+    _stat_card(columns[0], "Delivered features", f"{total}", "context features")
+    _stat_card(columns[1], "Delivered layers", f"{len(counts)}", "distinct layer values")
+    _stat_card(columns[2], "Layer counts", breakdown or "none", None)
+
     if not rows:
         return
     frame = pd.DataFrame(rows, columns=list(_TABLE_FIELDS)).fillna("")
