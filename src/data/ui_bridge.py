@@ -182,6 +182,8 @@ def get_map_layer_df(
         "lat",
         "lon",
         "delta_change",
+        "signed_delta_mm",
+        "motion_direction",
         "velocity_mm_yr",
         "coherence",
         "land_use",
@@ -196,6 +198,10 @@ def get_map_layer_df(
 
     df = payload.grid_frame.copy()
     df["color"] = df["fill_color"]
+    # Final O-07 decision: `height` binds to `elevation_m` (two-sided signed extrusion around
+    # `COLUMN_BASELINE_M = MAX_EXTRUDE_METERS / 2 = 1500 m` when `extrude_3d=True`, `0.0` in flat
+    # mode), while `signed_delta_mm` keeps exact unrounded `delta_change` [mm].
+    df["signed_delta_mm"] = pd.to_numeric(bundle.grid.set_index("cell_id")["delta_change"], errors="raise").reindex(df["cell_id"]).to_numpy(dtype=np.float64)
     df["height"] = df["elevation_m"]
     # v1.1 thesis metrics for tooltip/inspector parity; additive if absent on legacy fixtures.
     for extra in ("regime", "ratio_R", "seasonal_amp_mm"):
