@@ -389,7 +389,7 @@ nuevos y sus filas en `docs/verification.md`; los números de esa entrada están
 **Aprobación:** pendiente de Rol 1 y Rol 2 (a posteriori). Dueño: Rol 3, que asume la decisión.
 **Estado:** INTEGRADO POR DECISIÓN DEL DUEÑO — firma de O-05 pendiente.
 
-## Rol 2 (`app.py`, `tests/test_ui_smoke.py`) — tres cambios de Rol 3 durante la integración
+## Rol 2 (`app.py`, `src/ui/context_view.py`, `tests/test_ui_smoke.py`) — cuatro cambios de Rol 3 durante la integración
 
 **De:** Rol 3 (yuls)
 **Para:** Rol 2 (fradiaz), dueño de `app.py` y de las pruebas de la UI
@@ -412,6 +412,14 @@ para que los revises: la redacción es tuya.
    `src/ui/components.py::kpi_card` y quitó el límite numérico de `detection_caption`, así que el fichero no
    compilaba. Lo reorienté a los sitios nuevos y trasladé allí el fallback de unidad, porque tu versión imprimía la
    unidad sólo `if unit else ""` — el hueco se había mudado, no cerrado.
+4. **`src/ui/context_view.py` — la pestaña 3 dejaba dos cosas a la interpretación del lector.** Primero, `unknown`
+   aparece como una clase más del filtro, como una barra y como una fila de la tabla, sin glosa: en Ciudad de México
+   es el **68,1 %** de las celdas, y sin una frase se lee como dato que falta. Segundo, la línea `Provenance ID
+   <caso>+mock+…` se sienta encima de filas cuyo `Source` dice OpenStreetMap, que es justo la confusión que
+   `docs/context-sources.md` §6 deshace por escrito. Añadí una `st.caption` bajo la nota de contexto que dice las dos
+   cosas en una frase y remite a la pestaña 4 para la cifra, sin recalcularla en la vista (eso sería ciencia en la
+   UI). La guarda está en `tests/test_attribution.py`, mi fichero, para no tocar tus pruebas; si prefieres otra
+   redacción, cámbiala y ajusta esas dos aserciones.
 
 **Impacto en contrato de datos:** ninguno.
 **Aprobación:** tuya, a posteriori. Dueño de la integración: Rol 3.
