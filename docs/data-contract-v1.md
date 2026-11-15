@@ -233,8 +233,9 @@ de los artefactos y de `scripts/demo_numbers.py`, y ningún documento debe citar
 Dentro de `stats` son obligatorias (`STATS_REQUIRED_KEYS`, 8 claves desde 1.1): `n_cells`, `n_dates`,
 `median_velocity_mm_yr`, `median_seasonal_amp_mm`, `median_ratio_R`, `dominant_regime`,
 `p05_velocity_mm_yr`, `p95_velocity_mm_yr`. Claves como `detection_limit_mm_yr` son condicionales
-(ver reglas); las extra (`n_context_features`, `annual_coverage`, `design_condition`, …) están
-permitidas y las escribe el pipeline.
+(ver reglas); las extra (`annual_coverage`, `design_condition`, …) están permitidas y las escriben
+**ambos** productores, el mock y el pipeline real; `n_context_features` es la única de las citadas
+que solo escribe el mock.
 
 Dentro de `provenance` son obligatorias: `source`, `product_id`, `processing_date`, `method`,
 `retrieved_utc`, `reference`, `license`. `method` no puede estar vacío: debe describir la

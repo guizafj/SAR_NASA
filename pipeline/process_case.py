@@ -1776,6 +1776,7 @@ def _process_case_rows(
         span_years=span_years,
         n_epochs=len(epochs),
         harmonics=harmonics,
+        design_condition=aoi_fit.design_condition,
         sigma_median=sigma_median,
         case=cfg,
     )
@@ -1893,6 +1894,7 @@ def _stats(
     span_years: float,
     n_epochs: int,
     harmonics: int,
+    design_condition: float,
     sigma_median: float,
     case: CaseConfig,
 ) -> dict[str, Any]:
@@ -1902,6 +1904,11 @@ def _stats(
     exactly the way the app recomputes them (`src/data/validation.py` re-derives them from the
     parquet), so meta.json and the grid cannot disagree. `dominant_regime` breaks ties by label so
     two equally frequent regimes cannot swap between runs.
+
+    `seasonal_n_harmonics` and `design_condition` are the evidence behind the seasonal trio: the
+    harmonic order actually fitted, and the AOI aggregate fit's column-normalised design condition
+    (the same gate `transforms.harmonic_fit` applies at `MAX_DESIGN_CONDITION`), published beside
+    `annual_coverage` so a reader can re-run the gate instead of trusting the prose.
     """
     areas = np.array([h3.cell_area(cell, unit="m^2") for cell in cells], dtype=float)
     try:
@@ -1924,13 +1931,14 @@ def _stats(
         "median_seasonal_amp_mm": _round(float(np.median(np.asarray(seasonal_amp, dtype=float)))),
         "median_ratio_R": None if median_ratio_R is None else _round(median_ratio_R),
         "dominant_regime": str(dominant_regime),
-        "n_harmonics": int(harmonics),
+        "seasonal_n_harmonics": int(harmonics),
         "n_epochs_dropped": dict(dropped),
         "coverage_fraction": round(float(coverage.fraction), 6),
         "aoi_cells": int(coverage.aoi_cells),
         "covered_aoi_cells": int(coverage.covered_in_aoi),
         "span_years": round(float(span_years), 6),
         "annual_coverage": round(float(span_years) / V.SEASONAL_PERIOD_YEARS, 6),
+        "design_condition": round(float(design_condition), 6),
         "per_cell_series": {
             "enabled": False,
             "criterion": (

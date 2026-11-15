@@ -862,8 +862,8 @@ def test_a_short_stack_publishes_the_not_fitted_state(tmp_path):
     `"inelastic"`, even though `classify_regime` maps a zero amplitude to `"inelastic"` when the
     trend is non-zero: that rule is for a *fitted* amplitude, and a zero-harmonic fit never had a
     seasonal column to classify. The same three statements must reach `meta` (`null`, `0.0`,
-    `n_harmonics = 0`) and one limitation must spell the reason out in words, or a reader sees a
-    null ratio with no explanation.
+    `seasonal_n_harmonics = 0`) and one limitation must spell the reason out in words, or a reader
+    sees a null ratio with no explanation.
     """
     stack = build_stack(tmp_path / "granules")
     processed, _, _, (grid, _, meta, _) = chain(stack, tmp_path)
@@ -903,8 +903,9 @@ def test_a_short_stack_publishes_the_not_fitted_state(tmp_path):
     assert stats["median_seasonal_amp_mm"] == 0.0, (
         f"meta.stats.median_seasonal_amp_mm must be 0.0, got {stats['median_seasonal_amp_mm']!r}"
     )
-    assert stats["n_harmonics"] == 0, (
-        f"meta.stats.n_harmonics must name the order actually fitted (0), got {stats['n_harmonics']!r}"
+    assert stats["seasonal_n_harmonics"] == 0, (
+        "meta.stats.seasonal_n_harmonics must name the order actually fitted (0), got "
+        f"{stats['seasonal_n_harmonics']!r}"
     )
     assert any("not fitted" in line.lower() for line in meta["limitations"]), (
         "a null ratio_R is only honest if meta.limitations says the term was not fitted; "
