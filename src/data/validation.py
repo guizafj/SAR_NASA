@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 import h3
+import numpy as np
 import pandas as pd
 
 from src.domain import contracts as C
@@ -178,6 +179,15 @@ def _seasonal_stat_problems(
 
     Same estimator as the generator (`pandas.median`, label tie-break for the regime mode), so a
     disagreement means one artefact is stale — not that two statistics disagree about a definition.
+
+    Deliberately *stricter* than `contracts.validate_meta` in one place, and kept that way: the
+    contract only sees `meta.json`, so it can flag a null `median_ratio_R` beside a non-zero
+    `median_seasonal_amp_mm` and nothing else. Here the grid is in hand, so a null median ratio is
+    also rejected when some cells carry a defined `ratio_R` even though the *median* amplitude is
+    0 (a mixed grid: the median skips the null ratios, so the number exists and publishing null
+    hides it). This direction never weakens the contract's rule and cannot false-reject a bundle
+    that published its statistic; the recomputation and `dominant_regime` mode checks are likewise
+    cross-artefact invariants the contract, which validates one artefact at a time, cannot express.
     """
     problems: list[str] = []
     if not isinstance(grid, pd.DataFrame) or grid.empty:
@@ -236,9 +246,10 @@ def _seasonal_column_problems(
     Three invariants a typed constant cannot satisfy:
 
     * ``ratio_R == |velocity_mm_yr| / seasonal_amp_mm`` wherever the amplitude was fitted;
-    * ``ratio_R`` is **null** exactly where ``seasonal_amp_mm == 0`` (no harmonic fitted), because
-      ``|trend|/0`` is undefined — a number there is fabricated, and a number withheld where the
-      amplitude *was* fitted is a hidden statistic;
+    * ``ratio_R`` is **null** exactly where ``seasonal_amp_mm == 0`` (no harmonic fitted, and
+      equally nowhere else — a null amplitude is not a fitted one), because ``|trend|/0`` is
+      undefined — a number there is fabricated, and a number withheld where the amplitude *was*
+      fitted is a hidden statistic;
     * ``value - trend_mm_yr·t - seasonal_mm`` is **constant** along every series, i.e. the published
       trend and seasonal components really are the decomposition of the published cumulative
       displacement (the constant is the fit intercept, which the contract does not publish).
@@ -252,8 +263,13 @@ def _seasonal_column_problems(
         velocity = pd.to_numeric(grid["velocity_mm_yr"], errors="coerce")
         amplitude = pd.to_numeric(grid["seasonal_amp_mm"], errors="coerce")
         ratio = pd.to_numeric(grid["ratio_R"], errors="coerce")
+        # `fitted` / `~fitted` are the SAME partitions `contracts.validate_grid` uses
+        # (`amplitude.fillna(0.0) > 0.0` versus everything else), so a null or zero amplitude is
+        # "nothing was fitted" in both validators. Parity matters more than wording here: a
+        # disagreement between the two modules means CI and the normative validator can return
+        # opposite verdicts on the same parquet file.
         fitted = amplitude.notna() & (amplitude > 0.0)
-        not_fitted = amplitude.notna() & (amplitude == 0.0)
+        not_fitted = ~fitted
         if bool((amplitude < 0.0).any()):
             problems.append(
                 f"cross_check: grid.seasonal_amp_mm is negative for "
@@ -269,14 +285,35 @@ def _seasonal_column_problems(
         if fabricated.any():
             problems.append(
                 f"cross_check: grid.ratio_R carries a number for {int(fabricated.sum())} row(s) "
-                "whose seasonal_amp_mm == 0: |trend|/0 is undefined, so the value must be null"
+                "whose seasonal_amp_mm is 0 or null: the ratio is undefined there, so the value "
+                "must be null"
             )
         if fitted.any():
-            residual = (ratio[fitted] - velocity[fitted].abs() / amplitude[fitted]).abs()
-            if float(residual.max()) > 1e-6:
+            # Tolerance copied verbatim from `contracts.validate_grid` (5e-3 relative + 5e-3
+            # absolute) on purpose. A tighter absolute epsilon here (1e-6 was in place before)
+            # rejected a ratio published rounded to two decimals that the normative validator
+            # accepts, i.e. CI failed while the frozen contract passed — the exact divergence this
+            # module must not have. The contract owns the tolerance, not this wrapper.
+            expected = velocity.abs() / amplitude
+            tolerance = expected.abs() * 5e-3 + 5e-3
+            residual = (ratio - expected).abs()
+            inconsistent = fitted & (residual > tolerance)
+            if inconsistent.any():
                 problems.append(
                     "cross_check: grid.ratio_R is not abs(velocity_mm_yr)/seasonal_amp_mm for "
-                    f"{int((residual > 1e-6).sum())} row(s) (max residual {float(residual.max()):.3e})"
+                    f"{int(inconsistent.sum())} row(s) (max residual "
+                    f"{float(residual[fitted].max()):.3e})"
+                )
+            # The `MAX_PUBLISHABLE_RATIO_R` ceiling of `contracts.validate_grid`, mirrored here so
+            # the duplicated rule cannot be laxer than the normative one. A ratio that huge is a
+            # numerical-zero amplitude published as a measurement (the sentinel the contract's
+            # prose forbids), and without this check only the contract validator would catch it.
+            absurd = fitted & ratio.notna() & (ratio > C.MAX_PUBLISHABLE_RATIO_R)
+            if absurd.any():
+                problems.append(
+                    f"cross_check: grid.ratio_R exceeds {C.MAX_PUBLISHABLE_RATIO_R:g} on "
+                    f"{int(absurd.sum())} row(s); that magnitude means the amplitude is "
+                    "numerically zero, so publish amplitude 0 with a null ratio instead"
                 )
 
     if not isinstance(timeseries, pd.DataFrame) or timeseries.empty:
@@ -291,6 +328,10 @@ def _seasonal_column_problems(
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
         if frame[["date", "value", "trend_mm_yr", "seasonal_mm"]].isna().any().any():
             return problems  # null/non-numeric already reported by the contract validator
+        if not np.isfinite(
+            frame[["value", "trend_mm_yr", "seasonal_mm"]].to_numpy(dtype=float)
+        ).all():
+            return problems  # a non-finite fit is a contract problem, reported there
         first = frame.groupby("cell_id")["date"].transform("min")
         years = (frame["date"] - first).dt.days.to_numpy(dtype=float) / 365.25
         offset = (
