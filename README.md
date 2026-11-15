@@ -395,6 +395,26 @@ key reaches any `meta.stats`, and no layer shows a gradient.
 **Risk band** — *implemented and used* (frozen in `contracts.py`, `risk_level_from_velocity`,
 sign-agnostic): `|v| < 5` → `estable`, `5–25` → `moderado`, `≥ 25 mm/yr` → `critico`.
 
+### Scattering physics: surface roughness, dielectric constant, L-band vs C-band
+
+Three controls decide whether a surface can be measured at all, before any displacement is
+estimated. They are brightness effects, not motion: this cockpit publishes `delta_change` and
+`velocity_mm_yr` from phase, and never turns amplitude into a moisture or biomass claim.
+
+- **Surface roughness.** A radar pixel returns a strong echo when the surface is rough at the scale
+  of the wavelength and a weak, specular one when it is smooth: flat water sends the pulse away from
+  the antenna, which is why open water decorrelates and is masked instead of measured. Roughness
+  therefore gates observability; it does not enter the displacement arithmetic.
+- **Dielectric constant.** The surface's complex dielectric constant sets how much of the pulse is
+  reflected and how much penetrates. Liquid water raises it sharply, so wet soil and vegetation
+  scatter more strongly than dry ground. That contrast is backscatter — useful for reading coherence
+  and land cover, never converted into a stored-water number here.
+- **L-band vs C-band.** NISAR's L-band wavelength (λ ≈ 0.2384 m, about 24 cm) is roughly four times
+  longer than Sentinel-1's C-band (about 5.6 cm). The longer wavelength penetrates canopy and dry
+  soil better and decorrelates more slowly, so a 12-day pair stays usable over a vegetated or dusty
+  city; the cost is scale, since one fringe spans a larger displacement. Coherence is comparable
+  only within one revisit interval and one band — never pool L-band and C-band numbers.
+
 ---
 
 ## 7. Roles & responsibilities

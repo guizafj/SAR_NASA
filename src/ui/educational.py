@@ -192,8 +192,8 @@ def _availability_block(loaders: Any, meta: dict[str, Any] | None) -> None:
     state = "available" if available else "not available"
     if product == "mock":
         headline = (
-            f"From the ASF search record ({state}). Nothing was downloaded for this demo: "
-            f"the published artefact is {product}."
+            f"From the ASF search record ({state}). Nothing was downloaded for this demo. "
+            f"The published artefact is {product}."
         )
     else:
         headline = f"From the ASF search record ({state}). Published artefact: {product}."
@@ -273,14 +273,56 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
         )
 
     science_summary = limits.get("science_section_1") if isinstance(limits, Mapping) else None
-    if science_summary:
+    physics = limits.get("physics") if isinstance(limits, Mapping) else None
+    if science_summary or physics:
         with st.expander("How this measurement works (SAR physics)", expanded=False):
             st.markdown(
                 '<p class="kpi-note"><strong>SAR physics and regime classification</strong> · from '
-                "docs/science-guide.md §1 and docs/data-contract-v1.md §7.5.</p>",
+                "docs/science-guide.md §1, README.md and docs/data-contract-v1.md §7.5.</p>",
                 unsafe_allow_html=True,
             )
-            st.markdown(f"<p>{safe_inline(science_summary)}</p>", unsafe_allow_html=True)
+            if science_summary:
+                st.markdown(f"<p>{safe_inline(science_summary)}</p>", unsafe_allow_html=True)
+            if isinstance(physics, list) and physics:
+                by_title = {
+                    str(item.get("title", "")).lower(): str(item.get("text", ""))
+                    for item in physics
+                    if isinstance(item, Mapping)
+                }
+                topics = (
+                    "1. L-Band vs C-Band Penetration",
+                    "2. Surface Roughness & Dielectric Constant",
+                    "3. Elastic vs Inelastic Regime R",
+                )
+                topic = st.radio(
+                    "Physics topic",
+                    options=list(topics),
+                    horizontal=True,
+                    key=f"physics-topic-{(meta or {}).get('case_id') or 'case'}",
+                )
+                if topic.startswith("1."):
+                    st.markdown(
+                        f'<p>{safe_inline(by_title.get("l-band vs c-band", ""))}</p>',
+                        unsafe_allow_html=True,
+                    )
+                elif topic.startswith("2."):
+                    st.markdown(
+                        f'<p><strong>Surface roughness.</strong> '
+                        f'{safe_inline(by_title.get("surface roughness", ""))}</p>',
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f'<p><strong>Dielectric constant.</strong> '
+                        f'{safe_inline(by_title.get("dielectric constant", ""))}</p>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        '<p>A <strong>secular</strong> trend is motion that does not come back; a '
+                        "<strong>seasonal</strong> term is the part that does. The regime index compares "
+                        "them; the class says which one dominates the cell.</p>",
+                        unsafe_allow_html=True,
+                    )
             st.markdown(
                 '<p class="detail-line"><strong>Regime index R = |velocity| / seasonal amplitude:</strong> '
                 "R &gt; 2 Inelastic (secular trend dominates, permanent compaction) · "

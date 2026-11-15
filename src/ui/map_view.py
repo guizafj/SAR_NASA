@@ -7,6 +7,7 @@ draws them.
 from __future__ import annotations
 
 import html
+import json
 from typing import Any
 
 import pydeck as pdk
@@ -131,11 +132,13 @@ def _legend_inline(scale: dict[str, Any], mode: str) -> str:
         span = f"{format_number(vmin, 1)} … {format_number(vmax, 1)}"
     else:
         span = ""
+    flag = '<span class="legend-flag">saturated</span>' if scale.get("saturated") else ""
     return (
         '<div class="cockpit-card legend-inline">'
         f'<span class="legend-inline-label">{html.escape(humanize(metric))} · {html.escape(str(unit))}</span>'
         f'<div class="legend-bar" style="background: linear-gradient(90deg, {gradient})"></div>'
         f'<span class="legend-inline-range">{html.escape(span)}</span>'
+        f"{flag}"
         "</div>"
     )
 
@@ -399,6 +402,15 @@ def _reading_panel(
             ]
         )
         _inspector_groups(detail, case_id)
+        export = _call(loaders, "get_cell_export", str(case_id), str(detail.get("cell_id")))
+        if isinstance(export, dict) and export:
+            st.download_button(
+                "Export selected cell (JSON)",
+                data=json.dumps(export, ensure_ascii=False, indent=2, default=str),
+                file_name=f"{case_id}_{detail.get('cell_id')}.json",
+                mime="application/json",
+                key=f"export-cell-{case_id}",
+            )
     else:
         kpis = _call(loaders, "get_map_kpis", case_id, filters) or []
         stats = [
@@ -749,6 +761,15 @@ def render_map_tab(
             )
         else:
             _render_deck(frame, active, view, context_groups, case_id)
+        export_csv = _call(loaders, "get_filtered_export_csv", case_id, active)
+        if isinstance(export_csv, str) and export_csv:
+            st.download_button(
+                "Export filtered cells (CSV)",
+                data=export_csv,
+                file_name=f"{case_id}_filtered_grid.csv",
+                mime="text/csv",
+                key=f"export-grid-{case_id}",
+            )
 
     with panel_col:
         # One compact ramp row keeps the hero series above the fold; the full

@@ -540,6 +540,48 @@ def load_context_layers() -> dict[str, Any] | None:
 _SCIENCE_GUIDE = Path(__file__).resolve().parents[2] / "docs" / "science-guide.md"
 
 
+_PHYSICS_HEADING = "### Scattering physics: surface roughness, dielectric constant, L-band vs C-band"
+
+
+def _physics_bullets(text: str) -> list[dict[str, str]]:
+    """Same three scattering bullets the bridge reads from README.md."""
+    start = text.find(_PHYSICS_HEADING)
+    if start == -1:
+        return []
+    body = text[start + len(_PHYSICS_HEADING) :]
+    stop = body.find("\n## ")
+    if stop != -1:
+        body = body[:stop]
+    items: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    bullet = re.compile(r"^-\s+\*\*(.+?)\*\*\s*(.*)$")
+    for line in body.splitlines():
+        stripped = line.strip()
+        match = bullet.match(stripped)
+        if match:
+            if current is not None:
+                items.append(current)
+            current = {"title": match.group(1).rstrip("."), "text": match.group(2).strip()}
+        elif current is not None and stripped:
+            current["text"] = f"{current['text']} {stripped}".strip()
+    if current is not None:
+        items.append(current)
+    return items
+
+
+def get_filtered_export_csv(case_id: str | None = None, filters: dict | None = None) -> str:
+    """No artefacts without the processed tree; the export button stays disabled."""
+    return ""
+
+
+def get_cell_export(case_id: str, cell_id: str) -> dict | None:
+    return None
+
+
+def get_context_exposure(case_id: str | None = None, filters: dict | None = None) -> dict | None:
+    return None
+
+
 def load_availability(case_id: str | None = None) -> dict[str, Any] | None:
     """No ASF search record without the processed tree; the UI shows the absence."""
     return None
@@ -568,6 +610,7 @@ def load_documented_limits() -> dict[str, Any]:
             "section_13": [],
             "science_section_1": science_summary,
             "case_roles": {},
+            "physics": _physics_bullets(_README.read_text(encoding="utf-8")),
         }
     text = _README.read_text(encoding="utf-8")
     caveat = None
@@ -613,4 +656,5 @@ def load_documented_limits() -> dict[str, Any]:
         "section_13": items,
         "science_section_1": science_summary,
         "case_roles": {},
+        "physics": _physics_bullets(text),
     }

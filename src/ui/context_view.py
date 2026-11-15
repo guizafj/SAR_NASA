@@ -1,24 +1,44 @@
 """Context layers. Empty unless Rol 3 has delivered the GeoJSON.
 
-Presentation only: reads the loader payload, never the artefact files.
+Presentation only: reads the loader payload, never the artefact files. The proximity
+cross-reference (`get_context_exposure`) says which H3 cell is nearest to each feature
+and what that cell's velocity band is; it is **not** a hazard assessment.
 """
 
 from __future__ import annotations
 
 import html
-from typing import Any
+from typing import Any, Mapping
 
 import pandas as pd
 import streamlit as st
 
-from src.ui.formatters import CONTEXT_LAYER_GLOSSARY, humanize, translate_feature_name
+from src.ui.formatters import (
+    CONTEXT_LAYER_GLOSSARY,
+    choice_label,
+    humanize,
+    risk_label,
+    translate_feature_name,
+)
 
-_TABLE_FIELDS = ("layer", "class", "name", "source", "provenance_id")
+_TABLE_FIELDS = (
+    "layer",
+    "class",
+    "name",
+    "source",
+    "nearest_cell_id",
+    "risk_level",
+    "distance_m",
+    "provenance_id",
+)
+_NO_VALUE = ("", "None", "nan")
 
 
 def _features(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
-    geojson = payload.get("geojson") if isinstance(geojson := (payload or {}).get("geojson"), dict) else None
-    features = geojson.get("features") if isinstance(geojson, dict) else None
+    if not isinstance(payload, dict):
+        return []
+    geo = payload.get("geojson")
+    features = geo.get("features") if isinstance(geo, dict) else None
     if not isinstance(features, list):
         return []
     rows: list[dict[str, Any]] = []
@@ -49,11 +69,20 @@ def _render_table(frame: pd.DataFrame, provenance: str | None = None) -> str:
     headers = "".join(f"<th>{html.escape(humanize(col))}</th>" for col in shown.columns)
     body_rows: list[str] = []
     for row in shown.itertuples(index=False):
-        cells = "".join(
-            f"<td>{html.escape(str(val).replace(chr(10), ' ')) if str(val) not in ('', 'None', 'nan') else '—'}</td>"
-            for val in row
+        risk = str(getattr(row, "risk_level", "") or "")
+        row_class = ' class="row-alert"' if risk == "critico" else (
+            ' class="row-warn"' if risk == "moderado" else ""
         )
-        body_rows.append(f"<tr>{cells}</tr>")
+        cells = []
+        for col, val in zip(shown.columns, row):
+            text = str(val).replace(chr(10), " ")
+            if text in _NO_VALUE:
+                cells.append("<td>—</td>")
+            elif col == "risk_level":
+                cells.append(f"<td>{html.escape(risk_label(text))}</td>")
+            else:
+                cells.append(f"<td>{html.escape(text)}</td>")
+        body_rows.append(f"<tr{row_class}>{''.join(cells)}</tr>")
     return (
         f"{note}"
         '<div class="cockpit-table-wrap" role="region" aria-label="Context layers">'
@@ -88,17 +117,34 @@ def _layer_counts(rows: list[dict[str, Any]], summary: dict[str, Any]) -> dict[s
     return counts
 
 
-def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
-    loader = getattr(loaders, "load_context_layers", None)
-    case_id = filters.get("case_id")
-    if loader is None:
-        payload = None
-    else:
+def _load(loaders: Any, case_id: Any, filters: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any], str | None]:
+    """Prefer the exposure hook (nearest cell + risk); fall back to the plain GeoJSON."""
+    exposure_fn = getattr(loaders, "get_context_exposure", None)
+    if exposure_fn is not None:
         try:
-            payload = loader(case_id)
+            exposure = exposure_fn(case_id, filters)
         except TypeError:
-            payload = loader()
+            exposure = None
+        if isinstance(exposure, Mapping) and exposure.get("features"):
+            summary = exposure.get("summary") if isinstance(exposure.get("summary"), Mapping) else {}
+            return list(exposure["features"]), dict(summary), "exposure"
+    loader = getattr(loaders, "load_context_layers", None)
+    if loader is None:
+        return [], {}, None
+    try:
+        payload = loader(case_id)
+    except TypeError:
+        payload = loader()
     if not payload:
+        return [], {}, None
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    return _features(payload), summary, "plain"
+
+
+def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
+    case_id = filters.get("case_id")
+    rows, summary, source = _load(loaders, case_id, filters)
+    if not rows:
         st.markdown(
             '<div class="cockpit-card is-empty">'
             '<p class="kicker">Context</p>'
@@ -108,8 +154,6 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         )
         return
 
-    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-    rows = _features(payload)
     counts = _layer_counts(rows, summary)
     total = summary.get("n_features")
     if not isinstance(total, int) or isinstance(total, bool):
@@ -122,35 +166,101 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     _stat_card(columns[1], "Delivered layers", f"{len(counts)}", "distinct layer values")
     _stat_card(columns[2], "Layer counts", breakdown or "none", None)
 
-    if not rows:
-        return
     frame = pd.DataFrame(rows, columns=list(_TABLE_FIELDS)).fillna("")
-    provenance_ids = sorted(
-        {str(value) for value in frame["provenance_id"] if str(value) not in ("", "None", "nan")}
-    )
-    shown = frame.drop(columns=["provenance_id"]) if len(provenance_ids) == 1 else frame.copy()
-    single_source = provenance_ids[0] if len(provenance_ids) == 1 else None
-    if provenance_ids:
-        st.caption(f"Provenance ID {' · '.join(provenance_ids)}")
     for column in ("layer", "class"):
-        if column in shown.columns:
-            shown[column] = shown[column].map(lambda value: humanize(value) if str(value) else value)
-    if "name" in shown.columns:
-        shown["name"] = shown["name"].map(translate_feature_name)
-    glossary_items = "".join(
-        f'<p class="detail-line"><strong>{html.escape(humanize(layer_key))}:</strong> '
-        f"{html.escape(CONTEXT_LAYER_GLOSSARY[layer_key])}</p>"
-        for layer_key in sorted(counts)
-        if layer_key in CONTEXT_LAYER_GLOSSARY
+        frame[column] = frame[column].map(lambda value: humanize(value) if str(value) else value)
+    if "name" in frame.columns:
+        frame["name"] = frame["name"].map(translate_feature_name)
+
+    # Display-only filters over the delivered rows. Keys are tab-scoped: never reuse
+    # the global `filter_*` keys or the map would change underneath the user.
+    control_cols = st.columns(3)
+    with control_cols[0]:
+        layers_present = sorted(str(value) for value in frame["layer"].unique() if str(value))
+        picked_layers = st.multiselect(
+            "Layer",
+            options=layers_present,
+            key=f"ctx-layer-{case_id}",
+        )
+    with control_cols[1]:
+        classes_present = sorted(str(value) for value in frame["class"].unique() if str(value))
+        picked_class = st.selectbox(
+            "Class",
+            options=["", *classes_present],
+            format_func=choice_label,
+            key=f"ctx-class-{case_id}",
+        )
+    with control_cols[2]:
+        picked_risk = st.selectbox(
+            "Nearest cell risk",
+            options=["", "estable", "moderado", "critico"],
+            format_func=choice_label,
+            key=f"ctx-risk-{case_id}",
+        )
+
+    shown = frame
+    if picked_layers:
+        shown = shown[shown["layer"].isin(picked_layers)]
+    if picked_class:
+        shown = shown[shown["class"] == humanize(picked_class)]
+    if picked_risk:
+        shown = shown[shown["risk_level"] == picked_risk]
+
+    has_exposure = source == "exposure" and "risk_level" in shown.columns
+    critical = int((shown["risk_level"] == "critico").sum()) if has_exposure else 0
+    moderate = int((shown["risk_level"] == "moderado").sum()) if has_exposure else 0
+
+    note = (
+        "Delivered context only, not a hazard assessment. "
+        "A context class is not the Land use filter."
     )
+    exposure_note = (
+        f'<p class="kpi-note">Nearest filtered H3 cell per feature — {critical} on Critical, '
+        f"{moderate} on Moderate. Proximity is informative, not an exposure model.</p>"
+        if has_exposure
+        else ""
+    )
+    st.markdown('<p class="kicker">Context layers</p>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="cockpit-card">'
-        '<p class="kicker">Context layers</p>'
-        '<p class="kpi-note">Delivered context only, not a hazard assessment. '
-        "A context class is not the Land use filter.</p>"
-        f"{glossary_items}"
-        f"<p>{len(rows)} features delivered</p>"
-        f"{_render_table(shown, single_source)}"
-        "</div>",
+        f'<p class="kpi-note">{html.escape(note)}</p>',
         unsafe_allow_html=True,
     )
+    if exposure_note:
+        st.markdown(exposure_note, unsafe_allow_html=True)
+    st.markdown(
+        f"<p>{len(shown)} features shown of {len(frame)}</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(_render_table(shown), unsafe_allow_html=True)
+
+    text_cols = st.columns(2)
+    with text_cols[0]:
+        st.download_button(
+            "Export context (CSV)",
+            data=shown.to_csv(index=False),
+            file_name=f"{case_id}_context.csv",
+            mime="text/csv",
+            key=f"ctx-export-{case_id}",
+        )
+    with text_cols[1]:
+        jumpable = shown[
+            ~shown["nearest_cell_id"].astype(str).isin([""] + list(_NO_VALUE))
+        ] if "nearest_cell_id" in shown.columns else shown.iloc[0:0]
+        if not jumpable.empty:
+            options = {
+                f"{row['name'] or row['class']} · {risk_label(row['risk_level'])}": row[
+                    "nearest_cell_id"
+                ]
+                for _, row in jumpable.iterrows()
+            }
+            picked = st.selectbox(
+                "Jump to nearest cell",
+                options=["", *options],
+                format_func=lambda key: "Select a feature" if key == "" else key,
+                key=f"ctx-jump-{case_id}",
+            )
+            clicked = st.button("Jump to cell on Map", key=f"ctx-jump-btn-{case_id}")
+            if picked and clicked:
+                st.session_state.selected_cell_id = options[picked]
+                st.session_state[f"inspector_cell_{case_id}"] = ""
+                st.rerun()
