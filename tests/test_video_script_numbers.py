@@ -17,7 +17,9 @@ What is checked
   date, README structure counts) are allowlisted below **with a one-line reason each**.
 * The honesty beats that are submission requirements must be present: the mock statement when
   every loaded case is ``product == "mock"`` (and its absence when a case is real), the detection
-  bound behind the null result, the coverage caveat, and the seasonal-window caveat.
+  bound behind the null result, the coverage caveat, and the seasonal beat: the card's
+  ``seasonal_split`` verdict decides whether the script may speak a seasonal amplitude (fitted,
+  never "measured") or must refuse it with the window/gate that made the fit unidentifiable.
 
 Tolerances (stated, never widened to make the suite pass)
 ---------------------------------------------------------
@@ -53,7 +55,7 @@ DOC = ROOT / "docs" / "video-script.md"
 CARD = ROOT / "scripts" / "demo_numbers.py"
 PROCESSED = ROOT / "data" / "processed"
 
-#: Calendar months per year, used only to re-derive the "4.3 months" span the card prints.
+#: Calendar months per year, used only to re-derive the "24.0 months" span the card prints.
 DAYS_PER_MONTH = 365.25 / 12.0
 #: Subprocess ceiling; the card reads three parquet files and normally finishes in ~2 s.
 CARD_TIMEOUT_S = 60
@@ -235,6 +237,10 @@ _COVERAGE_CONTEXT_RE = re.compile(r"coverage|percent|per cent|threshold", re.IGN
 
 #: Unit-bearing single-number rules, most specific first. Each names the token group ``num``.
 _SINGLE_MATCHERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # `median_seasonal_amp_mm=1.50`, `annual_coverage=2.004` — the fitted seasonal split, quoted
+    # verbatim so the amplitude is checked as a fitted number, not as a measured cycle.
+    ("SEASONAL", re.compile(rf"median_seasonal_amp_mm\s*=\s*(?P<num>{NUM})")),
+    ("COVERAGE_CYCLES", re.compile(rf"annual_coverage\s*=\s*(?P<num>{NUM})")),
     # "13-day revisit"
     ("REVISIT", re.compile(rf"(?P<num>\d+)\s*[- ]day\s+revisit")),
     ("REVISIT", re.compile(rf"revisit_days\s*=\s*(?P<num>\d+)")),
@@ -425,9 +431,9 @@ def _parse_doc() -> list[ParsedLine]:
 def _parse_prose(text: str) -> ParsedLine:
     """Parse card prose (limitations, do-not-claim) with the same rules as the script.
 
-    Prose figures are still numbers the card produces — ``~201 m across``, ``132 d (4.3 months)``,
-    ``274 d`` — so they belong in the derived set. A claim must still land within the token's own
-    printed precision, so prose does not buy anyone a looser tolerance.
+    Prose figures are still numbers the card produces — ``~201 m across``, ``62 dates over 732 d``,
+    ``2.00 annual cycles`` — so they belong in the derived set. A claim must still land within the
+    token's own printed precision, so prose does not buy anyone a looser tolerance.
     """
     return _parse_line(0, text)
 
@@ -576,6 +582,26 @@ def _build_derived(card: dict) -> dict[str, list[Derived]]:
                 Derived(value, f"null_result[{case_id}].detection_limit (mm/yr)")
             )
 
+    # The trend/seasonal split. `seasonal_identifiable` is the card's verdict on whether the span
+    # can identify the seasonal term at all; when it can, the amplitude and the coverage that
+    # licensed it are published numbers the script is allowed to speak.
+    for block in card.get("seasonal_split") or []:
+        case_id = block.get("case_id", "?")
+        if block.get("median_seasonal_amp_mm") is not None:
+            buckets["SEASONAL"].append(
+                Derived(
+                    float(block["median_seasonal_amp_mm"]),
+                    f"seasonal_split[{case_id}].median_seasonal_amp_mm",
+                )
+            )
+        if block.get("annual_coverage") is not None:
+            buckets["COVERAGE_CYCLES"].append(
+                Derived(
+                    float(block["annual_coverage"]),
+                    f"seasonal_split[{case_id}].annual_coverage",
+                )
+            )
+
     buckets["CASE_COUNT"].append(Derived(float(len(card.get("cases", []))), "len(cases)"))
     buckets["MOCK_FRACTION"].append(
         Derived(float(len((card.get("honesty") or {}).get("mock_cases") or [])), "len(mock_cases)")
@@ -711,10 +737,12 @@ def test_the_parser_sees_every_kind_of_claim_the_script_makes(parsed: list[Parse
         "VELOCITY": 4,  # medians, the shared legend, the core, the bound
         "COVERAGE": 3,  # the per-case percentages and the threshold
         "RATIO": 1,  # the ×49 contrast
-        "CELLS": 1,  # 13,379 cells
-        "DATE_COUNT": 1,  # Twelve dates / 12 dates
-        "REVISIT": 1,  # twelve-day revisit
-        "DAYS": 1,  # 132 days / the 274 d gate
+        "CELLS": 1,  # 11,694 cells
+        "DATE_COUNT": 1,  # 62 dates
+        "REVISIT": 1,  # 12-day revisit
+        "DAYS": 1,  # 732 days
+        "SEASONAL": 1,  # the fitted seasonal amplitude
+        "COVERAGE_CYCLES": 1,  # the annual coverage that licenses it
         "LENGTH": 1,  # 80 m posting, the H3 cell edge
         "DETECTION": 1,  # the Málaga bound
         "CASE_COUNT": 1,  # Three Cities / all three cases
@@ -825,7 +853,7 @@ def test_allowlist_entries_carry_a_reason() -> None:
 def test_dates_are_the_artefact_window(
     parsed: list[ParsedLine], card: dict
 ) -> None:
-    """A window date is as load-bearing as a velocity: 2026-11-11 is the last acquisition."""
+    """A window date is as load-bearing as a velocity: 2026-11-12 is the last acquisition."""
     window = {
         value
         for case in card.get("cases", [])
@@ -1057,37 +1085,88 @@ def test_coverage_caveat_uses_the_denominator_the_threshold_is_defined_on(card: 
     )
 
 
-def test_seasonal_window_caveat_is_present(card: dict) -> None:
-    """The 132-day window cannot separate seasonal from secular motion: the script must say so."""
-    months = sorted(
-        {
-            f"{float(case['window_days']) / DAYS_PER_MONTH:.1f}"
-            for case in card.get("cases", [])
-            if case.get("window_days")
-        }
-    )
-    gate = None
-    for text in (card.get("honesty") or {}).get("do_not_claim") or []:
-        match = re.search(r"below the (\d+)\s*d\b", text)
-        if match:
-            gate = match.group(1)
-            break
+def test_seasonal_claim_tracks_the_identifiability_verdict(card: dict) -> None:
+    """The card's ``seasonal_split`` verdict decides whether the script may speak the amplitude.
 
-    def mentions_window(line: str) -> bool:
-        month_hit = any(
-            re.search(rf"{re.escape(value)}\s*[- ]month", line, re.IGNORECASE) for value in months
-        ) or re.search(r"4\.5\s*[- ]month", line, re.IGNORECASE)
-        gate_hit = gate is not None and re.search(rf"\b{gate}\s*d\b", line)
-        return bool(month_hit or gate_hit)
+    ``pipeline/science/transforms.py::harmonic_fit`` publishes ``seasonal_amp_mm`` only when the
+    span clears the per-harmonic coverage gate, and ``scripts/demo_numbers.py`` republishes that
+    verdict as ``seasonal_split[].seasonal_identifiable`` alongside the evidence
+    (``annual_coverage`` vs ``coverage_gate``). This test reads the verdict, so it is right on
+    either window: a short stack must be *refused* in the script, and a stack that clears the gate
+    must not be refused.
 
-    hits = [
-        (number, line)
-        for number, line in _lines()
-        if re.search(r"seasonal", _spoken(line), re.IGNORECASE) and mentions_window(_spoken(line))
-    ]
-    assert hits, (
-        "docs/video-script.md is missing the seasonal-window caveat: a line about 'seasonal' must "
-        f"quote the short window ({', '.join(months)} months) or the "
-        f"{gate or '?'} d identifiability gate, because the card refuses to publish "
-        "seasonal_amp_mm from this stack"
+    The regression it pins: the script used to say "cannot claim … seasonal amplitude" on a
+    132-day window (0.36 cycles). On the current window that sentence is a false statement about
+    a number the card prints.
+    """
+    split = card.get("seasonal_split") or []
+    assert split, (
+        "the demo card publishes no seasonal_split, so the script's seasonal claim has no verdict "
+        "to follow"
     )
+    identifiable = {
+        str(block["case_id"]): bool(block.get("seasonal_identifiable")) for block in split
+    }
+    published = sorted(case_id for case_id, ok in identifiable.items() if ok)
+    refused = sorted(case_id for case_id, ok in identifiable.items() if not ok)
+
+    folded = [(number, _fold(_spoken(line))) for number, line in _lines()]
+    seasonal_lines = [(number, text) for number, text in folded if "seasonal" in text]
+    assert seasonal_lines, (
+        "docs/video-script.md never mentions the seasonal term, so the presenter cannot know "
+        "whether the card licenses the claim"
+    )
+
+    # The shape that must not come back: a line that refuses the seasonal amplitude.
+    unclaimable = re.compile(
+        r"seasonal[^.;]*(?:cannot|can't|not)\s+(?:be\s+)?claim(?:ed)?"
+        r"|(?:cannot|can't|not)\s+claim[^.;]*seasonal"
+        r"|seasonal[^.;]*unclaim"
+    )
+    stale = [(number, text) for number, text in seasonal_lines if unclaimable.search(text)]
+
+    if published:
+        evidence = ", ".join(
+            f"{block['case_id']}={float(block['annual_coverage']):.3f}"
+            for block in split
+            if block.get("annual_coverage") is not None
+        )
+        assert not stale, (
+            "the card publishes a seasonal amplitude for "
+            f"{published} (annual coverage {evidence} vs the "
+            f"{float(split[0]['coverage_gate']):g}/yr gate), so these lines state the opposite of "
+            "what the artefacts support:\n\n"
+            + "\n\n".join(f"docs/video-script.md:{n}: {t.strip()!r}" for n, t in stale)
+        )
+        assert any("fitted" in text for _, text in seasonal_lines), (
+            "the card licenses the seasonal amplitude as a FITTED value (median_seasonal_amp_mm "
+            "for " + ", ".join(published) + ") but the script never calls it fitted — a spoken "
+            "amplitude must be presented as a fit, never as a measured cycle"
+        )
+
+    if refused:
+        months = sorted(
+            {
+                f"{float(block['window_months']):.1f}"
+                for block in split
+                if block.get("window_months")
+            }
+        )
+        gate = None
+        for text in (card.get("honesty") or {}).get("do_not_claim") or []:
+            match = re.search(r"below the (\d+)\s*d\b", text)
+            if match:
+                gate = match.group(1)
+                break
+        assert any(
+            any(
+                re.search(rf"{re.escape(value)}\s*[- ]month", text, re.IGNORECASE)
+                for value in months
+            )
+            or (gate is not None and re.search(rf"\b{gate}\s*d\b", text))
+            for _, text in seasonal_lines
+        ), (
+            f"the card refuses a seasonal amplitude for {refused} (window "
+            f"{', '.join(months)} months, {gate or '?'} d identifiability gate), so the script "
+            "must quote the window or the gate behind that refusal"
+        )

@@ -7,6 +7,7 @@ Re-exported from `src.data.loaders` so `app.py._loaders()` automatically switche
 from __future__ import annotations
 
 import pathlib
+import re
 from typing import Any, Mapping
 
 import numpy as np
@@ -30,7 +31,9 @@ from src.domain.map_adapter import (
 )
 from src.domain.metrics import compute_kpis
 
-_SHARED_LABELS = frozenset({"común a todos los casos", "compartida", "shared"})
+_SHARED_LABELS = frozenset(
+    {"shared", "común a todos los casos", "comun a todos los casos", "compartida"}
+)
 
 
 def _resolve_scale_mode(raw_mode: Any) -> ScaleMode:
@@ -160,18 +163,30 @@ def get_map_layer_df(
         "velocity_unit",
         "color",
         "height",
-        "extrude_m",
-        "motion_direction",
     ]
     if payload.is_empty:
         return pd.DataFrame(columns=columns)
 
     df = payload.grid_frame.copy()
     df["color"] = df["fill_color"]
-    # O-07: `height` preserves exact stored signed `delta_change` [mm]; `extrude_m` carries
-    # visual 3D column height for downward subsidence only (0.0 for uplift and flat mode).
-    df["height"] = df["delta_change"]
-    df["extrude_m"] = df["elevation_m"]
+    df["height"] = df["elevation_m"]
+    # v1.1 thesis metrics for tooltip/inspector parity; additive if absent on legacy fixtures.
+    for extra in ("regime", "ratio_R", "seasonal_amp_mm"):
+        if extra in bundle.grid.columns:
+            if extra not in df.columns:
+                lookup = bundle.grid.set_index("cell_id")[extra]
+                df[extra] = df["cell_id"].map(lookup)
+            columns.append(extra)
+    # Round float columns for clean PyDeck tooltips (no 15-digit IEEE-754 noise on hover).
+    for col, decimals in (
+        ("delta_change", 2),
+        ("velocity_mm_yr", 2),
+        ("coherence", 3),
+        ("ratio_R", 2),
+        ("seasonal_amp_mm", 2),
+    ):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").round(decimals)
     return df[columns]
 
 
@@ -202,6 +217,10 @@ def get_color_scale(
         "saturated": saturated,
         "fallback": False,
         "mixed_units": False,
+        # Legend parity hooks for `src/ui/map_view.py`; additive, never remove the keys above.
+        "metric": payload.legend.metric,
+        "caption": payload.legend.caption,
+        "stops": [stop.color_hex for stop in payload.legend.stops],
     }
 
 
@@ -264,23 +283,57 @@ def get_map_kpis(
     coh_min = float(view.grid["coherence"].min()) if not view.grid.empty else None
     return [
         {
-            "label": "velocidad mediana",
+            "label": "Median velocity",
             "value": round(kpis.median_velocity_mm_yr, 2) if kpis.median_velocity_mm_yr is not None else None,
             "unit": C.VELOCITY_UNIT,
             "provenance_id": prov_id,
         },
         {
-            "label": "delta_change mediana",
+            "label": "Median displacement",
             "value": round(kpis.median_delta_mm, 2) if kpis.median_delta_mm is not None else None,
             "unit": C.UNIT,
             "provenance_id": prov_id,
         },
         {
-            "label": "coherence min",
+            "label": "Minimum coherence",
             "value": round(coh_min, 3) if coh_min is not None else None,
             "unit": None,
             "provenance_id": prov_id,
         },
+        {
+            # v1.1: fitted, not typed — `seasonal_amp_mm` comes from the harmonic fit of each
+            # cell's own series, so the card and the parquet can never disagree.
+            "label": "Median seasonal amplitude",
+            "value": (
+                round(kpis.median_seasonal_amp_mm, 2)
+                if kpis.median_seasonal_amp_mm is not None
+                else None
+            ),
+            "unit": C.UNIT,
+            "provenance_id": prov_id,
+        },
+    ]
+
+
+def _series_rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Normalise a `timeseries.csv` slice for the inspector without touching the contract."""
+    if frame.empty:
+        return []
+    return [
+        {
+            "case_id": str(r.case_id),
+            "cell_id": str(r.cell_id),
+            "date": str(r.date),
+            "value": float(r.value),
+            "trend_mm_yr": float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None,
+            "seasonal_mm": float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None,
+            "unit": str(r.unit),
+            "sensor": str(r.sensor),
+            "product": str(r.product),
+            "quality": str(r.quality),
+            "provenance_id": str(r.provenance_id),
+        }
+        for r in frame.itertuples(index=False)
     ]
 
 
@@ -305,6 +358,17 @@ def get_cell_detail(
         "val_t2": float(row["val_t2"]),
         "delta_change": float(row["delta_change"]),
         "velocity_mm_yr": float(row["velocity_mm_yr"]),
+        # v1.1: the fitted seasonal pair. Present only when the artefact carries it, so a v1.0
+        # tree still renders instead of raising a KeyError in the detail panel. A not-fitted cell
+        # publishes amplitude 0.0 with a *null* ratio (|trend|/0 is undefined), which is reported
+        # as None rather than as NaN — NaN is not valid JSON and would poison a JSON consumer.
+        "seasonal_amp_mm": float(row["seasonal_amp_mm"]) if "seasonal_amp_mm" in row else None,
+        "ratio_R": (
+            float(row["ratio_R"])
+            if "ratio_R" in row and pd.notna(row["ratio_R"])
+            else None
+        ),
+        "regime": str(row["regime"]) if "regime" in row else None,
         "coherence": float(row["coherence"]),
         "land_use": str(row["land_use"]),
         "risk_level": str(row["risk_level"]),
@@ -320,32 +384,17 @@ def get_cell_detail(
             else None
         ),
     }
-    # Forward tolerance only: the rejected schema 1.1 (D-28/O-05) fields are surfaced when an
-    # artefact happens to carry them, and never required. With v1.0 data they are simply absent.
-    for optional_field in ("seasonal_amp_mm", "ratio_R"):
-        if optional_field in row and pd.notna(row[optional_field]):
-            detail[optional_field] = float(row[optional_field])
-    if "regime" in row and pd.notna(row["regime"]):
-        detail["regime"] = str(row["regime"])
     cell_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == str(cell_id)]
-    detail["series"] = (
-        [
-            {
-                "case_id": str(r.case_id),
-                "cell_id": str(r.cell_id),
-                "date": str(r.date),
-                "value": float(r.value),
-                "unit": str(r.unit),
-                "sensor": str(r.sensor),
-                "product": str(r.product),
-                "quality": str(r.quality),
-                "provenance_id": str(r.provenance_id),
-            }
-            for r in cell_ts.itertuples(index=False)
-        ]
-        if not cell_ts.empty
-        else []
-    )
+    series = _series_rows(cell_ts)
+    if series:
+        detail["series_scope"] = "cell"
+    else:
+        # Contract §4 emits only the AOI aggregate by default. Show that instead of an
+        # empty chart, and say so in the UI; do not invent a per-cell series.
+        aoi_ts = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == "aoi"]
+        series = _series_rows(aoi_ts)
+        detail["series_scope"] = "aoi" if series else "none"
+    detail["series"] = series
     return detail
 
 
@@ -389,32 +438,47 @@ def get_series_kpis(
 
     return [
         {
-            "label": "velocidad mediana",
+            "label": "Median velocity",
             "value": round(kpis.median_velocity_mm_yr, 2) if kpis.median_velocity_mm_yr is not None else None,
             "unit": C.VELOCITY_UNIT,
             "provenance_id": prov_id,
-            "note": "mediana del subconjunto filtrado",
+            "note": "median of the filtered subset",
         },
         {
-            "label": "% de celdas por encima del umbral",
+            "label": "Cells above threshold",
             "value": pct_above,
             "unit": "%",
             "provenance_id": prov_id,
-            "note": f"umbral {C.NULL_RESULT_MM_YR:g} mm/year",
+            "note": f"threshold {C.NULL_RESULT_MM_YR:g} mm/year",
         },
         {
-            "label": "celdas críticas",
+            "label": "Critical cells",
             "value": kpis.critical_cells_count,
-            "unit": "celdas",
+            "unit": "cells",
             "provenance_id": prov_id,
-            "note": "risk_level critico",
+            "note": "cells in contract band critico (|velocity| >= 25 mm/year)",
         },
         {
-            "label": "cobertura coherente",
+            "label": "Coherent coverage",
             "value": pct_coh,
             "unit": "%",
             "provenance_id": prov_id,
             "note": f"coherence >= {coh_floor:g}",
+        },
+        {
+            "label": "Median seasonal amplitude",
+            "value": (
+                round(kpis.median_seasonal_amp_mm, 2)
+                if kpis.median_seasonal_amp_mm is not None
+                else None
+            ),
+            "unit": C.UNIT,
+            "provenance_id": prov_id,
+            "note": (
+                f"harmonic fit, R = |trend|/A; dominant regime {kpis.dominant_regime}"
+                if kpis.dominant_regime
+                else "harmonic fit, not a typed constant"
+            ),
         },
     ]
 
@@ -425,7 +489,12 @@ def get_case_series(
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> list[dict[str, Any]]:
-    """Return the published `cell_id == 'aoi'` series (`mm`) for Tab 2's line chart."""
+    """Return the published `cell_id == 'aoi'` series (`mm`) for Tab 2's line chart.
+
+    v1.1 adds the fitted ``trend_mm_yr`` / ``seasonal_mm`` columns of each row (``None`` when a
+    v1.0 tree is on disk), so the chart can draw the decomposition without re-fitting anything.
+    Includes ``scaled`` / ``scale_factor`` additive metadata requested in ``docs/requests.md``.
+    """
     del filters  # AOI series is a case-level artefact; per-cell series are optional (contract §4)
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     aoi = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == "aoi"]
@@ -433,8 +502,12 @@ def get_case_series(
         {
             "date": str(r.date),
             "value": float(r.value),
+            "trend_mm_yr": float(r.trend_mm_yr) if hasattr(r, "trend_mm_yr") else None,
+            "seasonal_mm": float(r.seasonal_mm) if hasattr(r, "seasonal_mm") else None,
             "unit": str(r.unit),
             "provenance_id": str(r.provenance_id),
+            "scaled": False,
+            "scale_factor": 1.0,
         }
         for r in aoi.itertuples(index=False)
     ]
@@ -466,7 +539,7 @@ def get_land_use_bars(
 
 
 def get_scale_comparison(
-    scale_mode: str = "Común a todos los casos",
+    scale_mode: str = "shared",
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> dict[str, Any]:
@@ -531,30 +604,102 @@ def load_context_layers(
     }
 
 
+def _extract_science_section_1(science_path: pathlib.Path) -> str | None:
+    """Extract §1 'The physics in one paragraph' verbatim from `docs/science-guide.md`."""
+    if not science_path.is_file():
+        return None
+    text = science_path.read_text(encoding="utf-8")
+    marker = "## 1. The physics in one paragraph"
+    start = text.find(marker)
+    if start == -1:
+        return None
+    body = text[start + len(marker) :]
+    for stop in ("\n![", "\n---", "\n## "):
+        idx = body.find(stop)
+        if idx != -1:
+            body = body[:idx]
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    return " ".join(lines) if lines else None
+
+
+def _extract_case_roles(config_path: pathlib.Path) -> dict[str, dict[str, Any]]:
+    """Return declared role, expected_regime and published_rate_mm_yr per case from `study_cases.yaml`."""
+    if not config_path.is_file():
+        return {}
+    cfg = load_study_cases_config(config_path)
+    out: dict[str, dict[str, Any]] = {}
+    for slug, sc in cfg.cases.items():
+        out[slug] = {
+            "name": sc.name,
+            "role": sc.role,
+            "expected_regime": sc.expected_regime,
+            "published_rate_mm_yr": sc.published_rate_mm_yr,
+        }
+    return out
+
+
 def load_documented_limits(
     readme_path: pathlib.Path | str = ROOT_DIR / "README.md",
+    *,
+    science_path: pathlib.Path | str = ROOT_DIR / "docs" / "science-guide.md",
+    study_cases_path: pathlib.Path | str = DEFAULT_STUDY_CASES_PATH,
 ) -> dict[str, Any]:
-    """Extract documented GNSS caveat and numbered §13 limitations verbatim from `README.md`."""
+    """Extract documented GNSS caveat, §13 limitations, §1 science summary and case roles."""
     path = pathlib.Path(readme_path)
+    science_summary = _extract_science_section_1(pathlib.Path(science_path))
+    case_roles = _extract_case_roles(pathlib.Path(study_cases_path))
     if not path.is_file():
-        return {"section_8_caveat": None, "section_13": []}
+        return {
+            "section_8_caveat": None,
+            "section_13": [],
+            "science_section_1": science_summary,
+            "case_roles": case_roles,
+        }
     text = path.read_text(encoding="utf-8")
     caveat: str | None = None
-    for line in text.splitlines():
-        if "validate against GNSS" in line:
-            caveat = " ".join(line.strip("* ").split())
+    paragraphs = [
+        " ".join(line.strip() for line in block.splitlines() if line.strip())
+        for block in re.split(r"\n\s*\n", text)
+    ]
+    gnss_re = re.compile(r"validat\w*\s+(?:the\s+convention\s+)?against\s+GNSS", re.IGNORECASE)
+    for para in paragraphs:
+        if gnss_re.search(para) and "Sign and heading conventions" in para:
+            caveat = para
             break
+    if caveat is None:
+        for para in paragraphs:
+            if gnss_re.search(para):
+                caveat = para
+                break
 
     start = text.find("## 13.")
     end = text.find("## 14.")
+    numbered_re = re.compile(r"^(\d+)\.\s+(.*)$")
     items: list[str] = []
     if start != -1:
         block = text[start : end if end != -1 else None]
+        current_parts: list[str] = []
         for line in block.splitlines():
             stripped = line.strip()
-            if stripped[:2].rstrip(".").isdigit() and ". " in stripped:
-                items.append(stripped.split(". ", 1)[1])
-    return {"section_8_caveat": caveat, "section_13": items}
+            match = numbered_re.match(stripped)
+            if match:
+                if current_parts:
+                    items.append(" ".join(current_parts))
+                current_parts = [match.group(2)]
+            elif current_parts:
+                if not stripped or stripped.startswith(("---", "#", "|", "![")):
+                    items.append(" ".join(current_parts))
+                    current_parts = []
+                else:
+                    current_parts.append(stripped)
+        if current_parts:
+            items.append(" ".join(current_parts))
+    return {
+        "section_8_caveat": caveat,
+        "section_13": items,
+        "science_section_1": science_summary,
+        "case_roles": case_roles,
+    }
 
 
 __all__ = [

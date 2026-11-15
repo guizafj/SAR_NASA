@@ -20,6 +20,7 @@ from src.data import (
 )
 from src.domain.filters import FilterCriteria, apply_filters, available_filter_options
 from src.domain.map_adapter import (
+    COLUMN_BASELINE_M,
     GLOBAL_VELOCITY_RANGE_MM_YR,
     RISK_COLORS_RGB,
     build_map_payload,
@@ -49,7 +50,8 @@ def test_shipped_three_cities_load_and_match_handoff_expectations():
     ref_case = load_case("mexico-city")
     assert len(map_payload(ref_case, coherence_min=0.7)) < 11694
     dates, vals = aoi_series(ref_case)
-    assert len(dates) == len(vals) == 12
+    # Two-year mock window: 62 dates, 2024-11-10 -> 2026-11-12 (handoff §1)
+    assert len(dates) == len(vals) == 62
     assert kpis(ref_case)["cells"] == 11694
 
     for slug, bundle in bundles.items():
@@ -57,7 +59,7 @@ def test_shipped_three_cities_load_and_match_handoff_expectations():
         assert bundle.is_mock is True
         opts = available_filter_options(bundle)
         assert opts.sensor_coherence_min == pytest.approx(0.35)
-        assert len(opts.available_dates) == 12
+        assert len(opts.available_dates) == 62
 
 
 def test_shipped_kpis_and_comparison_match_handoff_mock_doc():
@@ -79,9 +81,10 @@ def test_shipped_kpis_and_comparison_match_handoff_mock_doc():
     assert badge.revisit_days == 12
 
     series = extract_series_view(bundles["mexico-city"])
-    assert series.n_points == 12
+    assert series.n_points == 62
     assert series.fitted_trend_mm_yr is not None
-    assert series.fitted_trend_mm_yr < -70.0  # chart mean slope ~ -78.1 mm/yr per handoff §3c
+    # chart mean slope -85.8 mm/yr (mean x T = -172.0 mm) per handoff §3c
+    assert series.fitted_trend_mm_yr == pytest.approx(-85.8, abs=0.1)
 
     comp = build_city_comparison(list(bundles.values()))
     assert comp.shared_velocity_range_mm_yr == (-425.0, 425.0)
@@ -107,8 +110,11 @@ def test_shipped_pydeck_payload_respects_symmetric_425_shared_scale():
         1 for r in p_malaga.grid_records if r["fill_color"][:3] == neutral_rgb
     ) / len(p_malaga.grid_records)
     assert malaga_neutral_share > 0.995
-    assert max(r["elevation_m"] for r in p_malaga.grid_records) < 55.0
-    assert max(r["elevation_m"] for r in p_cdmx.grid_records) > 2800.0
+    # O-07: column height is SIGNED around COLUMN_BASELINE_M (subsidence below it, uplift above),
+    # so "small on the shared scale" means a small deviation from the baseline, not a small
+    # absolute height. CDMX subsides hard, so it must reach far BELOW the baseline.
+    assert max(abs(r["elevation_m"] - COLUMN_BASELINE_M) for r in p_malaga.grid_records) < 55.0
+    assert min(r["elevation_m"] for r in p_cdmx.grid_records) < COLUMN_BASELINE_M - 1000.0
 
     # Independent toggle seeds from meta.stats p05/p95 without mutating data
     p_malaga_ind = build_map_payload(

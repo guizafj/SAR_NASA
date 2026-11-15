@@ -320,98 +320,77 @@ material de presentación
 
 El contrato se congela antes de comenzar el desarrollo paralelo.
 
-### 5.1. `nisar_grid.parquet` (optimizado para PyDeck)
-
-La lista autoritativa es `GRID_FIELDS` en `src/domain/contracts.py`; este cuadro la describe.
-`Obligatorio = Sí` significa que un artefacto al que le falte ese campo no valida y no se publica.
+### 5.1. Contrato actualizado: `nisar_grid.parquet` (Optimizado para PyDeck)
 
 | Campo | Tipo | Obligatorio | Descripción |
 |---|---|---:|---|
-| `cell_id` | string | Sí | Identificador de la celda H3 (resolución 9) |
-| `lat` | float64 | Sí | Latitud del centroide en EPSG:4326 |
-| `lon` | float64 | Sí | Longitud del centroide en EPSG:4326 |
-| `val_t1` | float64 | Sí | Valor acumulado en la fecha inicial ($T_1$); siempre `0.0` |
-| `val_t2` | float64 | Sí | Valor acumulado en la fecha final ($T_2$) |
-| `delta_change` | float64 | Sí | Cambio acumulado **con signo** ($T_2 - T_1$), en `unit` (mm) |
-| `velocity_mm_yr` | float64 | Sí | Tendencia secular ajustada, en `velocity_unit` (mm/año) |
-| `coherence` | float64 | Sí | Coherencia interferométrica, en `[0.0, 1.0]` |
-| `land_use` | string | Sí | Clase territorial: `urban-dense`, `urban-residential`, `industrial`, `infrastructure`, `vegetation`, `bare` |
-| `risk_level` | string | Sí | Banda derivada de la magnitud de `velocity_mm_yr`: `estable`, `moderado`, `critico` |
-| `case_id` | string | Sí | `mexico-city`, `jakarta` o `malaga` |
-| `sensor` | string | Sí | Sensor origen: `nisar`, `sentinel-1`, `mock` |
-| `product` | string | Sí | Producto declarado por el contrato (`nisar-gunw`, `sentinel-1-slc`, `mock`) |
-| `unit` | string | Sí | Unidad de `val_t1`/`val_t2`/`delta_change` (`mm`) |
-| `velocity_unit` | string | Sí | Unidad de `velocity_mm_yr` (`mm/year`) |
+| `cell_id` | string | Sí | Identificador de celda o índice H3 |
+| `lat` | float | Sí | Latitud del centroide en EPSG:4326 |
+| `lon` | float | Sí | Longitud del centroide en EPSG:4326 |
+| `val_t1` | float | Sí | Valor en fecha inicial ($T_1$) |
+| `val_t2` | float | Sí | Valor en fecha final ($T_2$) |
+| `delta_change` | float | Sí | Cambio neto ($T_2 - T_1$) |
+| `velocity_mm_yr` | float | Sí | Tendencia secular ajustada en mm/año |
+| `seasonal_amp_mm` | float | Sí | Amplitud estacional ajustada en mm |
+| `ratio_R` | float | Sí | `abs(velocity_mm_yr) / seasonal_amp_mm` |
+| `regime` | string | Sí | `elastic`, `transitional` o `inelastic` |
+| `coherence` | float | Sí | Coherencia interferométrica / calidad entre 0.0 y 1.0 |
+| `land_use` | string | Sí | Categoría territorial (urbano, agrícola, humedal, infraestructura) |
+| `risk_level` | string | Sí | `estable`, `moderado` o `critico` |
+| `case_id` | string | Sí | Identificador del caso (`mexico-city`, `jakarta`, `malaga`) |
+| `sensor` | string | Sí | Sensor origen (`nisar`, `sentinel-1`) |
+| `product` | string | Sí | Producto declarado por el contrato |
+| `unit` | string | Sí | Unidad física declarada (`mm`, `mm/year`, `dB`) |
 | `source` | string | Sí | Repositorio o agencia (`ASF DAAC`, `Copernicus`) |
-| `acquisition_date` | string | No | Fecha ISO de adquisición cuando la celda viene de un grano concreto |
-| `provenance_id` | string | Sí | ID trazable al bloque `provenance` de `meta.json` |
-
-`nodata` no se escribe como `0`: la celda ausente simplemente no aparece en el parquet.
+| `provenance_id` | string | Sí | Hash o ID trazable al bloque `provenance` de `meta.json` |
 
 ### 5.2. `timeseries.csv`
 
-Series agregadas por AOI (una fila por fecha; `n_series_rows` en `meta.stats`). Columnas exactas —
-`TIMESERIES_FIELDS` en el código:
+Debe incluir como mínimo:
 
 ```text
-case_id, cell_id, date, value, unit, sensor, product, quality, provenance_id
+case_id
+cell_id
+date
+value
+trend_mm_yr
+seasonal_mm
+unit
+sensor
+product
+quality
+provenance_id
 ```
-
-`quality` pertenece al enum `QUALITY` (`good`, `nominal`, `degraded`). **No hay columnas por celda
-en el CSV**: si hace falta una serie por celda, se reconstruye desde `nisar_grid.parquet`
-(`acquisition_date`, `val_t2`) y se declara `per_cell_series` en `meta.stats`.
 
 ### 5.3. `meta.json`
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "case_id": "mexico-city",
-  "name": "Ciudad de México",
-  "bbox": [-99.36, 19.20, -98.83, 19.65],
+  "sensor": "sentinel-1",
+  "product": "nisar-gunw",
+  "unit": "mm/year",
   "crs": "EPSG:4326",
-  "reference_point": {"lat": 19.43, "lon": -99.13},
-  "dates": ["2026-07-02", "2026-11-11"],
+  "dates": [
+    "2026-01-12",
+    "2026-01-24"
+  ],
   "revisit_days": 12,
-  "sensor": "nisar",
-  "product": "mock",
-  "thresholds": {"coherence_min": 0.35, "detection_limit_mm_yr": 1.5},
   "stats": {
-    "n_cells": 11694,
-    "n_dates": 12,
-    "median_velocity_mm_yr": -62.0,
-    "p05_velocity_mm_yr": -150.0,
-    "p95_velocity_mm_yr": 12.0
+    "median_velocity_mm_yr": -128.0,
+    "median_seasonal_amp_mm": 9.4,
+    "median_ratio_R": 13.617,
+    "dominant_regime": "inelastic"
   },
   "provenance": {
-    "source": "mock",
+    "source": "ASF DAAC",
     "product_id": "",
     "processing_date": "",
     "method": ""
-  },
-  "limitations": ["...", "..."],
-  "null_policy": "..."
+  }
 }
 ```
-
-`META_REQUIRED_KEYS`, `PROVENANCE_REQUIRED_KEYS` y `STATS_REQUIRED_KEYS` del código son la lista
-completa: `name`, `bbox`, `reference_point`, `thresholds`, `limitations` y `null_policy` también
-son obligatorios y `validate_meta()` los exige.
-
-### 5.3.1. Campos estacionales: evaluados y **no publicados**
-
-El esquema `1.1` proponía `seasonal_amp_mm`, `ratio_R`, `regime`, `median_seasonal_amp_mm`,
-`median_ratio_R` y `dominant_regime` como campos obligatorios. Se **rechazó**
-(`docs/decisions.md`, D-28 / O-05) porque sobre ventanas de 132 días el armónico anual no es
-identificable (`annual_coverage = 0.36 < 0.75`, número de condición `66.8 > 30`,
-`seasonal_identifiable = False`): publicar `seasonal_amp_mm` violaría las reglas científicas del
-propio pipeline (`docs/science-guide.md` §3.3) y fabricaría una tendencia estacional que los datos
-no sostienen. La huella congelada es
-`049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e` (`v1.0`, revisión `1`).
-
-Consecuencia operativa: **ningún consumidor puede exigir esos campos**. Los loaders de Rol 1 los
-leen solo si un artefacto futuro los trae (tolerancia hacia delante), nunca los requieren. Volver a
-introducirlos exige el procedimiento de congelación de `docs/data-contract-v1.md` §8.
 
 ### 5.4. Reglas del contrato
 

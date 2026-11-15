@@ -31,15 +31,29 @@ from src.data.validation import (
     validate_case_bundle,
 )
 from src.domain import contracts as C
-from examples.reference_loader import (
-    Case,
-    LoaderError,
-    aoi_series,
-    grid_frame,
-    kpis,
-    load_case,
-    map_payload,
-)
+
+# `examples/` is a runtime dependency of this module (see .dockerignore). Guard the
+# import so a deployment that ships without it can still import `src.data.loaders`
+# and let the UI fall back instead of crashing at startup.
+try:  # pragma: no cover - trivial branch, exercised by the deployment guard test
+    from examples.reference_loader import (
+        Case,
+        LoaderError,
+        aoi_series,
+        grid_frame,
+        kpis,
+        load_case,
+        map_payload,
+    )
+except ImportError as _reference_loader_exc:  # pragma: no cover
+    class LoaderError(RuntimeError):  # type: ignore[no-redef]
+        """Raised when the reference loader is unavailable in this deployment."""
+
+    Case = Any  # type: ignore[misc,assignment]
+    aoi_series = grid_frame = kpis = load_case = map_payload = None  # type: ignore[assignment]
+    _REFERENCE_LOADER_IMPORT_ERROR: ImportError | None = _reference_loader_exc
+else:  # pragma: no cover
+    _REFERENCE_LOADER_IMPORT_ERROR = None
 
 ROOT_DIR: pathlib.Path = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_PROCESSED_DIR: pathlib.Path = ROOT_DIR / "data" / "processed"
@@ -158,7 +172,7 @@ def load_study_cases_config(
         raise C.ContractError(f"Invalid YAML root in {path}: expected mapping")
 
     schema_version = str(raw.get("schema_version", ""))
-    if schema_version not in ("1.0", C.SCHEMA_VERSION):
+    if schema_version != C.SCHEMA_VERSION:
         raise C.ContractError(
             f"study_cases.yaml schema_version is {schema_version!r}, expected {C.SCHEMA_VERSION!r}"
         )
@@ -321,9 +335,9 @@ def _normalise_grid(grid: pd.DataFrame) -> pd.DataFrame:
             df[col] = pd.to_numeric(df[col], errors="raise").astype("float64")
     string_cols = (
         "cell_id",
-        "regime",
         "land_use",
         "risk_level",
+        "regime",
         "case_id",
         "sensor",
         "product",
@@ -344,9 +358,9 @@ def _normalise_grid(grid: pd.DataFrame) -> pd.DataFrame:
 
 def _normalise_timeseries(series: pd.DataFrame) -> pd.DataFrame:
     df = series.copy()
-    for num_col in ("value", "trend_mm_yr", "seasonal_mm"):
-        if num_col in df.columns:
-            df[num_col] = pd.to_numeric(df[num_col], errors="raise").astype("float64")
+    for col in ("value", "trend_mm_yr", "seasonal_mm"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="raise").astype("float64")
     for col in ("case_id", "cell_id", "date", "unit", "sensor", "product", "quality", "provenance_id"):
         if col in df.columns:
             df[col] = df[col].astype(str)

@@ -775,7 +775,7 @@ def test_quoted_contract_fingerprint_prefix_matches() -> None:
             continue
 
         tokens: list[str] = []
-        # A quoted hash prefix, e.g. `049376b0…`, whether or not the row says "fingerprint".
+        # A quoted hash prefix, e.g. `ed92be80…`, whether or not the row says "fingerprint".
         for span in re.findall(r"`([^`]+)`", line):
             candidate = span.strip().rstrip("…").rstrip(".").strip()
             if re.fullmatch(r"[0-9a-fA-F]{8,64}", candidate) and re.search(r"[a-fA-F]", candidate):

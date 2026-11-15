@@ -16,6 +16,10 @@ What is derived (everything else is an input)
 * cells, ``median_velocity_mm_yr``, p05, p95, spread, velocity min/max, coherence min/max are
   recomputed from the parquet and only *checked* against ``meta.stats`` (a disagreement skips the
   case with a printed note instead of silently trusting either side).
+* the v1.1 seasonal trio — ``median_seasonal_amp_mm``, ``median_ratio_R`` and the ``dominant_regime``
+  mode — is recomputed the same way and checked against ``meta.stats``; the amplitude is a *fit*
+  of each cell's own series, never a config value, and ``_seasonal_split`` prints the span that
+  licenses it (the 0.75-cycle-per-harmonic gate of ``pipeline/science/transforms.py``).
 * date window, ``n_dates``, ``revisit_days``, ``provenance_id`` and ``limitations[]`` come from
   ``meta.json`` verbatim.
 * the contrast ratio is ``max(p95-p05) / (p95-p05 of the declared null case)``; the shared legend
@@ -93,6 +97,9 @@ MAX_CARD_LINES = 60
 #: 0.05 mm/yr is a *display* tolerance (the max rounding error is 0.0005); it is not science.
 STATS_TOLERANCE_MM_YR = 0.05
 
+#: Same idea for the dimensionless `median_ratio_R`, which the generator rounds to 6 decimals.
+STATS_TOLERANCE_DIMENSIONLESS = 1e-4
+
 #: Percentile levels the card publishes (the *definition* of p05/p95, not a measurement).
 P05_QUANTILE = 0.05
 P95_QUANTILE = 0.95
@@ -116,6 +123,9 @@ META_FILE = "meta.json"
 REQUIRED_GRID_COLUMNS = (
     "cell_id",
     "velocity_mm_yr",
+    "seasonal_amp_mm",
+    "ratio_R",
+    "regime",
     "coherence",
     "case_id",
     "sensor",
@@ -145,6 +155,10 @@ class CaseNumbers:
     velocity_min_mm_yr: float
     velocity_max_mm_yr: float
     max_abs_velocity_mm_yr: float
+    #: v1.1: the fitted seasonal trio, recomputed from the grid and checked against meta.stats.
+    median_seasonal_amp_mm: float
+    median_ratio_R: float
+    dominant_regime: str
     coherence_min: float
     coherence_max: float
     date_first: str
@@ -195,6 +209,9 @@ class CaseNumbers:
             "velocity_min_mm_yr": self.velocity_min_mm_yr,
             "velocity_max_mm_yr": self.velocity_max_mm_yr,
             "max_abs_velocity_mm_yr": self.max_abs_velocity_mm_yr,
+            "median_seasonal_amp_mm": self.median_seasonal_amp_mm,
+            "median_ratio_R": self.median_ratio_R,
+            "dominant_regime": self.dominant_regime,
             "coherence_min": self.coherence_min,
             "coherence_max": self.coherence_max,
             "date_first": self.date_first,
@@ -362,9 +379,22 @@ def load_case(case_dir: pathlib.Path) -> CaseNumbers:
         raise CaseSkipped("meta.dates spans zero days")
 
     velocity = pd.to_numeric(grid["velocity_mm_yr"], errors="coerce")
+    seasonal_amp = pd.to_numeric(grid["seasonal_amp_mm"], errors="coerce")
+    ratio_R = pd.to_numeric(grid["ratio_R"], errors="coerce")
     coherence = pd.to_numeric(grid["coherence"], errors="coerce")
     if len(velocity) == 0 or int(velocity.notna().sum()) != len(velocity):
         raise CaseSkipped("nisar_grid.parquet has null/non-numeric velocity_mm_yr")
+    if int(seasonal_amp.notna().sum()) != len(seasonal_amp):
+        raise CaseSkipped("nisar_grid.parquet has null/non-numeric seasonal_amp_mm")
+    if not (seasonal_amp >= 0.0).all():
+        raise CaseSkipped("seasonal_amp_mm is negative; a fitted amplitude cannot be")
+    if int(ratio_R.notna().sum()) != len(ratio_R):
+        raise CaseSkipped("nisar_grid.parquet has null/non-numeric ratio_R")
+    grid_regimes = {str(value) for value in grid["regime"].dropna().unique()}
+    if not grid_regimes <= set(C.REGIMES):
+        raise CaseSkipped(
+            f"grid regime {sorted(grid_regimes - set(C.REGIMES))} is outside contracts.REGIMES"
+        )
     if int(coherence.notna().sum()) == 0:
         raise CaseSkipped("nisar_grid.parquet has no numeric coherence")
     if not (coherence.dropna().between(0.0, 1.0).all()):
@@ -377,6 +407,12 @@ def load_case(case_dir: pathlib.Path) -> CaseNumbers:
     velocity_min = float(velocity.min())
     velocity_max = float(velocity.max())
     max_abs = float(velocity.abs().max())
+    median_seasonal_amp = float(seasonal_amp.median())
+    median_ratio_R = float(ratio_R.median())
+    regime_counts = grid["regime"].astype(str).value_counts()
+    dominant_regime = sorted(
+        regime_counts.items(), key=lambda item: (-int(item[1]), str(item[0]))
+    )[0][0]
     coherence_min = float(coherence.dropna().min())
     coherence_max = float(coherence.dropna().max())
 
@@ -388,19 +424,27 @@ def load_case(case_dir: pathlib.Path) -> CaseNumbers:
         raise CaseSkipped(
             f"meta.stats.n_cells={stats.get('n_cells')!r} != parquet rows {cells}"
         )
-    for key, computed in (
-        ("median_velocity_mm_yr", median),
-        ("p05_velocity_mm_yr", p05),
-        ("p95_velocity_mm_yr", p95),
+    for key, computed, tolerance in (
+        ("median_velocity_mm_yr", median, STATS_TOLERANCE_MM_YR),
+        ("median_seasonal_amp_mm", median_seasonal_amp, STATS_TOLERANCE_MM_YR),
+        ("median_ratio_R", median_ratio_R, STATS_TOLERANCE_DIMENSIONLESS),
+        ("p05_velocity_mm_yr", p05, STATS_TOLERANCE_MM_YR),
+        ("p95_velocity_mm_yr", p95, STATS_TOLERANCE_MM_YR),
     ):
         declared = _finite(stats.get(key))
         if declared is None:
             raise CaseSkipped(f"meta.stats.{key} is missing or non-numeric")
-        if abs(declared - computed) > STATS_TOLERANCE_MM_YR:
+        if abs(declared - computed) > tolerance:
             raise CaseSkipped(
-                f"meta.stats.{key}={declared:.3f} disagrees with parquet {computed:.3f} "
-                f"(> {STATS_TOLERANCE_MM_YR} mm/yr)"
+                f"meta.stats.{key}={declared:.6f} disagrees with parquet {computed:.6f} "
+                f"(> tolerance {tolerance:g})"
             )
+    declared_regime = stats.get("dominant_regime")
+    if str(declared_regime) != dominant_regime:
+        raise CaseSkipped(
+            f"meta.stats.dominant_regime={declared_regime!r} disagrees with the parquet's most "
+            f"frequent regime {dominant_regime!r}"
+        )
     declared_dates = _finite(stats.get("n_dates"))
     if declared_dates is not None and int(declared_dates) != len(dates):
         raise CaseSkipped(
@@ -492,6 +536,9 @@ def load_case(case_dir: pathlib.Path) -> CaseNumbers:
         velocity_min_mm_yr=velocity_min,
         velocity_max_mm_yr=velocity_max,
         max_abs_velocity_mm_yr=max_abs,
+        median_seasonal_amp_mm=median_seasonal_amp,
+        median_ratio_R=median_ratio_R,
+        dominant_regime=dominant_regime,
         coherence_min=coherence_min,
         coherence_max=coherence_max,
         date_first=str(dates[0]),
@@ -619,6 +666,33 @@ def _null_results(cases: Sequence[CaseNumbers]) -> list[dict[str, Any]]:
     ]
 
 
+def _seasonal_split(cases: Sequence[CaseNumbers]) -> list[dict[str, Any]]:
+    """The fitted trend/seasonal split of every case, with the gate evidence behind it.
+
+    Replaces the v1.0 "do not publish seasonal_amp_mm" branch: on the two-year window the term is
+    identifiable, so the honest output is the number *and* the span/conditioning that licenses it
+    (``meta.stats.annual_coverage`` / ``design_condition``, written by the fit itself).
+    """
+    blocks: list[dict[str, Any]] = []
+    for case in cases:
+        cycles = case.window_days / V.DAYS_PER_YEAR
+        gate = V.MIN_SEASONAL_COVERAGE_PER_HARMONIC
+        blocks.append(
+            {
+                "case_id": case.case_id,
+                "window_days": case.window_days,
+                "window_months": case.window_days / (V.DAYS_PER_YEAR / MONTHS_PER_YEAR),
+                "annual_coverage": cycles,
+                "coverage_gate": gate,
+                "seasonal_identifiable": cycles >= gate,
+                "median_seasonal_amp_mm": case.median_seasonal_amp_mm,
+                "median_ratio_R": case.median_ratio_R,
+                "dominant_regime": case.dominant_regime,
+            }
+        )
+    return blocks
+
+
 def _do_not_claim(cases: Sequence[CaseNumbers]) -> list[str]:
     """Build the 'do not claim' list from the limitations plus the derived evidence."""
     items: list[str] = []
@@ -637,24 +711,28 @@ def _do_not_claim(cases: Sequence[CaseNumbers]) -> list[str]:
     seasonal_cases = [
         case
         for case in cases
-        if any("seasonal" in limitation.lower() for limitation in case.limitations)
+        if case.window_days / V.DAYS_PER_YEAR < V.MIN_SEASONAL_COVERAGE_PER_HARMONIC
     ]
     if seasonal_cases:
-        days = sorted(case.window_days for case in seasonal_cases)
-        months = [day / (V.DAYS_PER_YEAR / MONTHS_PER_YEAR) for day in days]
-        gate_years = V.MIN_SEASONAL_COVERAGE_PER_HARMONIC
-        gate_days = gate_years * V.DAYS_PER_YEAR
-        day_span = f"{days[0]} d" if days[0] == days[-1] else f"{days[0]}-{days[-1]} d"
-        month_span = (
-            f"{months[0]:.1f} months"
-            if days[0] == days[-1]
-            else f"{months[0]:.1f}-{months[-1]:.1f} months"
-        )
+        gate_days = V.MIN_SEASONAL_COVERAGE_PER_HARMONIC * V.DAYS_PER_YEAR
+        for case in seasonal_cases:
+            items.append(
+                f"do not quote a seasonal amplitude for {case.case_id}: the window is "
+                f"{case.window_days} d, below the {gate_days:.0f} d "
+                f"({V.MIN_SEASONAL_COVERAGE_PER_HARMONIC:.2f} yr) identifiability gate in "
+                "pipeline/science/transforms.py."
+            )
+    else:
+        # The window clears the gate: the amplitude IS publishable, and what must not be claimed is
+        # that it is a measurement of the ground rather than a fit of a synthetic series.
+        highest = max(cases, key=lambda case: case.median_seasonal_amp_mm)
         items.append(
-            f"no seasonal amplitude: the window is {day_span} ({month_span}), below the "
-            f"{gate_days:.0f} d ({gate_years:.2f} yr) identifiability gate in "
-            "pipeline/science/transforms.py; do not publish seasonal_amp_mm."
+            f"do not call the seasonal amplitude a measured physical cycle: it is the fitted "
+            f"first-harmonic amplitude of these series (median {highest.median_seasonal_amp_mm:.2f} "
+            f"mm for {highest.case_id}); the mock is noise-free in time, so the fit recovers the "
+            "injected value exactly and a real stack would not."
         )
+
 
     # The threshold is measured on the AOI H3 cells (the pipeline's denominator), never on the
     # bbox envelope: a city can fill its envelope and still cover less than half of itself.
@@ -745,6 +823,26 @@ def _skeleton(
             "do not invent one."
         )
 
+    # v1.1: the fitted trend/seasonal split, with the span that licenses it. It replaces the old
+    # "we cannot publish seasonal_amp_mm" sentence: on a two-year window we can, and the number is
+    # a fit of the published series, not a config value.
+    split = "; ".join(
+        f"{case.case_id} A={case.median_seasonal_amp_mm:.{DECIMALS}f} mm "
+        f"R={_ratio(case.median_ratio_R)} {case.dominant_regime}"
+        for case in cases
+    )
+    cycles = sorted({case.window_days for case in cases})
+    cycle_span = (
+        f"{cycles[0] / V.DAYS_PER_YEAR:.2f}"
+        if cycles[0] == cycles[-1]
+        else f"{cycles[0] / V.DAYS_PER_YEAR:.2f}-{cycles[-1] / V.DAYS_PER_YEAR:.2f}"
+    )
+    lines.append(
+        f"what the seasonal fit says: {split} (annual cycles observed {cycle_span}, gate "
+        f"{V.MIN_SEASONAL_COVERAGE_PER_HARMONIC:.2f} per harmonic) — fitted per cell, so the "
+        "split and the map come from one fit."
+    )
+
     artefact = processed_root / strongest.case_id / GRID_FILE
     lines.append(
         f"how you can check us: {artefact} + meta.json, provenance_id "
@@ -799,6 +897,7 @@ def build_document(
             ),
         },
         "contrast": contrast,
+        "seasonal_split": _seasonal_split(cases),
         "scale_check": _scale_check(cases),
         "null_result": null_results,
         "honesty": {
@@ -819,6 +918,11 @@ def build_document(
 
 def _mm(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.{DECIMALS}f}"
+
+
+def _ratio(value: float | None) -> str:
+    """Dimensionless R = |trend|/A. `n/a` when undefined (no harmonic was fitted)."""
+    return "n/a" if value is None else f"{value:.3f}"
 
 
 def _pct(value: float) -> str:
@@ -940,6 +1044,25 @@ def render_text(document: dict[str, Any]) -> str:
             f"median={_mm(null['median_velocity_mm_yr'])} mm/yr"
         )
         lines.append(f"  {null['sentence']}")
+
+    if document["seasonal_split"]:
+        blocks = document["seasonal_split"]
+        answerable = all(block["seasonal_identifiable"] for block in blocks)
+        gate = (
+            f"{blocks[0]['window_days']} d = {blocks[0]['annual_coverage']:.2f} cycles clears the "
+            f"{blocks[0]['coverage_gate']:.2f}-cycle gate, so the fitted amplitude is quotable"
+            if answerable
+            else "below the coverage gate, so the fitted amplitude is NOT quotable"
+        )
+        lines.append(
+            f"SEASONAL SPLIT — {gate} (fitted per cell by transforms.harmonic_fit; regime = "
+            "classify_regime on R = |trend|/A): "
+            + "; ".join(
+                f"{block['case_id']} A_med={_mm(block['median_seasonal_amp_mm'])} mm "
+                f"R_med={_ratio(block['median_ratio_R'])} {block['dominant_regime']}"
+                for block in blocks
+            )
+        )
 
     lines.append(
         "HONESTY — limitations[] verbatim, per case (the presenter must not contradict these)"

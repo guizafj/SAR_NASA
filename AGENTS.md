@@ -2,42 +2,58 @@
 
 Eres Rol 2 (fradiaz) en el NASA Space Apps 2026, "Dancing with the SARs". Imperativo: no escribas código de otros roles ni inventes lo que el repo no contiene. Lo ausente es "(pendiente)".
 
+## Estado actual (2026-11-15, tarde)
+
+- **Rama única de trabajo: `fradiaz`** (en `aeabcf8`, idéntica a `main`/`origin/main`). Política nueva del equipo: todas las mejoras se gestionan desde `fradiaz`; se integra a `main` solo cuando todo funciona, y `main` se empuja al remoto. Las ramas `pozo`, `yuls` y las `feat/*` no se tocan. `origin/fradiaz` quedó atrás (`b3bb9b3`): empujarla cuando lo pida el usuario.
+- Cockpit en inglés, tema claro/oscuro según el sistema y layout responsive. Las pestañas son **1. Map**, **2. Series and KPIs**, **3. Hazard and infrastructure**, **4. Provenance and limits**.
+- Estado UI espejado en la URL (`st.query_params`: `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell`): una copia de la URL restaura el cockpit. Ver `docs/presentation-integration.md`.
+- Artefactos `mock` vigentes para `mexico-city`, `jakarta` y `malaga`: contrato 1.1 revisado (fingerprint `ed92be80`), ventana de dos años (62 fechas), métricas estacionales ajustadas.
+- Tests de UI en verde (`tests/test_ui_smoke.py`, `tests/test_ui_bridge.py`). Suite completa en verde; `preflight.sh` 7/7 READY con árbol limpio.
+- Peticiones: todas cerradas. Las tres de Rol 1 resueltas y los puntos 1–5 de Rol 3 cubiertos desde `config/study_cases.yaml`, `docs/science-guide.md` §1 y `docs/data-contract-v1.md` §6/§7.4/§7.5 mediante `load_documented_limits` y `src/ui/formatters.py`. Detalle en `docs/requests.md`.
+- Integración de Rol 1 completa en `fradiaz`/`main`: O-07 (`3ed786e`, baseline `COLUMN_BASELINE_M`), tolerancia BLAS (`8d745ce`) y paridad de intérprete `SAR_PYTHON` (`aeabcf8`).
+- Registro de qué pinta cada bloque y de dónde sale: `docs/presentation-integration.md`.
+
 ## Proyecto
 
 Construye un cockpit web en Streamlit que traduzca observaciones SAR en indicadores de subsidencia por extracción de agua subterránea.
 
 - Fuente: NISAR L2 (GUNW/GCOV) o respaldo declarado (OPERA DISP-S1, Sentinel-1/HyP3, EGMS). El `product` lo declara el artefacto.
 - Casos: `mexico-city`, `jakarta`, `malaga` (control negativo). Slugs en `src/domain/contracts.py` (`CASE_IDS`).
-- Nombres y parámetros: `config/study_cases.yaml` (pendiente). No hardcodees nombres, cifras ni umbrales.
+- Nombres y parámetros: `config/study_cases.yaml`. No hardcodees nombres, cifras ni umbrales.
 - El flujo trata Yakarta como extensión. Si no hay artefacto, muestra ausencia. No fabriques el caso.
 
 ## Arquitectura
 
 Pipeline offline → artefactos → loaders (`src/data`) → UI (`src/ui`).
 
-Artefactos de Rol 3: `data/processed/nisar_grid.parquet`, `timeseries.csv`, `context_layers.geojson`, `meta.json`. Hoy solo existen `data/processed/_availability/*.json` (pendiente el resto).
+Artefactos de Rol 3, por caso, en `data/processed/{case_id}/`: `nisar_grid.parquet`, `timeseries.csv`, `context_layers.geojson`, `meta.json`. Publicados hoy (`product` `mock`) para `mexico-city`, `jakarta` y `malaga`. También está `data/processed/_availability/*.json`.
 
-La app NUNCA descarga ni procesa HDF5 ni calcula magnitudes geoespaciales. `docs/route-contract.md` (PMTiles) es post-MVP: no lo implementes.
+La UI consume los hooks de `src/data/ui_bridge.py` (reexportados por `src/data/loaders.py`), nunca archivos. `src/ui/_stubs.py` es solo el respaldo cuando faltan esos hooks. La serie `aoi` declara `scaled` y `scale_factor`; la UI avisa solo si `scaled` es verdadero.
+
+La app NUNCA descarga ni procesa HDF5 ni calcula magnitudes geoespaciales. El único ajuste permitido en la UI es de cámara (zoom de presentación). `docs/route-contract.md` (PMTiles) es post-MVP: no lo implementes.
 
 ## Propiedad por rol
 
 - Rol 1 (pozo): `src/data/`, `src/domain/`, CI, datos map-ready.
-- Rol 2 (fradiaz): `app.py`, `src/ui/charts.py`, `kpi_cards.py`, `educational.py`, `theme.py`, `.streamlit/config.toml`.
+- Rol 2 (fradiaz): `app.py`, `src/ui/` (`charts.py`, `kpi_cards.py`, `educational.py`, `theme.py`, `context_view.py`, `formatters.py`, `color_scale.py`, `_stubs.py`), `.streamlit/config.toml`, `tests/test_ui_smoke.py`, `docs/presentation-integration.md`.
 - `src/ui/map_view.py`: compartido Rol 1 + Rol 2.
 - Rol 3 (yuls): `pipeline/`, `data/processed/`, capas GIS, narrativa y TODO texto científico.
 
-`src/data/` y `src/ui/` no existen (pendiente). Si un cambio toca archivos de otro rol, no lo hagas: añade la petición a `docs/requests.md` (pendiente; créalo solo con esa petición).
+`src/data/` y `src/ui/` existen. Si un cambio toca archivos de otro rol, no lo hagas: añade la petición a `docs/requests.md`.
 
 ## Reglas duras
 
-- Usa solo los loaders de `src/data`. No leas Parquet, CSV, GeoJSON ni `meta.json` desde varios componentes. `app.py` ya lee artefactos y hardcodea nombres: no copies ese patrón ni añadas lecturas.
-- No modifiques unidades ni umbrales recibidos. No dupliques filtros ni agregaciones del backend (`src/domain/filters.py` y `metrics.py`: pendiente).
-- No cambies el contrato. Proponlo en `docs/contract-change-requests.md` (pendiente). Exige aprobación de los 3 roles. No edites `src/domain/contracts.py`.
+- Usa solo los loaders de `src/data`. No leas Parquet, CSV, GeoJSON ni `meta.json` desde la UI. `app.py` solo compone: no lee artefactos ni hardcodea nombres.
+- No modifiques unidades ni umbrales recibidos. No dupliques filtros ni agregaciones del backend (`src/domain/filters.py`, `src/domain/metrics.py`).
+- La cromática está en inglés. El copy del backend se cita; no se parafrasea ciencia. Los valores del contrato (`critico`, `estable`, `land_use`, `regime`) no se traducen en el payload: se rotulan solo al pintar (`src/ui/formatters.py`).
+- No cambies el contrato. Proponlo en `docs/contract-change-requests.md`. Exige aprobación de los 3 roles. No edites `src/domain/contracts.py`.
 - Mantén `main` ejecutable. No trabajes sobre `main`.
 
 ## Contrato
 
 Fuente de verdad: `src/domain/contracts.py` (`SCHEMA_VERSION` **1.1**, revisión 2), descrito en `docs/data-contract-v1.md`. Si discrepan, manda el código. El borrador v1.0 (sin `velocity_mm_yr`, sin `cell_id` en la serie, `coherence_threshold` suelto) está superado: no lo reimplementes.
+
+Las métricas `seasonal_amp_mm`, `ratio_R`, `regime`, `trend_mm_yr` y `seasonal_mm` son **ajustadas**, no constantes escritas. `ratio_R` es `|trend| / seasonal_amp_mm` y es **nulo** cuando no se ajustó armónico (`seasonal_amp_mm == 0`): la UI muestra "not fitted", nunca un número inventado. La ventana publicada es de dos años (62 fechas).
 
 | Artefacto | Obligatorios |
 |---|---|
@@ -54,41 +70,44 @@ Fuente de verdad: `src/domain/contracts.py` (`SCHEMA_VERSION` **1.1**, revisión
 - Todo número se muestra con unidad y fuente (`provenance_id`). Distingue dato de interpretación.
 - Málaga es control: un resultado nulo es límite de detección. Nunca fuerces una señal. Si el artefacto trae `detection_limit_mm_yr`, muéstralo; no lo calcules.
 - No mezcles sensores ni escalas sin aviso visible.
-- Si `product` es `mock`, aviso permanente: **DATOS DE DEMOSTRACIÓN**.
+- Si `product` es `mock`, aviso permanente: **DEMONSTRATION DATA**.
 - Los textos científicos solo salen de contenido aprobado por el Rol 3. No copies cifras del README ni de Stitch.
+- `risk_level` se muestra como banda derivada de `|velocity_mm_yr|` (Stable / Moderate / Critical), no como una medición aparte. El filtro envía el valor del contrato.
+- Si `seasonal_amp_mm` es 0 y `ratio_R` es nulo, se lee "not fitted". No rellenes ese hueco.
+- El contenido de `meta.limitations` y del README se cita con énfasis markdown convertido (`safe_inline`), no con asteriscos visibles.
 
 ## Diseño
 
-Sigue `docs/desing/DESIGN.md` (ruta real; `docs/design/` no existe; la carpeta está sin seguimiento).
+`docs/desing/DESIGN.md` y `docs/desing/stitch/` no están en el árbol (ausente). Los tokens vigentes están aquí y en `.streamlit/config.toml`.
 
-- Fondo `#0B0F19`. Superficies `#0F172A`, borde 1px `#1E293B`.
-- Acento `#06B6D4`. Coherencia `#10B981`. Alerta `#F59E0B`. Coral `#F43F5E` solo para alertas graves o interferogramas inválidos.
-- Texto `#F8FAFC` y `#94A3B8`. Radio 4px. Sin sombras difusas.
-- Botones con fondo oscuro y borde cian. Nunca relleno sólido a ancho completo.
+- Oscuro, fijado: fondo `#0B0F19`, superficie `#0F172A`, borde 1px `#1E293B`, acento `#06B6D4`, coherencia `#10B981`, alerta `#F59E0B`, coral `#F43F5E` solo para alertas graves o interferogramas inválidos, texto `#F8FAFC` / `#94A3B8`.
+- Claro, papel de instrumento: fondo `#F1F5F9`, superficie `#FFFFFF`, borde `#94A3B8`, acento `#0B647D`, coherencia `#047857`, alerta `#9A3412`, coral `#BE123C`, texto `#0B1220` / `#334155`. No copies los hex oscuros sobre papel. Los tokens viven en `src/ui/theme.py`; el CSS de `:root` es la fuente de verdad.
+- Radio 4px. Sin sombras difusas. Botones con borde de acento, nunca relleno sólido a ancho completo.
 - Space Grotesk (títulos), Inter (texto), JetBrains Mono (cifras, coordenadas, IDs), con fallback a fuentes del sistema.
-- `.streamlit/config.toml` ya fija tema oscuro, `#06B6D4`, `#0B0F19` y `#F8FAFC`. No lo contradigas.
+- `.streamlit/config.toml` declara `[theme.dark]` y `[theme.light]`. Streamlit 1.67 sigue `prefers-color-scheme`. No vuelvas a fijar un solo tema.
 
 ## Referencia Stitch
 
-`docs/desing/stitch/` es guía de maquetación, no de datos. Todas sus cifras son decorativas. No copies: estación MALG-01 ni "deriva cero", SHA256/"verified", índices estructurales, mitigaciones, "L-Band & S-Band", orbit/B_PERP fijos, ni nombres de ejemplo (Guadalquivir, Doñana, Sector 4).
+`docs/desing/stitch/` no está en el árbol (ausente). Si reaparece, es guía de maquetación, no de datos. No copies: estación MALG-01 ni "deriva cero", SHA256/"verified", índices estructurales, mitigaciones, "L-Band & S-Band", orbit/B_PERP fijos, ni nombres de ejemplo (Guadalquivir, Doñana, Sector 4).
 
 ## Comandos
 
-Python solo vía `./scripts/python.sh`. `.venv` no existe (pendiente: créalo antes de ejecutar).
+Python solo vía `./scripts/python.sh`. `.venv` existe.
 
 | Acción | Comando |
 |---|---|
-| Arranque | (pendiente). No hay script ni comando documentado. No inventes uno. |
-| Tests | `./scripts/python.sh -m pytest tests/test_contracts.py -q` |
+| Arranque | `docker build -f deploy/Dockerfile -t sar-nasa:mvp .` y `docker run -d --name sar-nasa-mvp -p 127.0.0.1:8502:8501 sar-nasa:mvp`. El contenedor ejecuta `streamlit run app.py`. Health: `curl -fsS http://127.0.0.1:8502/_stcore/health`. No hay script de arranque local. |
+| Tests UI | `./scripts/python.sh -m pytest -q tests/test_ui_smoke.py tests/test_ui_bridge.py` |
+| Tests | `./scripts/python.sh -m pytest tests -q` |
 | Contrato | `./scripts/python.sh -m src.domain.contracts` |
-| Artefactos | (pendiente). El doc cita `pipeline/validate_artifacts.py`; el script no está. |
+| Artefactos | `./scripts/python.sh -m src.data.validation --processed data/processed --require-cases` |
 | Lint | (pendiente). No hay ruff, flake8 ni pre-commit. |
 
-`pytest` no está en `requirements.txt` (pendiente). CI (`.github/workflows/`) no existe (pendiente).
+`pytest` está en `requirements.txt` (`pytest>=8.0`). CI: `.github/workflows/ci.yml`. `pipeline/validate_artifacts.py` existe; el gate de despliegue usa `src.data.validation`.
 
 ## Git
 
-Ramas cortas de un solo objetivo (`feat/ui-shell`, `feat/ui-map`, `feat/ui-charts`, `docs/...`). No trabajes sobre `main`. No acumules objetivos en `fradiaz`.
+Rama única de trabajo: `fradiaz`. Todas las mejoras se commitean aquí, enfocadas por objetivo en el mensaje del commit. No se tocan `pozo`, `yuls` ni `feat/*`. El merge a `main` se hace solo con suite verde y app funcionando, y después `fradiaz` se realinea a `main`.
 
 PR con: Objetivo / Archivos / Dependencias nuevas / Impacto en contrato / Validaciones / Riesgos / Captura.
 
@@ -98,6 +117,8 @@ Commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`. No hagas commit ni push sa
 
 - Arranca solo con datos locales y sin credenciales NASA.
 - Los filtros actualizan mapa, KPIs y gráficos.
-- Cada cifra muestra unidad y fuente.
+- Cada cifra muestra unidad y fuente; `coherence` y `ratio_R` no llevan unidad.
 - Sin valores ni nombres de caso hardcodeados.
+- Mapa visible a 1440x900 sin scroll; filtros plegables en móvil.
+- Contraste legible en claro y oscuro, incluidos desplegables, pestañas y JSON.
 - Tests pasan.

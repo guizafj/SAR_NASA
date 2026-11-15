@@ -79,6 +79,12 @@ class CaseKPIs:
     p95_velocity_mm_yr: float | None
     min_velocity_mm_yr: float | None
     max_velocity_mm_yr: float | None
+    #: v1.1 seasonal trio, from the *fitted* per-cell columns of the filtered view (medians and the
+    #: most frequent regime, label tie-break), never from a config value. ``median_ratio_R`` is None
+    #: when no cell in the view fitted a harmonic (the ratio is undefined, not zero).
+    median_seasonal_amp_mm: float | None
+    median_ratio_R: float | None
+    dominant_regime: str | None
     median_delta_mm: float | None
     min_delta_mm: float | None
     max_delta_mm: float | None
@@ -96,13 +102,6 @@ class CaseKPIs:
     detection_limit_mm_yr: float | None
     expected_regime: str | None
     is_mock: bool
-    # Optional, always None under schema v1.0: the seasonal/regime trio was evaluated and rejected
-    # (docs/decisions.md D-28 / O-05 — the annual harmonic is not identifiable over 132 days), so
-    # no artefact publishes it. Kept as an explicit `None` slot so a future schema can fill it
-    # without every consumer changing shape; never render it as "missing data".
-    median_seasonal_amp_mm: float | None = None
-    median_ratio_R: float | None = None
-    dominant_regime: str | None = None
     displacement_unit: str = C.UNIT
     velocity_unit: str = C.VELOCITY_UNIT
     area_unit: str = AREA_UNIT
@@ -132,6 +131,10 @@ class SeriesView:
     cell_static_velocity_mm_yr: float | None = None
     cell_coherence: float | None = None
     cell_risk_level: str | None = None
+    #: Fitted seasonal amplitude / regime of the selected cell, or the case-level medians when the
+    #: series falls back to the `aoi` aggregate. Additive: v1.0 published neither.
+    seasonal_amp_mm: float | None = None
+    regime: str | None = None
 
 
 @dataclass(frozen=True)
@@ -270,8 +273,7 @@ def compute_kpis(
         median_delta = min_delta = max_delta = mean_coh = None
         net_vol = sub_loss_vol = None
         dominant_lu = None
-        med_seasonal = med_ratio_r = None
-        dom_regime = str(stats["dominant_regime"]) if stats.get("dominant_regime") else None
+        seasonal_amp_median = ratio_median = dominant_regime = None
     else:
         cell_ids = grid["cell_id"].astype(str).tolist()
         areas_km2 = _cell_areas_km2(cell_ids)
@@ -302,21 +304,23 @@ def compute_kpis(
 
         lu_counts = grid["land_use"].astype(str).value_counts()
         dominant_lu = str(lu_counts.index[0]) if not lu_counts.empty else None
-        med_seasonal = (
-            float(np.median(grid["seasonal_amp_mm"].to_numpy(dtype=np.float64)))
-            if "seasonal_amp_mm" in grid.columns
-            else None
-        )
-        med_ratio_r = (
-            float(np.median(grid["ratio_R"].to_numpy(dtype=np.float64)))
-            if "ratio_R" in grid.columns
-            else None
-        )
+
+        # v1.1: the seasonal trio is a property of the *filtered* subset, so it is recomputed here
+        # from the fitted columns rather than re-read from meta.stats (which describes the whole
+        # grid). Same estimators as the generator: median, and a label tie-break for the mode.
+        if "seasonal_amp_mm" in grid.columns:
+            seasonal_amp_median = float(grid["seasonal_amp_mm"].median())
+        if "ratio_R" in grid.columns:
+            # Null exactly where nothing was fitted: the median of an undefined ratio is None, never
+            # 0.0 (which would claim every cell divides evenly) and never NaN (not valid JSON).
+            defined_ratio = grid["ratio_R"].dropna()
+            ratio_median = float(defined_ratio.median()) if not defined_ratio.empty else None
         if "regime" in grid.columns:
-            reg_counts = grid["regime"].astype(str).value_counts()
-            dom_regime = str(reg_counts.index[0]) if not reg_counts.empty else None
-        else:
-            dom_regime = str(stats["dominant_regime"]) if stats.get("dominant_regime") else None
+            regime_counts = grid["regime"].astype(str).value_counts()
+            if not regime_counts.empty:
+                dominant_regime = sorted(
+                    regime_counts.items(), key=lambda item: (-int(item[1]), str(item[0]))
+                )[0][0]
 
     ts_aoi = view.timeseries_aoi
     active_date: str | None = view.active_date
@@ -353,6 +357,9 @@ def compute_kpis(
         p95_velocity_mm_yr=p95_vel,
         min_velocity_mm_yr=min_vel,
         max_velocity_mm_yr=max_vel,
+        median_seasonal_amp_mm=seasonal_amp_median,
+        median_ratio_R=ratio_median,
+        dominant_regime=dominant_regime,
         median_delta_mm=median_delta,
         min_delta_mm=min_delta,
         max_delta_mm=max_delta,
@@ -370,9 +377,6 @@ def compute_kpis(
         detection_limit_mm_yr=detection_limit,
         expected_regime=expected_regime,
         is_mock=(str(meta.get("product")) == "mock"),
-        median_seasonal_amp_mm=med_seasonal,
-        median_ratio_R=med_ratio_r,
-        dominant_regime=dom_regime,
     )
 
 
@@ -396,6 +400,8 @@ def extract_series_view(
     cell_vel: float | None = None
     cell_coh: float | None = None
     cell_risk: str | None = None
+    seasonal_amp: float | None = None
+    regime: str | None = None
     if requested != "aoi" and not full_grid.empty:
         match = full_grid.loc[full_grid["cell_id"].astype(str) == requested]
         if not match.empty:
@@ -403,6 +409,18 @@ def extract_series_view(
             cell_vel = float(row["velocity_mm_yr"])
             cell_coh = float(row["coherence"])
             cell_risk = str(row["risk_level"])
+            if "seasonal_amp_mm" in row and pd.notna(row["seasonal_amp_mm"]):
+                seasonal_amp = float(row["seasonal_amp_mm"])
+            if "regime" in row and pd.notna(row["regime"]):
+                regime = str(row["regime"])
+    else:
+        # Fallback to the case aggregate: meta.stats holds the published medians/mode of the
+        # *whole* grid, which is the only case-level amplitude the contract publishes.
+        stats = meta.get("stats") or {}
+        if isinstance(stats.get("median_seasonal_amp_mm"), (int, float)):
+            seasonal_amp = float(stats["median_seasonal_amp_mm"])
+        if isinstance(stats.get("dominant_regime"), str):
+            regime = stats["dominant_regime"]
 
     if df.empty:
         return SeriesView(
@@ -425,6 +443,8 @@ def extract_series_view(
             cell_static_velocity_mm_yr=cell_vel,
             cell_coherence=cell_coh,
             cell_risk_level=cell_risk,
+            seasonal_amp_mm=seasonal_amp,
+            regime=regime,
         )
 
     dates = df["date"].astype(str).tolist()
@@ -452,6 +472,8 @@ def extract_series_view(
         cell_static_velocity_mm_yr=cell_vel,
         cell_coherence=cell_coh,
         cell_risk_level=cell_risk,
+        seasonal_amp_mm=seasonal_amp,
+        regime=regime,
     )
 
 
@@ -489,6 +511,9 @@ def build_city_comparison(
                 "n_cells": kpis.filtered_cells,
                 "area_km2": round(kpis.filtered_area_km2, 2),
                 "median_velocity_mm_yr": kpis.median_velocity_mm_yr,
+                "median_seasonal_amp_mm": kpis.median_seasonal_amp_mm,
+                "median_ratio_R": kpis.median_ratio_R,
+                "dominant_regime": kpis.dominant_regime,
                 "p05_velocity_mm_yr": kpis.p05_velocity_mm_yr,
                 "min_velocity_mm_yr": kpis.min_velocity_mm_yr,
                 "critical_pct": kpis.risk_breakdown.percentages["critico"],

@@ -7,6 +7,7 @@ They are not measurements. Do not copy them into scientific copy.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from src.domain.contracts import (
     sensor_profile,
 )
 from src.ui.color_scale import FALLBACK_DOMAIN, color_for, values_saturate
+from src.ui.formatters import is_shared_scale
 
 # TODO(rol1): parse config/study_cases.yaml. File absent; labels stay as slugs.
 _STUDY_CASES = Path(__file__).resolve().parents[2] / "config" / "study_cases.yaml"
@@ -200,14 +202,14 @@ def _grid(case_id: str) -> tuple[dict[str, Any], ...]:
 
 def _scale_value(row: dict[str, Any], scale_mode: str) -> float:
     value = float(row["delta_change"])
-    if scale_mode != "Común a todos los casos":
+    if not is_shared_scale(scale_mode):
         return value
     converted = _to_reference(value, str(row.get("unit") or ""))
     return value if converted is None else converted
 
 
 def _domain(case_id: str, scale_mode: str) -> tuple[float, float, str]:
-    if scale_mode == "Común a todos los casos":
+    if is_shared_scale(scale_mode):
         values = [
             _scale_value(row, scale_mode)
             for other in CASE_IDS
@@ -251,7 +253,7 @@ def _filtered(case_id: str, filters: dict[str, Any] | None) -> list[dict[str, An
 def get_map_layer_df(case_id: str, filters: dict[str, Any] | None = None) -> pd.DataFrame:
     """# TODO(rol1): map-ready frame. color and height are already on the row."""
     filters = filters or {}
-    mode = str(filters.get("scale_mode") or "Por caso")
+    mode = str(filters.get("scale_mode") or "independent")
     vmin, vmax, _unit = _domain(case_id, mode)
     rows = _paint(_filtered(case_id, filters), vmin, vmax, mode)
     columns = [
@@ -274,7 +276,7 @@ def get_map_layer_df(case_id: str, filters: dict[str, Any] | None = None) -> pd.
 def get_color_scale(case_id: str, filters: dict[str, Any] | None = None) -> dict[str, Any]:
     """# TODO(rol1): domain actually used to paint color."""
     filters = filters or {}
-    mode = str(filters.get("scale_mode") or "Por caso")
+    mode = str(filters.get("scale_mode") or "independent")
     vmin, vmax, unit = _domain(case_id, mode)
     values = [_scale_value(row, mode) for row in _filtered(case_id, filters)]
     return {
@@ -423,28 +425,28 @@ def get_series_kpis(case_id: str, filters: dict[str, Any] | None = None) -> list
     median = _median([float(row["delta_change"]) for row in rows])
     return [
         {
-            "label": "velocidad mediana",
+            "label": "Median velocity",
             "value": median,
             "unit": unit,
             "provenance_id": provenance_id,
-            "note": "mediana del subconjunto filtrado",
+            "note": "median of the filtered subset",
         },
         {
-            "label": "% de celdas por encima del umbral",
+            "label": "Cells above threshold",
             "value": None if total == 0 else 100.0 * above / total,
             "unit": "%",
             "provenance_id": provenance_id,
-            "note": f"umbral {NULL_RESULT_MM_YR:g} mm/year",
+            "note": f"threshold {NULL_RESULT_MM_YR:g} mm/year",
         },
         {
-            "label": "celdas críticas",
+            "label": "Critical cells",
             "value": critical,
-            "unit": "celdas",
+            "unit": "cells",
             "provenance_id": provenance_id,
             "note": "risk_level critico",
         },
         {
-            "label": "cobertura coherente",
+            "label": "Coherent coverage",
             "value": None if total == 0 else 100.0 * coherent / total,
             "unit": "%",
             "provenance_id": provenance_id,
@@ -454,7 +456,7 @@ def get_series_kpis(case_id: str, filters: dict[str, Any] | None = None) -> list
 
 
 def get_case_series(case_id: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """# TODO(rol1): serie agregada del caso. El valor es la mediana filtrada, repetida."""
+    """# TODO(rol1): aggregated case series. The value is the filtered median, repeated."""
     rows = _filtered(case_id, filters)
     median = _median([float(row["delta_change"]) for row in rows]) or 0.0
     unit = _display_unit(case_id)
@@ -472,7 +474,7 @@ def get_case_series(case_id: str, filters: dict[str, Any] | None = None) -> list
 
 
 def get_land_use_bars(case_id: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """# TODO(rol1): mediana por land_use presente. No rellena categorías ausentes."""
+    """# TODO(rol1): median per present land_use. Does not fill absent categories."""
     grouped: dict[str, list[float]] = {}
     for row in _filtered(case_id, filters):
         grouped.setdefault(str(row["land_use"]), []).append(float(row["delta_change"]))
@@ -489,7 +491,7 @@ def get_land_use_bars(case_id: str, filters: dict[str, Any] | None = None) -> li
     ]
 
 
-def get_scale_comparison(scale_mode: str = "Común a todos los casos") -> dict[str, Any]:
+def get_scale_comparison(scale_mode: str = "shared") -> dict[str, Any]:
     """# TODO(rol1): shares on one reference axis. UI must not convert units."""
     units = {_display_unit(case_id) for case_id in CASE_IDS}
     peaks: list[tuple[str, float, float, str]] = []
@@ -497,7 +499,7 @@ def get_scale_comparison(scale_mode: str = "Común a todos los casos") -> dict[s
         rows = list(_grid(case_id))
         unit = _display_unit(case_id)
         declared = max((abs(float(row["delta_change"])) for row in rows), default=0.0)
-        if scale_mode == "Común a todos los casos":
+        if is_shared_scale(scale_mode):
             converted = [
                 item
                 for item in (_to_reference(float(row["delta_change"]), unit) for row in rows)
@@ -522,7 +524,7 @@ def get_scale_comparison(scale_mode: str = "Común a todos los casos") -> dict[s
             }
         )
     return {
-        "reference_unit": _REFERENCE_UNIT if scale_mode == "Común a todos los casos" else None,
+        "reference_unit": _REFERENCE_UNIT if is_shared_scale(scale_mode) else None,
         "mixed_units": len(units) > 1,
         "cases": cases,
     }
@@ -535,24 +537,75 @@ def load_context_layers() -> dict[str, Any] | None:
     return {"path": str(_CONTEXT), "summary": {"delivered": True}}
 
 
+_SCIENCE_GUIDE = Path(__file__).resolve().parents[2] / "docs" / "science-guide.md"
+
+
 def load_documented_limits() -> dict[str, Any]:
-    """# TODO(rol3): replace with approved educational copy. Quotes README only."""
+    """Quotes README.md, docs/science-guide.md §1 and config/study_cases.yaml verbatim."""
+    science_summary = None
+    if _SCIENCE_GUIDE.is_file():
+        stext = _SCIENCE_GUIDE.read_text(encoding="utf-8")
+        marker = "## 1. The physics in one paragraph"
+        sidx = stext.find(marker)
+        if sidx != -1:
+            body = stext[sidx + len(marker) :]
+            for stop in ("\n![", "\n---", "\n## "):
+                cut = body.find(stop)
+                if cut != -1:
+                    body = body[:cut]
+            slines = [line.strip() for line in body.splitlines() if line.strip()]
+            if slines:
+                science_summary = " ".join(slines)
+
     if not _README.is_file():
-        return {"section_8_caveat": None, "section_13": []}
+        return {
+            "section_8_caveat": None,
+            "section_13": [],
+            "science_section_1": science_summary,
+            "case_roles": {},
+        }
     text = _README.read_text(encoding="utf-8")
     caveat = None
-    for line in text.splitlines():
-        if "validate against GNSS" in line:
-            caveat = " ".join(line.split())
+    paragraphs = [
+        " ".join(line.strip() for line in block.splitlines() if line.strip())
+        for block in re.split(r"\n\s*\n", text)
+    ]
+    gnss_re = re.compile(r"validat\w*\s+(?:the\s+convention\s+)?against\s+GNSS", re.IGNORECASE)
+    for para in paragraphs:
+        if gnss_re.search(para) and "Sign and heading conventions" in para:
+            caveat = para
             break
+    if caveat is None:
+        for para in paragraphs:
+            if gnss_re.search(para):
+                caveat = para
+                break
 
     start = text.find("## 13.")
     end = text.find("## 14.")
+    numbered_re = re.compile(r"^(\d+)\.\s+(.*)$")
     items: list[str] = []
     if start != -1:
         block = text[start:end if end != -1 else None]
+        current_parts: list[str] = []
         for line in block.splitlines():
             stripped = line.strip()
-            if stripped[:2].rstrip(".").isdigit() and ". " in stripped:
-                items.append(stripped.split(". ", 1)[1])
-    return {"section_8_caveat": caveat, "section_13": items}
+            match = numbered_re.match(stripped)
+            if match:
+                if current_parts:
+                    items.append(" ".join(current_parts))
+                current_parts = [match.group(2)]
+            elif current_parts:
+                if not stripped or stripped.startswith(("---", "#", "|", "![")):
+                    items.append(" ".join(current_parts))
+                    current_parts = []
+                else:
+                    current_parts.append(stripped)
+        if current_parts:
+            items.append(" ".join(current_parts))
+    return {
+        "section_8_caveat": caveat,
+        "section_13": items,
+        "science_section_1": science_summary,
+        "case_roles": {},
+    }

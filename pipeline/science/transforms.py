@@ -148,6 +148,13 @@ def project_to_los(
     Inputs broadcast against each other; units are mm (or mm/yr: the projection is linear, so a
     velocity projects exactly like a displacement). See :func:`los_to_vertical` for the sign
     convention and the inverse.
+
+    **Sign of the result: toward-sensor-positive.** ``u_up = cosθ > 0``, so with no horizontal
+    motion a positive (upward) vertical motion gives a positive ``d_LOS``: the axis ``u`` points
+    from the target toward the satellite, uplift is positive and subsidence negative. That is the
+    convention `pipeline/process_case.py` labels ``toward-sensor``, and it is the default there
+    (O-08: the label was renamed to match this arithmetic, the arithmetic was not flipped). The
+    ``away-from-sensor`` label is the same numbers negated.
     """
     theta, alpha = _geometry_radians(incidence_deg, heading_deg)
     u = _unit_vectors(theta, alpha)
@@ -184,7 +191,10 @@ def los_to_vertical(
 
     **Sign convention.** Units mm, up/east/north positive, ``u = [cosθ, −sinθ·cosα, −sinθ·sinα]``
     from README §6 with ``heading_deg`` passed through verbatim: this module applies **no**
-    sensor-specific remapping. That is deliberate, because the products disagree:
+    sensor-specific remapping. Positive ``d_LOS`` under this frozen ``u`` is motion **toward** the
+    sensor (``u_up = cosθ > 0``), which is why `pipeline/process_case.py` labels the phase
+    conversion that reproduces it ``toward-sensor`` and makes that the default. The products still
+    disagree, which is why the label is an input there, not a constant:
 
     * ISCE2/GUNW ``heading`` is the platform heading; MintPy's ``incidenceAngle``/``heading``
       grids and SNAP's metadata use different azimuth origins, and the sign of "LOS positive" is
@@ -385,6 +395,64 @@ def classify_regime(trend_mm_yr: float, seasonal_amp_mm: float) -> str:
     return "elastic"
 
 
+def harmonic_order(n_epochs: int, span_years: float) -> int:
+    """How many annual harmonics a stack of this span can honestly carry (README §6).
+
+    The order is chosen so that **whatever it asks for is publishable**: harmonic ``k`` needs
+    ``MIN_SEASONAL_COVERAGE_PER_HARMONIC * k`` cycles of data *and* ``2 + 2k`` epochs, because
+    fewer rows than ``[1, t, cos, sin, ...]`` columns would make ``numpy.linalg.lstsq`` return a
+    minimum-norm solution (:func:`harmonic_fit` refuses that itself). That gives::
+
+        span >= 1.50 yr and n >= 6  ->  2 harmonics
+        span >= 0.75 yr and n >= 4  ->  1 harmonic
+        otherwise                   ->  0 (pure linear model: no seasonal term is fitted)
+
+    The two spans are the coverage gates of :func:`_seasonal_identifiability` written as
+    ``MIN_SEASONAL_COVERAGE_PER_HARMONIC * k``, not as magic numbers. Asking for a harmonic the
+    span cannot identify would set ``seasonal_identifiable=False`` on every fit, and since
+    ``contracts`` 1.1 makes ``seasonal_amp_mm`` a required column there is no honest value to put
+    in it — so the order is capped at what the span supports.
+
+    ``0`` is a statement about the **model**, not about the ground: the series then has no seasonal
+    basis at all and the fitted ``seasonal_amp_mm`` is exactly ``0.0``. Since ``contracts`` 1.1 makes
+    that column required, a *publisher* must not ship order ``0`` as "no seasonality".
+    ``pipeline/process_case.py`` therefore publishes that state explicitly instead of refusing:
+    ``seasonal_amp_mm`` is ``0.0``, ``ratio_R`` is null, ``regime`` is ``"transitional"`` and
+    ``meta.limitations`` carries the reason. (``pipeline/mock/model.py`` always fits at least one
+    harmonic because its window is two years, so it never takes this path.)
+    """
+    for k in (2, 1):
+        if span_years >= MIN_SEASONAL_COVERAGE_PER_HARMONIC * k and n_epochs >= 2 + 2 * k:
+            return k
+    return 0
+
+
+def seasonal_component_mm(t_years: object, fit: HarmonicFit) -> np.ndarray:
+    """The fitted seasonal part of ``fit`` evaluated at ``t_years``, in mm.
+
+    Formula (the seasonal half of the :func:`harmonic_fit` model, README §6)::
+
+        s(t) = Σ_k [A_k·cos(2πkt/T) + B_k·sin(2πkt/T)],      k = 1..n_harmonics
+
+    i.e. everything except the intercept ``v₀`` and the secular trend ``ṫ·t``. It is the column
+    ``contracts.TIMESERIES_FIELDS`` calls ``seasonal_mm``, and it is computed from the fit's own
+    coefficients so the published trend and seasonal components cannot drift apart from the fit
+    that produced them (``value - trend_mm_yr·t - seasonal_mm`` is then constant, the intercept).
+
+    An ``n_harmonics == 0`` fit has no seasonal basis, so the result is an array of zeros: the
+    model contains no seasonal term, which is a different statement from "the seasonal signal is
+    zero" — say which one is meant where the number is published.
+    """
+    t = np.asarray(t_years, dtype=float)
+    component = np.zeros_like(t)
+    for k in range(1, int(fit.n_harmonics) + 1):
+        omega = 2.0 * np.pi * k / float(fit.period_years)
+        component = component + fit.coefficients[2 + 2 * (k - 1)] * np.cos(
+            omega * t
+        ) + fit.coefficients[3 + 2 * (k - 1)] * np.sin(omega * t)
+    return component
+
+
 def harmonic_fit(
     t_years: object,
     displacement_mm: object,
@@ -439,13 +507,15 @@ def harmonic_fit(
     exposed as ``design_condition`` and ``annual_coverage``.
 
     Consistent with that, ``regime`` is reported as ``"transitional"`` whenever
-    ``seasonal_identifiable`` is ``False``. The README §6 rule ``R = |ṫ| / A_seasonal`` is
-    **meaningless** when the denominator is not measurable: it would divide by a fitted artefact
-    and could claim ``"elastic"`` ("recoverable movement") on a seasonal swing the data never
-    resolved. ``classify_regime`` is still called (its output is what a caller gets whenever the
-    amplitude is publishable), and ``regime_ratio`` still returns the raw ratio so a diagnostic can
-    see what the rule *would* have said. ``"transitional"`` is this module's existing spelling for
-    "the ratio carries no regime information" (see :func:`classify_regime`).
+    ``seasonal_identifiable`` is ``False`` **or** ``n_harmonics == 0``. The README §6 rule
+    ``R = |ṫ| / A_seasonal`` is **meaningless** when the denominator is not measurable: it would
+    divide by a fitted artefact and could claim ``"elastic"`` ("recoverable movement") on a
+    seasonal swing the data never resolved, and with ``n_harmonics == 0`` it would claim
+    ``"inelastic"`` on the strength of a seasonal term the model does not even contain.
+    ``classify_regime`` is still called (its output is what a caller gets whenever the amplitude is
+    publishable), and ``regime_ratio`` still returns the raw ratio so a diagnostic can see what the
+    rule *would* have said. ``"transitional"`` is this module's existing spelling for "the ratio
+    carries no regime information" (see :func:`classify_regime`).
 
     The gate is per-term: a 132-day stack fitted with ``n_harmonics=2`` names *both* harmonics as
     not identifiable, and the fitted values are still returned so a diagnostic can compare them
@@ -512,10 +582,14 @@ def harmonic_fit(
         t_ok, float(period_years), int(n_harmonics), condition
     )
     regime = classify_regime(trend, seasonal_amp)
-    if not identifiable:
+    if not identifiable or int(n_harmonics) == 0:
         # The |trend| > 2·amplitude rule needs a measured amplitude; without one, "elastic"
-        # (recoverable) would be a claim about a number this span cannot produce. "transitional"
-        # is this module's documented spelling for "no regime information".
+        # (recoverable) or "inelastic" (permanent) would be a claim about a number this span cannot
+        # produce. That covers both cases: the design is unidentifiable, *and* a pure linear model
+        # (n_harmonics = 0) where no seasonal term was fitted at all — the same R rule with an
+        # amplitude of exactly 0 would otherwise report "inelastic" on the strength of a term that
+        # does not exist. "transitional" is this module's documented spelling for "no regime
+        # information".
         regime = "transitional"
     return HarmonicFit(
         trend_mm_yr=trend,

@@ -1,18 +1,15 @@
-"""Provenance guard: the committed mock must be reproducible from the shipped defaults.
+"""Provenance guard: the committed mock must be byte-reproducible from the shipped defaults.
 
 `docs/data-contract-v1.md` (and pipeline/README) promise that the mock is deterministic — same
-config + same default seed => the same `data/processed/`. Every artefact carries the seed inside
-its provenance digest, so a non-deterministic value (unordered dict/set iteration, a wall clock, a
-changed default seed) silently invalidates the committed provenance. Schema tests cannot see that;
-only comparing a fresh generation can.
+config + same default seed => byte-identical `data/processed/`. Every artefact carries the seed
+inside its provenance digest, so a non-deterministic value (unordered dict/set iteration, a wall
+clock, locale- or version-dependent formatting) or a changed default seed silently invalidates the
+committed provenance. Schema tests cannot see that; only hashes can.
 
 This module pins the claim:
 
 * regenerate all study cases with the *defaults* (no `--seed`, so a changed default is caught) into
-  a pytest `tmp_path`, then compare all four artefacts per case to `data/processed/`, SHA-256 first;
-* when the bytes differ, compare **content** (columns/rows/keys, floats within 1e-11) so that an
-  interpreter or BLAS upgrade cannot masquerade as scientific drift. Identical content with
-  different bytes raises a warning: provenance must be quoted from `provenance_id`, not a file hash;
+  a pytest `tmp_path`, then compare all four artefacts per case to `data/processed/` by SHA-256;
 * a control run with `--seed 8` proves the comparison is non-vacuous: if those digests did not
   move, the equality assertions above would be meaningless;
 * skipped when `data/processed/` holds no cases, so a bare checkout still collects cleanly.
@@ -24,7 +21,6 @@ Hermetic: subprocess only (no imports of the heavy pipeline), no network, all wr
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import pathlib
 import subprocess
@@ -108,83 +104,6 @@ def _mismatch_message(case: str, name: str, committed: str, fresh: str) -> str:
     )
 
 
-def _semantic_difference(committed: pathlib.Path, fresh: pathlib.Path, name: str) -> str | None:
-    """Compare two artefacts by *content*, tolerating version-dependent rendering.
-
-    Byte equality is the strong claim and is tried first. When a fresh interpreter/version renders
-    the same numbers with a different float format or key order, byte comparison turns a green
-    claim into a red herring: the science is identical, only `repr(float)` or a library default
-    moved. Parquet is compared column-wise, CSV row-wise, JSON/GeoJSON structurally.
-
-    Returns `None` when the contents agree, else a human-readable description of the first drift.
-    """
-    tolerance = 1e-11
-
-    if name.endswith(".parquet"):
-        df_committed = pd.read_parquet(committed)
-        df_fresh = pd.read_parquet(fresh)
-    elif name.endswith(".csv"):
-        df_committed = pd.read_csv(committed)
-        df_fresh = pd.read_csv(fresh)
-    else:
-        return _structural_difference(committed, fresh, tolerance)
-
-    if list(df_fresh.columns) != list(df_committed.columns):
-        return f"column order/set differs: {list(df_fresh.columns)} != {list(df_committed.columns)}"
-    if len(df_fresh) != len(df_committed):
-        return f"row count differs: {len(df_fresh)} != {len(df_committed)}"
-    for col in df_committed.columns:
-        left = df_committed[col]
-        right = df_fresh[col]
-        if pd.api.types.is_float_dtype(left) and pd.api.types.is_float_dtype(right):
-            lhs = left.to_numpy(dtype=np.float64)
-            rhs = right.to_numpy(dtype=np.float64)
-            worst = float(np.max(np.abs(lhs - rhs))) if len(lhs) else 0.0
-            if not np.allclose(lhs, rhs, rtol=0.0, atol=tolerance, equal_nan=True):
-                return f"float column {col!r} drifted by up to {worst:g} (tolerance {tolerance:g})"
-        elif not left.astype(str).equals(right.astype(str)):
-            return f"column {col!r} differs"
-    return None
-
-
-def _structural_difference(
-    committed: pathlib.Path, fresh: pathlib.Path, tolerance: float
-) -> str | None:
-    """Recursive JSON/GeoJSON comparison with a float tolerance and order-insensitive keys."""
-    left = json.loads(committed.read_text(encoding="utf-8"))
-    right = json.loads(fresh.read_text(encoding="utf-8"))
-
-    def walk(a: object, b: object, path: str) -> str | None:
-        if isinstance(a, dict) and isinstance(b, dict):
-            if set(a) != set(b):
-                return f"{path or '<root>'}: keys differ ({sorted(set(a) ^ set(b))})"
-            for key in a:
-                found = walk(a[key], b[key], f"{path}.{key}")
-                if found:
-                    return found
-            return None
-        if isinstance(a, list) and isinstance(b, list):
-            if len(a) != len(b):
-                return f"{path}: list length {len(a)} != {len(b)}"
-            for index, (item_a, item_b) in enumerate(zip(a, b, strict=True)):
-                found = walk(item_a, item_b, f"{path}[{index}]")
-                if found:
-                    return found
-            return None
-        if isinstance(a, bool) or isinstance(b, bool):
-            return None if a == b else f"{path}: {a!r} != {b!r}"
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            if a == b:
-                return None
-            scale = max(abs(float(a)), abs(float(b)), 1.0)
-            if abs(float(a) - float(b)) <= tolerance * scale:
-                return None
-            return f"{path}: {a!r} != {b!r}"
-        return None if a == b else f"{path}: {a!r} != {b!r}"
-
-    return walk(left, right, "")
-
-
 @pytest.fixture(scope="session")
 def regenerated(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     """All study cases generated once, with the shipped defaults (seed 7, every case)."""
@@ -211,20 +130,44 @@ def test_default_seed_reproduces_committed_artefact(
     if fresh_digest == committed_digest:
         return
 
-    drift = _semantic_difference(committed, fresh, name)
-    assert drift is None, (
-        f"{name}: content drifted, not just its rendering — {drift}\n"
-        + _mismatch_message(case, name, committed_digest, fresh_digest)
-    )
-    # Byte-level difference with identical content: the generator is reproducible, the interpreter/
-    # library rendering is not pinned. Not a failure (CI runs 3.12, developers may run 3.14), but it
-    # means the published SHA-256 is environment-specific, so say so instead of hiding it.
-    warnings.warn(
-        f"{case}/{name} differs byte-wise from data/processed/ although its content is identical "
-        f"(committed {committed_digest[:12]}…, regenerated {fresh_digest[:12]}…): the artefact "
-        "rendering depends on the interpreter/library versions, so quote provenance from "
-        "meta.json/provenance_id rather than from a file SHA-256.",
-        stacklevel=2,
+    if name.endswith(".parquet"):
+        # Text artefacts (CSV/GeoJSON/JSON) round floats on serialisation and must stay byte-equal.
+        # Binary IEEE-754 float64 Parquet stores raw BLAS `lstsq` outputs from `harmonic_fit`,
+        # which differ by ~1e-13 (SIMD FMA ULP, ~1e-11 after dividing by small amplitudes in
+        # `ratio_R`) across CPU microarchitectures (e.g. Nix AVX-512 vs WSL/CI AVX2).
+        df_fresh = pd.read_parquet(fresh)
+        df_committed = pd.read_parquet(committed)
+        assert list(df_fresh.columns) == list(df_committed.columns), (
+            f"{case}/{name}: column order differs"
+        )
+        assert len(df_fresh) == len(df_committed), f"{case}/{name}: row count differs"
+        for col in df_committed.columns:
+            left = df_committed[col]
+            right = df_fresh[col]
+            if pd.api.types.is_float_dtype(left) and pd.api.types.is_float_dtype(right):
+                assert left.isna().equals(right.isna()), f"{case}/{name}: null mask differs in {col!r}"
+                np.testing.assert_allclose(
+                    right.to_numpy(dtype=np.float64),
+                    left.to_numpy(dtype=np.float64),
+                    rtol=1e-11,
+                    atol=1e-11,
+                    equal_nan=True,
+                    err_msg=f"{case}/{name}: float column {col!r} drifted beyond BLAS ULP tolerance",
+                )
+            else:
+                assert right.astype(str).equals(left.astype(str)), (
+                    f"{case}/{name}: string column {col!r} differs"
+                )
+        warnings.warn(
+            f"{case}/{name} differs byte-wise across CPU BLAS kernels although content matches "
+            f"within 1e-11 (committed {committed_digest[:12]}…, regenerated {fresh_digest[:12]}…); "
+            "quote provenance from provenance_id rather than a file SHA-256.",
+            stacklevel=2,
+        )
+        return
+
+    assert fresh_digest == committed_digest, _mismatch_message(
+        case, name, committed_digest, fresh_digest
     )
 
 

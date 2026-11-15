@@ -17,7 +17,6 @@ htmlcov
 *.prof
 
 # Development-only content is not needed in the runtime image
-# (`examples/` IS kept because `src.data.loaders` re-exports `examples.reference_loader`)
 data/raw
 data/staging
 *.h5
@@ -25,6 +24,7 @@ data/staging
 *.he5
 *.SAFE
 pipeline
+# examples/ stays: src/data/loaders.py imports examples/reference_loader.py at runtime.
 
 # Local tooling and editor state
 .agents

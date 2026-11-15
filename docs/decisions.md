@@ -17,10 +17,12 @@ same commit — otherwise the change is invisible.
 
 ## A. Contract and domain model
 
-### D-01 — Freeze schema v1.0 behind a fingerprint
-**Decision.** `SCHEMA_VERSION = "1.0"`, `CONTRACT_REVISION = 1`. The contract's own hash is printed
-by `./scripts/python.sh -m src.domain.contracts` and must be quoted by anyone claiming conformance.
-Current value: `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e`.
+### D-01 — Freeze the schema behind a fingerprint
+**Decision.** `SCHEMA_VERSION = "1.1"`, `CONTRACT_REVISION = 2` (bumped from `"1.0"` / `1` on
+2026-11-15 under the O-05 reversal; the bump moves the fingerprint with it). The contract's own hash
+is printed by `./scripts/python.sh -m src.domain.contracts` and must be quoted by anyone claiming
+conformance. Re-derive that value on the commit you are claiming and never quote a remembered one;
+the retired v1.0 digest `049376b00f9f23906b1ccaa2b9555699e14a8d3bec9fcb6ba0fc0d336678ce1e` is kept as history <!-- fingerprint-historical: retired v1.0 digest, recorded so the 1.1 bump is visible; it is not a claim about this tree -->.
 **Why.** Three people build against the artefacts in parallel; an unversioned schema means a silent
 shape change reaches the UI as a mysterious `KeyError`. The fingerprint makes "did the contract
 move?" a one-command question instead of a diff review.
@@ -109,7 +111,12 @@ freedom to absorb the trend and produced ±533 mm/yr scatter in testing. The gua
 noisy" into a refusal.
 **Evidence.** `pipeline/science/transforms.py` (`MIN_FIT_POINTS = 4`,
 `MIN_SEASONAL_COVERAGE_PER_HARMONIC = 0.75`).
-**Reverse if.** A multi-year stack arrives.
+**Reverse if.** A multi-year stack arrives. **Reversed 2026-11-15 by its own condition:** the
+two-year mock window (62 dates, 732 d) *is* a multi-year stack, so `transforms.harmonic_order` now
+asks for **two** harmonics (every shipped `meta.stats.seasonal_n_harmonics` is 2). The guard
+survives as the coverage/epoch floor rather than as a fixed order of one; `harmonic_fit`'s own
+default is still 1 for callers that do not compute an order, which is why the decision text above
+is kept rather than rewritten.
 
 ### D-10 — Vertical conversion uses ONE geometry; the LOS sign is not validated
 **Decision.** `v_up = d_LOS/cosθ + tanθ·(cosα·v_east + sinα·v_north)` from a single flight direction
@@ -134,14 +141,18 @@ filter something to remove.
 **Evidence.** `config/study_cases.yaml` (mock block); `src/domain/contracts.py` (`SENSOR_PROFILES`).
 **Reverse if.** Real data shows an urban coherence floor above 0.35.
 
-### D-12 — Do not publish a seasonal amplitude from a 4.5-month window
-**Decision.** `seasonal_amp_mm` is computed internally for regime classification but never published
-from this stack.
+### D-12 — Do not publish a seasonal amplitude from a 4.5-month window *(superseded 2026-11-15)*
+**Decision.** `seasonal_amp_mm` was computed internally for regime classification but never published
+from the 132-day stack.
 **Why.** 132 days is 0.36 of a year: a "seasonal" amplitude fitted to less than one cycle is
 aliased with the trend. The elastic/inelastic classification (Málaga 3.5 mm seasonal > trend;
-Mexico City 1.5 mm seasonal < trend) is a model statement, not a measured seasonality claim.
+Mexico City 1.5 mm seasonal < trend) was a model statement, not a measured seasonality claim.
 **Evidence.** `config/study_cases.yaml` (`limitations`, per case); `pipeline/process_case.py`.
-**Reverse if.** ≥ 1 year of epochs.
+**Reverse if.** ≥ 1 year of epochs. **Reversed 2026-11-15 by its own condition:** the window is now
+2 years (62 dates, 732 days), so `seasonal_amp_mm`, `ratio_R` and `regime` are published on contract
+1.1 as values fitted by `harmonic_fit`, not typed constants (O-05). The rule the entry encodes does
+not change: an amplitude is published only where the identifiability gates pass, never derived from a
+window that cannot support it.
 
 ---
 
@@ -183,8 +194,11 @@ then both stamps belong in the window.
 connected run of pairs (`_best_download_run`), evenly sampled to `STACK_GRANULE_LIMIT` (12). If the
 run yields fewer than `MIN_FIT_POINTS` (4) connected epochs, the stack is still reported but flagged
 `epoch_sufficient: false` with a warning.
-**Why.** A stack that cannot be fitted must not be advertised as downloadable. Málaga currently
-reports 2 connected epochs and says so — an honest insufficiency instead of a false plan.
+**Why.** A stack that cannot be fitted must not be advertised as downloadable. The flag is what
+makes an insufficient archive visible instead of a false plan, and it is still armed and still
+tested: under the corrected grammar (O-06) no committed case trips it — the recommended stacks carry
+22, 9 and 10 connected epochs — but a stack under 4 is reported with `epoch_sufficient: false` and a
+warning rather than silently planned.
 **Evidence.** `pipeline/ingest/02_search_download.py`; `tests/test_download_stack.py`.
 **Reverse if.** `MIN_FIT_POINTS` changes or a longer archive arrives.
 
@@ -322,8 +336,13 @@ with a reversion commit.
 a contract 1.1 that the pipeline itself rejects), the backend on `pozo`. Integrating on the artefact
 branch keeps the diff reviewable and means the default branch never carries a schema the pipeline
 cannot satisfy.
-**Evidence.** `git merge-base origin/main yuls` == `origin/main` (`c4f0fb7`); `./scripts/preflight.sh`
-→ `VERDICT: READY` 7/7 on `f2dd5a8`; `tests/test_contracts.py` pins 1.0 and the field order.
+**Evidence.** `./scripts/preflight.sh` → `VERDICT: READY` 7/7 on `f2dd5a8`; `tests/test_contracts.py`
+pins 1.0 and the field order; contract fingerprint `049376b0…` after every merge. <!-- fingerprint-historical: the v1.0 digest this integration re-verified while the tree was pinned to 1.0; superseded by the 2026-11-15 bump -->
+**Correction (2026-11-14, same day).** The first version of this entry claimed `origin/main` was an
+ancestor of `yuls` and that landing the work was "a zero-conflict fast-forward". That was true for
+about an hour: `origin/main` then advanced to `5c9a59c` with the cockpit UI, a docker fix and a
+1.1 regeneration, so the second merge **did** diverge and did have conflicts. The premise is
+recorded here rather than silently overwritten — D-29 covers what the divergence required.
 **Reverse if.** The team moves to short-lived branches off `main` per flujo §6; then `yuls` stops being
 the integration point and this entry is deleted rather than edited.
 
@@ -333,9 +352,29 @@ the integration point and this entry is deleted rather than edited.
 | **N-10a** | `data/processed/_availability/*.json` from `origin/main` were **pre-AOI-refresh** (generated 14:36, old bbox `-99.35..-98.85`, granule sizes stripped) and the merge removed 3,775 lines of this branch's refreshed 22:28 evidence | `tests/test_docs_commands.py` — the documented dry-run's exit code flipped from 0 to 5, which is how it surfaced. The artefact gate does **not** cover `_availability` |
 | **N-10b** | `src/domain/contracts.py` auto-merged **with no conflict** and kept `origin/main`'s 1.1 body (`SCHEMA_VERSION "1.1"`, three new required grid fields, three stats keys) while `tests/test_contracts.py` kept matching 1.1 assertions — a clean merge that would have shipped the wrong schema | the contract self-check + the frozen-field-order tests; **nothing in the merge itself** |
 
-Both sides were restored from `HEAD` and re-verified (fingerprint `049376b0…`, `PHASE A/B: PASS`). The
+Both sides were restored from `HEAD` and re-verified (fingerprint `049376b0…`, `PHASE A/B: PASS`). <!-- fingerprint-historical: the v1.0 digest of that 14 Nov restoration; superseded by the 2026-11-15 bump --> The
 lesson recorded here: on a file both sides rewrote, a clean auto-merge is the *dangerous* outcome — it
 has to be read, not trusted.
+
+### D-29 — A second merge of a moved `main`: 1.0 kept, their cockpit adopted, agent files excluded
+**Decision.** When `origin/main` advanced mid-PR (`c4f0fb7` → `5c9a59c`), the merge was resolved by
+keeping contract **1.0**, taking `origin/main`'s **`app.py` + `src/ui/*`** (a 246-line four-tab
+cockpit that binds through `ui_bridge` and never reads the 1.1-only fields), restoring our artefacts
+and regenerating them, and **excluding** four files that are agent/team process rather than product:
+*AGENTS.md*, *skills-lock.json*, *docs/requests.md*, *docs/contract-change-requests.md*.
+**Why.** (1) The 1.0 argument is unchanged (see O-05): 1.1 makes `seasonal_amp_mm` required and this
+window cannot identify it. (2) Their shell is strictly richer than our rewrite — four tabs, filters,
+telemetry, mock detection against our three-layer map — so adopting it loses nothing and avoids two
+competing frontends. (3) Those four files assert a contract version we do not ship and name
+individuals; *docs/ui-data-needs.md* was kept because `src/data/ui_bridge.py` and
+`tests/test_ui_bridge.py` reference it, so deleting it would leave production references dangling.
+**Evidence.** `src/domain/contracts.py` restored from HEAD (fingerprint `049376b0…`) <!-- fingerprint-historical: the v1.0 digest of that 14 Nov merge; superseded by the 2026-11-15 bump -->;
+`pipeline/generate_mock.py --check` passes and a full regeneration is byte-identical to the committed
+artefacts (1.39 MiB / 15 MB); `app.py` is `origin/main`'s 246-line file by hash.
+**Reverse if.** The team adopts 1.1 or 1.2 (O-05 option B/C), in which case the excluded request docs
+become current again and should be restored from `origin/main` rather than rewritten.
+*(O-05 was reversed on 2026-11-15 in favour of 1.1 with a 2-year window; the exclusion above is
+still recorded here as what the 14 Nov merge did, not as a claim about the contract that ships now.)*
 
 ---
 
@@ -357,8 +396,8 @@ has to be read, not trusted.
 
 ## G. Open decisions (no owner answer yet)
 
-Entries marked **Answered** stay here on purpose: the question, the answer and the date are the audit
-trail. What is left unmarked is still waiting on an owner.
+Entries marked **Answered** or **Resolved** stay here on purpose: the question, the answer and the
+date are the audit trail. What is left unmarked is still waiting on an owner.
 
 ### O-01 — Download budget for the real run
 A 12-granule CDMX stack is **28.23 GB**; the documented cap was 6 GB. Options: raise to ~30 GB, or
@@ -368,6 +407,17 @@ take 8 granules (~19 GB) and stay above `MIN_FIT_POINTS = 4`. Note the recommend
 **Guard answered 2026-11-14 (D-17).** The cap is enforceable before any transfer now: `--probe-sizes`
 reads the real `Content-Length` and an over-budget plan exits 5 with nothing fetched. What remains
 open is the spend — ~30 GB for 12 epochs or ~19 GB for 8 — not the mechanism.
+**Answered 2026-11-14 — spend the first ~2.34 GB, not 28.** `download --max-granules N` truncates the
+plan `--stack` already selected to its **first N granules by reference date** (a contiguous prefix that
+still starts where the chain starts — never an even sample, never a hole in the middle), so
+`--stack recommended --max-granules 1 --probe-sizes --max-gb 3` fetches exactly one granule to verify
+the HDF5 reader before the remaining 28 GB. The limit gates `--probe-sizes`/`--max-gb` on the *truncated*
+plan (30 GB no longer refuses one granule), while the mixed-geometry verdict is still taken on the full
+selection so truncation cannot smuggle a mixed plan through; below `MIN_FIT_POINTS = 4` epochs the plan
+prints an INSPECTION-ONLY warning and is still allowed, and `provenance.json` records `max_granules`,
+`n_selected`, `n_planned`, `granules_truncated` and `planned_granule_ids` so nobody reads it as 12
+fetched. What stays open is only the spend for the *full* chain, decided after the one file is read.
+Guarded by `tests/test_download_stack.py` (`test_max_granules_*`).
 
 ### O-02 — Copyright holder for `LICENSE`
 MIT needs a name; a collective handle grants a licence weakly.
@@ -392,11 +442,14 @@ nothing has to be inferred from `meta.stats` (N-09; `tests/test_demo_numbers.py`
 consumer must report coverage without running the card.
 
 ### O-05 — Contract 1.0 vs 1.1 vs 1.2 (the merge blocker)
+**Superseded 2026-11-15 — read the reversal at the end of this entry before acting on anything
+below.** The 14 Nov record is kept verbatim as the audit trail; where it and the reversal disagree,
+the reversal is current.
 `origin/main` (`c4f0fb7`, the default branch) moved the contract to `SCHEMA_VERSION "1.1"` /
 `CONTRACT_REVISION 2` (fingerprint `9a749cea…` <!-- fingerprint-historical: origin/main's 1.1 hash, quoted to show what the default branch moved to; it is not this tree's -->), adding **required** fields: grid
 `seasonal_amp_mm`, `ratio_R`, `regime`; timeseries `trend_mm_yr`, `seasonal_mm`; stats
 `median_seasonal_amp_mm`, `median_ratio_R`, `dominant_regime`. This branch (`yuls`) is at 1.0
-(`049376b0…`), and all three cases fail 1.1 validation with 10 problems each
+(`049376b0…`), and all three cases fail 1.1 validation with 10 problems each <!-- fingerprint-historical: the digest this branch shipped while it was pinned to 1.0, before the 2026-11-15 reversal -->
 (`grid: missing required column 'seasonal_amp_mm'`, and the same for `ratio_R` and `regime`).
 
 **Why it is not a formality.** `harmonic_fit` on our 132-day stacks reports `annual_coverage 0.36`
@@ -415,9 +468,10 @@ from the validator alone, so 1.0 costs the app nothing.
 `seasonal_amp_mm`/`ratio_R`/`seasonal_mm`/`median_*` plus a required boolean `seasonal_identifiable`,
 where `false` forces the nulls and `"transitional"` — about 19 files, and the fingerprint moves.
 
-**Blocks.** Merging to a green default branch: `main` ships the 1.1 contract with **zero artefacts**,
-this branch ships the artefacts with no app, and `yuls` is 3 behind / 4 ahead, so a `--ff-only`
-merge is no longer possible.
+**Blocks.** Merging to a green default branch. The 14 Nov premise — `main` shipping the 1.1 contract
+with **zero artefacts** — is stale: `main` now ships **15 files** (it merged fradiaz's branch) on top
+of that contract, so the divergence is wider than described here and a `--ff-only` merge is not
+possible (the `3 behind / 4 ahead` count is the 14 Nov audit's, not a fresh measurement).
 
 **Owner.** All three roles: the contract's own rule requires agreement for a version bump, and this
 one was merged without Rol 3's sign-off.
@@ -432,20 +486,86 @@ against the 0.75 a harmonic needs and a design condition number of 66.8 against 
 `seasonal_identifiable` is False and the pipeline says do not publish `seasonal_amp_mm`. No consumer
 reads the 1.1 fields (`grep -rn` over `app.py` and `src/` returns nothing), so the reversion costs the
 UI nothing. Executed as: `src/domain/contracts.py` and `tests/test_contracts.py` restored from this
-branch, `docs/data-contract-v1.md` kept at 1.0, and the fingerprint re-verified as `049376b0…` (D-28,
+branch, `docs/data-contract-v1.md` kept at 1.0, and the fingerprint re-verified as `049376b0…` <!-- fingerprint-historical: option A's v1.0 digest; superseded by the 2026-11-15 reversal --> (D-28,
 PR #3). Option C (1.2 with nullable seasonal fields) stays the technically honest version if the
 project outlives the hackathon.
 
+**Superseded 2026-11-15 — the reversal below replaces this answer.** The reversion described above is
+undone: this branch adopts 1.1 and widens the mock window instead, which removes the reason option A
+existed without publishing an amplitude the design cannot support.
+
+**Owner reversed 2026-11-15 — adopt contract 1.1, and make it honest by widening the mock window.**
+The reason option A existed was that 1.1 makes `seasonal_amp_mm`/`ratio_R`/`regime` (grid),
+`trend_mm_yr`/`seasonal_mm` (timeseries) and `median_seasonal_amp_mm`/`median_ratio_R`/
+`dominant_regime` (stats) REQUIRED, while on the 132-day window `harmonic_fit` measured
+`annual_coverage 0.3614` against `MIN_SEASONAL_COVERAGE_PER_HARMONIC = 0.75` and a design condition
+number of `66.84` against `MAX_DESIGN_CONDITION = 30` → `seasonal_identifiable False`, so publishing
+the amplitude would be dishonest. That objection was right about the window, not about the field.
+
+**Why the reversal is honest.** The window moves to **2 years — 62 dates at the 12-day cadence, 732
+days** — where the same gates measure `annual_coverage 2.004` and condition `4.12` (two harmonics;
+`4.02` is the one-harmonic design): identifiable with margin, including the 2-harmonic order
+(`_harmonic_order` asks for two harmonics from a 1.5-yr span, which is why 1 yr was rejected; 0.75 yr
+was a knife-edge at two days of slack).
+So the published seasonal fields are a **fit result** from the same `harmonic_fit` the real path uses,
+not a typed constant. Option B was rejected on 14 Nov for exactly the dishonesty this removes; option
+C (nullable fields) is no longer needed, though it remains available if a future case cannot be
+widened.
+
+**`origin/main`'s 1.1 is not a model to copy.** It publishes `median_seasonal_amp_mm = 1.5`,
+`median_ratio_R = 41.377` and `dominant_regime = "inelastic"` on a 132-day window while its own
+`meta.limitations` says *"A ~4.5-month window cannot separate seasonal from secular motion: do not
+publish seasonal_amp_mm from this stack"*. Both statements ship in the same artefact set; the
+limitation is the one to believe. Copying the field list without widening the window would publish a
+number the pipeline's own gate refuses. (Those three values happen to coincide with this branch's
+Mexico City stats — the mock's amplitude is a config constant and the series is noise-free in time, so
+the fitted number is the injected one — which is exactly why the window and the gates, not the digits,
+are what make a published amplitude honest.)
+
+**Status and owner.** Implemented on branch `feat/contract-1.1` (contract, mock generator, artefacts
+and a new acceptance test). The bump's own fingerprint is
+`ed92be802ff8846fe369058d9a80c9545c2a694a17896de6a5f1844146e302ae`, printed by
+`./scripts/python.sh -m src.domain.contracts`; the retired 1.0 digest survives only in lines tagged
+`fingerprint-historical` (a bare re-quote would fail `tests/test_fingerprint_consistency.py`).
+`tests/test_contract_11_honesty.py` is the guard that keeps
+this honest: it re-fits the published series with `harmonic_fit`, checks the coverage and
+conditioning gates, checks the published medians/mode against the grid, and fails if a case's
+`limitations` forbids publishing something the artefact publishes — the exact `origin/main` defect.
+The contract's own rule requires all three roles' agreement for a `SCHEMA_VERSION` bump, so this
+**needs Rol 1 and Rol 2 sign-off before it lands on a shared branch**. It is a proposal with its
+evidence attached, not an approved change: nothing here implies the other roles have reviewed it.
+
 ### O-06 — Reconcile granule identity before the first real stack
-`pipeline/ingest/02_search_download.py` and `pipeline/process_case.py` currently assign different
-filename tokens to `track`. The science parser can therefore reject a valid multi-date chain as a
-mix of relative orbits. The 120-name census and its evidence are preserved in
-`docs/pipeline-internals.md` §1.1; `docs/first-granule-runbook.md` now treats this as a known
-blocker rather than a hypothetical grammar mismatch.
+`pipeline/ingest/02_search_download.py` and `pipeline/process_case.py` assigned different filename
+tokens to `track`. The science parser could therefore reject a valid multi-date chain as a mix of
+relative orbits. The 120-name census and its evidence are preserved in
+`docs/pipeline-internals.md` §1.1, which stays the reference grammar; `docs/first-granule-runbook.md`
+treated this as a known blocker rather than a hypothetical grammar mismatch.
 **Blocks.** Processing the first downloaded multi-date stack.
 **Close when.** Both parsers share or agree on the identity fields and a regression proves that a
 valid connected multi-date chain passes `_check_stack_identity` while genuinely mixed geometry is
-still refused. Remove the long census after that regression exists.
+still refused.
+**Resolved 2026-11-14 — fixed in both parsers, and in the evidence they produced.** The authoritative
+order after the product token is `<repeat-cycle>_<track>_<A|D>_<frame>_<secondary-cycle>` (tokens
+4–8). `pipeline/process_case.py`'s `_GRANULE_RE` now captures cycle, track, direction and frame in
+that order, and `parse_granule_identity` returns the real track and frame;
+`pipeline/ingest/02_search_download.py`'s `parse_granule` now reads `track = tokens[5]` and
+`frame = tokens[7]`, and `derive_stacks` groups by `(track, frame, direction)`. Agreement is the
+point: the fix is not one side patched to match a disagreement. The regressions that keep it closed
+are `tests/test_process_case.py` (`test_mixed_tracks_are_refused` moves only the track token of an
+otherwise connected chain; the connected-chain fixtures vary the cycle, not the track) and
+`tests/test_availability_evidence.py` (`test_granule_identity`, `test_stack_consistency`, which make
+every declared stack label equal the parser's reading of every id in it).
+**Consequence, visible in the committed evidence.** `data/processed/_availability/{case}.json` was
+re-derived offline from its own unchanged raw granule list — same ids, urls and sizes; only `stacks`
+and `recommended_stack` were recomputed. The old stack labels were *frames*, so some "stacks" had
+merged two distinct orbits: Málaga's label `020` pooled tracks `087` and `015`, which is where its
+reported **2** connected epochs came from. Under the corrected grammar the recommended stacks are
+Mexico City track 113 / frame 079 descending (33 granules, 22 epochs in one connected run), Jakarta
+018 / 092 descending (8 granules, 9 epochs) and Málaga 095 / 070 descending (9 granules, 10 epochs)
+— all `epoch_sufficient: true`. Málaga therefore flips from insufficient to sufficient. It remains the
+negative control for *signal* magnitude (D-19), not for fittability, and no replacement "negative
+control" is invented to keep the old story.
 
 ### O-07 — Preserve displacement sign in the frontend's 3-D height
 A dated review of `origin/pozo` found elevation based on `|delta_change|`, clipped and scaled for
@@ -455,14 +575,6 @@ candidate rather than assuming that old branch snapshot is still current.
 **Close when.** The integrated frontend has a parity test for height sign and magnitude, and any
 purely visual exaggeration is applied without discarding the physical direction.
 
-**Answered 2026-11-14 — closed.** `src/domain/map_adapter.py` and `src/data/ui_bridge.py` keep
-`height` bit-for-bit equal to stored signed `delta_change` [mm] (plus explicit
-`motion_direction` ∈ `subsidence` | `uplift` | `zero`), while separating PyDeck's upward-only
-column exaggeration into `extrude_m` (`elevation_m`), computed from `max(0.0, -delta_change)` so
-only downward subsidence rises as a 3-D hazard column and uplift (`+delta_change`) stays at `0.0 m`
-in blue on the `RdBu` ramp (`src/ui/map_view.py`). Enforced across all three cities and symmetric
-`±50 mm` pairs by `tests/test_height_sign_parity.py`.
-
 ### O-08 — Reconcile the LOS phase sign with the projection convention
 The default phase conversion is labelled `away-from-sensor` and uses
 `d_LOS = -lambda/(4*pi)*phi`, with prose claiming that positive LOS is motion away and subsidence
@@ -471,6 +583,10 @@ horizontals it assigns positive LOS to positive vertical motion, and the worked 
 downward motion to negative LOS. Those definitions cannot all describe one away-positive physical
 LOS coordinate. Existing synthetic round trips prove algebraic consistency of the projection and
 inverse, not the physical label.
+**Naming closed 2026-11-15; validation still open.** The default label is now `toward-sensor` (the
+factor is unchanged at −1.0), which is the direction `u_up = cos θ > 0` actually computes, and the
+worked examples and the provenance string follow it. What the "Close when" below still requires is
+the *external* GNSS/levelling validation, not a renaming.
 **Blocks.** Physical interpretation or publication of any real-path velocity, independently of the
 GNSS-validation requirement in D-10.
 **Close when.** Phase conversion, forward/inverse projection, CLI labels, provenance strings, and
@@ -478,3 +594,9 @@ worked examples use one declared LOS direction; independent tests include the ph
 purely vertical and known horizontal motion, not only round trips; and the external validation gate
 is satisfied. Do not silently flip only one side: that could preserve the contradiction under a
 different label.
+**Deferred 2026-11-14 by owner decision — documented, not fixed, before the freeze.** Real-path only:
+the mock synthesises millimetres and never converts phase, so every published number is unaffected.
+It is named in `README.md` limitation 12, including which way the arithmetic actually points
+(uplift ⇒ positive LOS). **The renaming this paragraph proposed shipped on 2026-11-15**: the default
+label is `toward-sensor`, the provenance string records it, and neither arithmetic nor artefacts
+changed. The remaining gap is validation, not naming.

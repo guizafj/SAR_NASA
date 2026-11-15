@@ -16,7 +16,7 @@ turning a weak signal into a confident claim.
 
 Current repository evidence is deliberately limited:
 
-- Contract **v1.0**, revision 1, fingerprint `049376b0…`, is implemented in
+- Contract **v1.1**, revision 2, fingerprint `ed92be80…`, is implemented in
   `src/domain/contracts.py` and described by `docs/data-contract-v1.md`.
 - Three contract-conformant artefact sets exist under `data/processed/`.
 - **Every committed case value is synthetic** (`product: "mock"`). It demonstrates schema,
@@ -101,7 +101,9 @@ point. Values are aggregated into H3 resolution-9 cells, then fitted per cell:
 - The seasonal harmonic is centred in the synthetic model so a partial seasonal cycle does not leak
   into endpoint change.
 - Span and design-conditioning gates decide whether a seasonal amplitude is identifiable. Contract
-  v1.0 does not publish seasonal amplitude or regime fields.
+  v1.1 publishes the seasonal amplitude and regime fields; v1.0 did not. A stack too short to fit a
+  harmonic publishes `seasonal_amp_mm = 0` ("not fitted"), `ratio_R = null` and
+  `regime = "transitional"`.
 - A near-zero median requires `stats.detection_limit_mm_yr`; Málaga is the deliberate negative
   control, not an empty result to hide.
 
@@ -143,10 +145,13 @@ fully implemented; existence of a stage name is not evidence that correction ran
 
 Important unresolved items include:
 
-- the granule-identity parsers disagree about which filename token is the track, blocking a valid
-  multi-date real stack until corrected (O-06);
-- the CLI's away-positive LOS label conflicts with the projection's sign for purely vertical motion;
-  O-08 blocks physical interpretation of real output until phase, projection, and labels agree;
+- ~~the granule-identity parsers disagree about which filename token is the track~~ **resolved
+  2026-11-14 (O-06)**: both parsers read track = token 5 and frame = token 7, and a regression
+  pins it (`tests/test_parser_agreement.py`);
+- ~~the CLI's away-positive LOS label conflicts with the projection's sign~~ **closed 2026-11-15
+  (O-08) by renaming**: the default label is `toward-sensor`, matching `u_up = cosθ > 0`; the
+  factor is unchanged at −1.0, so no published number moved. What remains open is GNSS
+  *validation* of the convention, not the naming;
 - urban GUNW coverage and the exact real-file layout remain unverified;
 - atmospheric, orbital, DEM, and unwrapping errors are not all corrected;
 - a short window cannot support confident seasonal or elastic/inelastic claims;

@@ -40,7 +40,7 @@ them barely moves at all.
 
 | Capability | What the user does |
 |---|---|
-| **Time scrub** | Drag a date slider; charts and KPIs update across the 12 dates — the **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid) |
+| **Time scrub** | Drag a date slider; charts and KPIs update across the 62 dates — the **map** shows the first/last snapshot only (the contract carries `val_t1`/`val_t2`, not a per-date grid) |
 | **Click to interrogate** | Click a cell → displacement series, trend, quality (needs `--per-cell-series` artefacts; the committed set carries only the AOI aggregate) |
 | **Compare mode** | Three cities on **one shared colour scale** |
 | **Filter** | Coherence, land use, risk level, critical-velocity threshold |
@@ -74,13 +74,13 @@ Mexico City's bowl, Jakarta's coastal edge, and Málaga essentially blank. Gener
 ### Verify in 15 seconds
 
 ```bash
-./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.458 MB / 15 MB
+./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.687 MB / 15 MB
 ./scripts/preflight.sh         # fuller: seven gates, per-gate table, ends in a VERDICT line
 ```
 
 | case | cells | window | median mm/yr | product | source |
 |---|---:|---|---:|---|---|
-| `mexico-city` | 11,694 | 2026-07-02 → 2026-11-11 | −62.1 | mock | synthetic |
+| `mexico-city` | 11,694 | 2024-11-10 → 2026-11-12 | −62.1 | mock | synthetic |
 | `jakarta` | 4,811 | same window | −25.4 | mock | synthetic |
 | `malaga` | 2,645 | same window | −1.4 | mock | synthetic |
 
@@ -169,7 +169,7 @@ real data is a file replacement, not a code change.
 
 ---
 
-## 4. Data contract v1.0 — frozen
+## 4. Data contract v1.1 — frozen
 
 Four artefacts per case, under `data/processed/`. This is the whole interface between pipeline and
 app; it is versioned, validated in code and locked by a regression suite.
@@ -188,8 +188,8 @@ Source of truth (code): **[`src/domain/contracts.py`](src/domain/contracts.py)**
 
 | | |
 |---|---|
-| Version | `1.0`, revision 1, frozen 2026-11-14 |
-| Fingerprint | `049376b0…` (`contract_fingerprint()`) |
+| Version | `1.1`, revision 2, frozen 2026-11-14 |
+| Fingerprint | `ed92be80…` (`contract_fingerprint()`) |
 | Changing it | bump `SCHEMA_VERSION` + `CHANGELOG` entry + PR section `Impacto sobre el contrato:` + review by all three roles |
 | Enforced by | the contract, mock-plausibility and gate suites (`./scripts/python.sh -m pytest tests -q`); any silent rename, retype or enum drift fails the suite **and** the gate |
 
@@ -244,16 +244,21 @@ nothing is a failure. `--allow-empty` exists for pre-mock CI and says so loudly 
 | Sentinel-1 SLC (5 y window) | 250+ granules, ~1.07 TB | 250+ granules, ~1.18 TB | 250+ granules, ~0.96 TB |
 | EGMS | not eligible | not eligible | manual portal download |
 
-Each report also derives `stacks` per (track, flight direction) plus a `recommended_stack` (largest
-single-geometry stack, sampled evenly across its window). `download --stack recommended` plans from
-it, so a fetch is one geometry by construction instead of a preview of everything ASF returned —
-which is what the mixed-geometry guard would otherwise refuse.
+Each report also derives `stacks` per (track, frame, flight direction) plus a `recommended_stack`
+(largest single-geometry stack, sampled evenly across its window). `download --stack recommended`
+plans from it, so a fetch is one geometry by construction instead of a preview of everything ASF
+returned — which is what the mixed-geometry guard would otherwise refuse.
 
-**Not every stack is fittable.** Counted from the same JSON: `mexico-city` yields 22 connected
-epochs from 12 sampled granules, `jakarta` 9 — but `malaga` only **2**, below `MIN_FIT_POINTS = 4`,
-so its report carries `epoch_sufficient: false` and `process_case` would refuse that chain. Intersecting
-the AOI is not the same as having a chain long enough to fit; the negative control is honest at the
-availability level too.
+**Every recommended stack clears the fit minimum.** Counted from the same JSON, the recommended
+stack per case is `mexico-city` track 113 / frame 079 descending (33 granules, 22 epochs in one
+connected run, 13 of them in the download window), `jakarta` 018 / 092 descending (8 granules, 9
+epochs) and `malaga` 095 / 070 descending (9 granules, 10 epochs) — all above
+`MIN_FIT_POINTS = 4`, so all three carry `epoch_sufficient: true`. This paragraph used to report
+`malaga` as **2**, an insufficiency that turned out to be an artefact of grouping by frame where the
+grammar says track: two orbits sat under one frame label. The grammar is reconciled (O-06) and the
+reports were re-derived from their unchanged granule lists, so the number is 10. Intersecting the AOI
+is still not the same as having a chain long enough to fit — here it is, and Málaga is the negative
+control for signal, not for fittability.
 
 **Consequences, decided now and written into the contract:**
 
@@ -325,11 +330,14 @@ azimuth conventions give identical numbers here — and "purely vertical" is an 
 measurement.
 
 **Sign and heading conventions are recorded, not validated.** `--los-sign` (default
-`away-from-sensor`) and `--heading-convention` (default `platform`) are written into `provenance`,
-and `provenance.method` keeps its "NOT yet validated against GNSS" hedge; passing the flags restates
-the convention, it does not check it. **O-08 is also open:** the default away-positive label
-conflicts with `project_to_los` assigning positive LOS to positive vertical motion when horizontals
-are zero. Reconcile that definition and validate against GNSS before publishing real numbers.
+`toward-sensor`: `d_LOS = -λ/4π·φ` with a **positive** value meaning the ground moved toward the
+sensor, i.e. uplift, because up is positive and `u_up = cos θ > 0` — the same direction
+`project_to_los` computes; `away-from-sensor` is the `+λ/4π` flip) and `--heading-convention` (default
+`platform`) are written into `provenance`, and `provenance.method` keeps its "NOT yet validated
+against GNSS" hedge; passing the flags restates the convention, it does not check it. **O-08 is
+closed by renaming, not by re-deriving:** the default factor is still -1.0, so no published number
+moved — only the label (and the prose derived from it) now matches the projection. Validate the
+convention against GNSS before publishing real numbers.
 **Axis/sign conventions differ between ISCE2, MintPy and SNAP.**
 
 **Time-series model** (drives the trend/seasonal split) — *harmonic part implemented, step part
@@ -464,7 +472,7 @@ recorded in **[`docs/decisions.md`](docs/decisions.md)**.
 │   ├── check_phase_a.sh               ← contract → suites → artefact gate → handoff summary
 │   ├── make_figures.py                ← the three pitch figures, straight from the artefacts
 │   ├── demo_numbers.py                ← every number the presenter may say, derived not typed
-│   ├── export_grid_geojson.py         ← grid → GeoJSON points for QGIS / kepler.gl
+│   ├── export_grid_geojson.py         ← grid → GeoJSON cell polygons (H3 rings) for QGIS / kepler.gl
 │   ├── style_qgis_layers.py           ← the same palette as generated QGIS .qml styles (no colour declared here)
 │   └── rehearse_first_granule.py      ← runs the runbook's offline steps on a synthetic stack
 ├── requirements.txt                   ← full workspace: pipeline + backend + Streamlit app + tests
@@ -512,6 +520,13 @@ python3 -m venv .venv
 #    exits 5: the 12-granule CDMX plan sums 28.23 GB against the 6 GB cap and refuses.
 #    Raise `--max-gb` only to the size the probe printed (a deliberate act, recorded in
 #    `provenance.json.max_gb`), never blind — see step 5.
+
+# 4c. Spend one granule first, not the stack: `--max-granules N` keeps the FIRST N granules in
+#     reference-date order (O-01), which is the cheapest way to prove the HDF5 reader against a
+#     real file before paying for a whole chain. A plan below `MIN_FIT_POINTS` epochs still
+#     proceeds but warns: one granule is for inspecting the file, not for fitting a case.
+./scripts/python.sh pipeline/ingest/02_search_download.py download \
+    --city mexico-city --source nisar_gunw --stack recommended --max-granules 1 --probe-sizes --dry-run
 
 # 5. Download (needs Earthdata credentials AND the one-time ASF application approval;
 #    fails closed, with an actionable message, when either is missing)
@@ -574,7 +589,7 @@ merged. Before submission:
 git checkout main && git merge --ff-only yuls && git push && git checkout yuls
 ```
 
-Everything under `data/processed/` is 1.73 MB (1.458 MB of artefacts plus the `_availability/`
+Everything under `data/processed/` is 1.97 MB (1.687 MB of artefacts plus the `_availability/`
 evidence), so it belongs in the repo; `data/raw/` never does.
 
 **Working safely with uncommitted work.** On 2026-11-14 a `git reset --hard` silently reverted every
@@ -658,10 +673,12 @@ Error budget, largest first: **unwrapping ≫ troposphere ≫ orbital ≫ DEM �
 
 *Cumulative displacement since the first acquisition, with Málaga's detection floor shaded (±1.5
 mm/yr over the window). The series are referenced to the first epoch, so they start at exactly 0 mm
-— and the seasonal bulge is visible mid-window rather than masquerading as secular motion.
-**Do not publish `seasonal_amp_mm` from a ~4.5-month stack:** the artefacts' own `limitations`
-record that the seasonal term is not separable from the secular one here, so this curve shows the
-shape, not a measured amplitude.*
+— and the seasonal bulge is visible mid-window rather than masquerading as secular motion. **The
+seasonal amplitude is a published fit, not a typed constant:** the window now spans two full annual
+cycles and the design sits well inside its conditioning limit, so `seasonal_amp_mm`, `ratio_R` and
+`regime` come from `harmonic_fit`. On the earlier, much shorter window the gate could not identify
+the annual harmonic at all, and the artefacts of that era published an amplitude anyway while
+their own `limitations` said not to — the contradiction the two-year window removes.*
 
 **Limitations.** The per-case subset also ships inside each artefact's `meta.limitations`; the rest
 are project-level statements that no single artefact carries.
@@ -683,6 +700,37 @@ are project-level statements that no single artefact carries.
 10. **No real granule has been downloaded or processed.** All three cases are `product: "mock"` and
     every artefact's own `limitations` says so; what this submission demonstrates is the schema, the
     pipeline and the map logic — not NISAR velocities.
+11. **The two granule parsers now agree with the ASF filename census (O-06, fixed 2026-11-14).**
+    Token 4 is a 12-day *repeat-cycle bin* of the reference acquisition, not the track; after the
+    product token the order is `cycle, track, A|D, frame, secondary cycle` (tokens 4–8).
+    `pipeline/process_case.py` (`_GRANULE_RE`, `parse_granule_identity`) and
+    `pipeline/ingest/02_search_download.py` (`parse_granule`, which `derive_stacks` groups by) both
+    read track = token 5 and frame = token 7, and the availability reports were re-derived from
+    their unchanged raw granule lists under that grammar. Until then the science parser read
+    track/frame one token left and the ingest parser read the frame *as* the track, so a genuinely
+    connected multi-date stack could be refused as "mixes relative orbits" and two orbits could be
+    merged under one frame label. Nothing published was affected either way: the mock path never
+    parses a granule name, and its provenance digest hashes `case|product|seed`.
+12. **The LOS sign label contradicted the projection arithmetic (O-08, closed by renaming).**
+    `project_to_los` builds `u = [cosθ, −sinθcosα, −sinθsinα]`, so with zero horizontals **uplift
+    gives positive LOS** (toward-sensor-positive) and subsidence negative. The phase conversion's
+    default factor has always been -1.0 — exactly that arithmetic — but it was labelled
+    `away-from-sensor`, and that label landed in `meta.provenance.method`. The label and its prose
+    now say `toward-sensor`, the default factor stays -1.0, and **no published number changed**
+    (the mock synthesises millimetres directly, so none was ever at risk). What remains open is
+    validation, not naming: the convention is still unvalidated against GNSS (`--validated-against`).
+13. **A stack shorter than three quarters of a year fits no annual harmonic, and still publishes a
+    grid.** `harmonic_order` returns 0 below `MIN_SEASONAL_COVERAGE_PER_HARMONIC` (0.75 yr), so the
+    case is a plain trend: `seasonal_amp_mm` is exactly 0.0 — meaning *"not fitted"*, never *"no
+    seasonality measured"*, which would be a claim about the ground — `ratio_R` is **null** (the
+    column is still required, but `|trend| / 0` is undefined, so no number is invented), and
+    `regime` is `"transitional"`, the contract's cannot-classify value, because the
+    secular-vs-seasonal comparison has no seasonal term to compare against. Where no cell in the
+    case fitted a harmonic, `stats.median_ratio_R` is null too, and `meta.limitations` says the term
+    was not fitted and what would publish one. A ~132-day real stack — the planned fetch — is
+    therefore schema-valid but seasonally unfitted: a fitted amplitude needs a chain spanning at
+    least 0.75 yr for one harmonic (≈276 d) or 1.5 yr for two. The two-year mock is unaffected — it
+    spans two annual cycles and does publish a fitted amplitude.
 
 ---
 

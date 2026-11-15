@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 import traceback
 
@@ -77,8 +78,7 @@ def build(spec: dict) -> dict:
                 result["errors"].append(f"{layer_spec['name']}: invalid layer ({layer_spec['source']})")
                 continue
             loaded = layer.loadNamedStyle(layer_spec["style"])
-            ok = loaded[0] if isinstance(loaded, tuple) else loaded
-            if not ok:
+            if not _style_loaded(loaded):
                 result["errors"].append(f"{layer_spec['name']}: style rejected ({layer_spec['style']})")
             project.addMapLayer(layer, addToLegend=False)
             node = group.addLayer(layer)
@@ -95,6 +95,12 @@ def build(spec: dict) -> dict:
     project_path = spec.get("project_path")
     if project_path:
         result["project_written"] = bool(project.write(project_path))
+        # Read the written file back: a project that opens but silently lost its renderers is the
+        # failure this whole exercise exists to catch, and the in-memory object cannot prove it.
+        written = pathlib.Path(project_path)
+        if written.is_file():
+            result["project_renderers"] = written.read_text().count("<renderer-v2")
+            result["project_path"] = str(written)
 
     render = spec.get("render")
     if render:
@@ -143,6 +149,19 @@ def build(spec: dict) -> dict:
                 ],
             }
     return result
+
+
+def _style_loaded(result) -> bool:
+    """Did `loadNamedStyle` succeed? The tuple order is not stable across QGIS versions.
+
+    QGIS 4 returns ``(message, success)`` — so reading ``result[0]`` reads the message, which is
+    ``''`` on success and therefore falsy. That inversion reported fifteen correctly styled layers
+    as rejected while the map rendered perfectly. Take whichever element is a bool.
+    """
+    if isinstance(result, tuple):
+        flags = [item for item in result if isinstance(item, bool)]
+        return bool(flags and flags[0])
+    return bool(result)
 
 
 def _transform_rect(rect: QgsRectangle, layer: QgsVectorLayer, destination: QgsCoordinateReferenceSystem) -> QgsRectangle:

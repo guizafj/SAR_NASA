@@ -35,7 +35,7 @@ L0_RRSD_ID = (
 
 def _product_id(product: str, level: str = "L2", track: str = "079") -> str:
     return (
-        f"NISAR_{level}_PR_{product}_032_113_D_{track}_033_4000_SH_"
+        f"NISAR_{level}_PR_{product}_032_{track}_D_033_4000_SH_"
         "20261008T011329_20261008T011403_20261020T011329_20261020T011403_"
         "P05023_N_F_J_001"
     )
@@ -140,7 +140,8 @@ def test_real_gunw_id_is_accepted_for_nisar_gunw_and_parses_fields() -> None:
     assert decision.accepted is True
     assert parsed.level == "L2"
     assert parsed.product == "GUNW"
-    assert parsed.track == "079"
+    assert parsed.track == "113"
+    assert parsed.frame == "079"
     assert parsed.direction == "DESCENDING"
     assert parsed.flight_direction == "DESCENDING"
     assert parsed.direction_code == "D"
@@ -248,7 +249,9 @@ def test_dry_run_prints_plan_writes_nothing_and_exits_zero(
     assert rc == 0
     assert "Download plan for test-city / nisar_gunw" in out
     assert GUNW_ID in out
-    assert "level=L2 product=GUNW track=079 direction=DESCENDING" in out
+    assert (
+        "level=L2 product=GUNW track=113 frame=079 direction=DESCENDING" in out
+    )
     assert "reference=2026-10-08T01:13:29Z secondary=2026-10-20T01:13:29Z" in out
     assert "status: ACCEPT" in out
     assert "dry run" in out.lower()

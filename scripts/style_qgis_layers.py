@@ -21,10 +21,12 @@ What it writes (default ``data/staging/qgis/styles/``)
 ``aoi_ring.qml``         dashed no-fill outline for ``config/aoi/*.geojson``
 ``styles_manifest.json`` which file styles which field, with the renderer and class count
 
-Every symbol is a **hexagon marker sized in map units (300 m)** because the artefact is H3
-resolution 9: ~0.105 km² per cell, ~301 m centre-to-centre. In map units the cells tile
-edge-to-edge, which is the point — a fixed millimetre size hides interleaving and overlap, and
-the tiling *is* the geometry check.
+Every grid symbol is a **fill**, because the exported geometry is the H3 cell polygon itself
+(``map_adapter._cell_polygon_lonlat``). This is load-bearing, not a preference: an earlier
+version drew hexagon *markers* sized in map units, and QGIS map units follow the project CRS —
+with the project in EPSG:4326 the unit is **degrees**, so a 349-unit hexagon spanned 349 degrees
+of longitude and the whole world fit inside three of them. Polygons need no size, tile exactly,
+and cannot be misread by a CRS change.
 
 Rules this file will not break
 ------------------------------
@@ -58,9 +60,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.domain import map_adapter as MA  # noqa: E402
-
-#: H3 resolution 9 centre-to-centre spacing, rounded to metres (see module docstring).
-HEX_SIZE_MAP_UNITS = 300
 
 #: QML written by QGIS 3.x is still read by QGIS 4; declare a 3.x version so both open it.
 QGIS_QML_VERSION = "3.40.0"
@@ -98,15 +97,15 @@ def marker_symbol(
     name: str,
     color_rgba: str,
     *,
-    shape: str = "hexagon",
-    size: float = HEX_SIZE_MAP_UNITS,
-    size_unit: str = "MapUnit",
+    shape: str = "circle",
+    size: float = 3.2,
+    size_unit: str = "MM",
     stroke_rgba: str = "255,255,255,0",
     stroke_width: float = 0.0,
     stroke_style: str = "no",
     opacity: float = 1.0,
 ) -> str:
-    """A single-layer marker symbol; hexagon in map units by default."""
+    """A single-layer marker symbol. Points only — grid cells are polygons, never markers."""
     options = "".join(
         [
             _opt("angle", "0"),
@@ -223,7 +222,7 @@ def graduated_renderer(field: str, classes: tuple[tuple[float, float, str], ...]
         f'render="true" uuid="{_key("range", field, str(i))}"/>\n'
         for i, (lo, hi, _) in enumerate(classes)
     )
-    symbols = "".join(marker_symbol(str(i), _hex_to_rgba(hexv)) for i, (_, _, hexv) in enumerate(classes))
+    symbols = "".join(fill_symbol(str(i), _hex_to_rgba(hexv)) for i, (_, _, hexv) in enumerate(classes))
     return (
         f'  <renderer-v2 type="graduatedSymbol" attr="{_attr(field)}" gradtype="0" '
         f'symbollevels="0" enableorderby="0" forceraster="0" referencescale="-1">\n'
@@ -240,7 +239,7 @@ def categorized_renderer(field: str, values: tuple[tuple[str, str], ...]) -> str
         f'render="true" uuid="{_key("cat", field, cat)}"/>\n'
         for i, (cat, _) in enumerate(values)
     )
-    symbols = "".join(marker_symbol(str(i), _hex_to_rgba(hexv)) for i, (_, hexv) in enumerate(values))
+    symbols = "".join(fill_symbol(str(i), _hex_to_rgba(hexv)) for i, (_, hexv) in enumerate(values))
     return (
         f'  <renderer-v2 type="categorizedSymbol" attr="{_attr(field)}" symbollevels="0" '
         f'enableorderby="0" forceraster="0" referencescale="-1">\n'
@@ -343,9 +342,7 @@ def risk_categories() -> tuple[tuple[str, str], ...]:
 def quality_rules() -> tuple[tuple[str, str, str], ...]:
     """The one-map honest view: confidence first, then band colours."""
     risk = dict(risk_categories())
-    degraded = marker_symbol(
-        "0", "100,116,139,110", stroke_rgba="148,163,184,180", stroke_width=0.1, stroke_style="solid"
-    )
+    degraded = fill_symbol("0", "100,116,139,110")
     return (
         (
             '"coherence" < 0.5',
@@ -355,14 +352,14 @@ def quality_rules() -> tuple[tuple[str, str, str], ...]:
         (
             '\"risk_level\" = \'critico\'',
             "critico",
-            marker_symbol("0", _hex_to_rgba(risk["critico"])),
+            fill_symbol("0", _hex_to_rgba(risk["critico"])),
         ),
         (
             '\"risk_level\" = \'moderado\'',
             "moderado",
-            marker_symbol("0", _hex_to_rgba(risk["moderado"])),
+            fill_symbol("0", _hex_to_rgba(risk["moderado"])),
         ),
-        ("ELSE", "estable", marker_symbol("0", _hex_to_rgba(risk["estable"]))),
+        ("ELSE", "estable", fill_symbol("0", _hex_to_rgba(risk["estable"]))),
     )
 
 
@@ -558,7 +555,7 @@ def emit(out_dir: pathlib.Path) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "qgis_qml_version": QGIS_QML_VERSION,
-        "hex_size_map_units": HEX_SIZE_MAP_UNITS,
+        "cell_geometry": "H3 polygon ring from map_adapter._cell_polygon_lonlat",
         "styles": {},
     }
     for filename, (text, entry) in styles.items():
@@ -697,7 +694,9 @@ def _report(result: dict) -> int:
     for layer in result.get("layers") or []:
         print(f"  {layer['name']:32s} {str(layer['renderer']):18s} {layer['features']} features")
     if result.get("project_written"):
-        print(f"{'project':22s} {project_path_from(result)}")
+        count = result.get("project_renderers")
+        note = f"  ({count} renderers embedded)" if count is not None else ""
+        print(f"{'project':22s} {project_path_from(result)}{note}")
     if render:
         state = "saved" if render.get("saved") else "NOT saved"
         print(f"{'snapshot':22s} {state} {render.get('target')} {render.get('size')}")
