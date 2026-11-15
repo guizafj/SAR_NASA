@@ -24,8 +24,8 @@ error. Because the measurement is
 a *projection* along one look direction, a single pass cannot separate vertical from horizontal
 motion; the pipeline solves for vertical while assuming the horizontal is zero, and says so in
 `provenance`. Urban subsidence is then a time-series problem: fit a line plus an annual harmonic to
-each H3 cell (the ~200 m hexagon of §4), publish the slope, and treat the harmonic as a diagnostic —
-no contract field carries it today (§3.3).
+each H3 cell (the ~200 m hexagon of §4), publish the slope, and publish the harmonic beside it as a
+fit result — since contract 1.1 it is a required grid field, `seasonal_amp_mm` (§3.3).
 
 ![Velocity on one shared scale](figures/velocity_shared_scale.png)
 
@@ -432,19 +432,21 @@ Design matrix for `K = 1`, `T = 1 yr`:
 ```
 
 - `ṫ` (the `t` coefficient) is published as `velocity_mm_yr`. This is what "fitted trend" means in
-  the contract (`HarmonicFit.trend_mm_yr` is the in-memory name of that same published field). The mock deliberately fits with the *same* harmonic that generated its series, so
-  the fitted slope recovers the config `v` to floating-point precision — that recovery is the test
-  that `velocity_mm_yr` is a fit and not a relabelled config value.
+  the contract (`HarmonicFit.trend_mm_yr` is the in-memory name of that same published field). The
+  mock fits a basis that contains the harmonic its series was generated from, so the fitted slope
+  reproduces the generating velocity to floating-point precision — the configured field **plus** each
+  cell's `noise_mm_yr` draw (next paragraph), never the smooth config value itself. That the column
+  is that recovered number, not a copy of a config entry, is what makes `velocity_mm_yr` a fit.
 - `A_seasonal = hypot(A₁, B₁)` is the recoverable/elastic amplitude — computed, and **gated** (§3.3).
 - The annual harmonic sits *inside* the basis, so a 12-day-sampled subsiding city cannot label its
   seasonal swing as a trend. That collinearity is the entire point of step P6 ([the pipeline stages](pipeline-internals.md#2-actual-processing-order)) — the
   harmonic-versus-trend separation.
 
 **Why "recovers to floating-point precision" is not contradicted by "ill-conditioned" below.** Same
-basis, different data. The mock's series *is* the generating basis: one spatial noise draw per cell
-(`noise_mm_yr`, fixed across the 62 dates), then the secular ramp plus the centred harmonic — no
-temporal noise to propagate, so `pinv` recovers the slope exactly. That exactness is a property of a
-noise-free field, not of an easy design: the published 2-year design conditions at 4.12
+basis, different data. The mock's series *is* the generating basis: one draw per cell on the secular
+velocity (`noise_mm_yr` — a slope offset, not per-epoch scatter), then the ramp plus the centred
+harmonic — no temporal noise to propagate, so `pinv` recovers the slope exactly. That exactness is a
+property of a noise-free field, not of an easy design: the published 2-year design conditions at 4.12
 (`meta.stats.design_condition`, limit 30), and a real stack over the same span would carry the
 per-epoch scatter this mock omits. On the old 132-day window a real stack conditioned at ≈ 67 (§3.3):
 there the slope survived and the amplitude did not.
@@ -612,8 +614,9 @@ amplitude is published (O-05). Fitting and publishing are still separate decisio
 A stack below the annual gate takes the **not-fitted** path instead: `harmonic_order` returns `0`,
 the design is `[1, t]` alone, and contract 1.1 still requires the seasonal triple, so the grid
 publishes `seasonal_amp_mm = 0.0` (**not fitted**, never "no seasonality"), `ratio_R = null` and
-`regime = "transitional"` (§3.4). At the declared 12-day revisit that gate is ≈276 d of cover —
-roughly 23 pairs — so this is the corner a short stack lands in, not a hypothetical.
+`regime = "transitional"` (§3.4). At the declared 12-day revisit that gate is ≈274 d of cover
+(0.75 × 365.25 d) — roughly 23 pairs — so this is the corner a short stack lands in, not a
+hypothetical.
 
 > **Contract v1.1 publishes the seasonal fields; v1.0 did not.** In v1.0 `seasonal_amp_mm` existed
 > only on `HarmonicFit` (a diagnostic for a test or a notebook) and was dropped at the artefact
@@ -713,9 +716,10 @@ default (on the old 0.3614 yr window the same σ gave ≈ 6.1 mm/yr with 12 epoc
 two — the window this section was written for). That 1.2 is a
 *placeholder*, not a measurement: it is Málaga's `noise_mm_yr` borrowed from `config/study_cases.yaml`,
 whose unit is a noise **velocity** (mm/yr), not a per-epoch displacement scatter — and the mock's own
-residual about the fitted model is ≈ 2.5e-10 mm precisely because its field is exact (§3.2). So the
-formula is a sanity check of the shape of the bound, not this stack's own number. The
-declared 1.5 is a **recorded decision**, not an output of that arithmetic — it sits between the
+residual about the fitted model is ≈ 2.5e-10 mm only because the CSV stores 9 decimals — in memory
+the fit is exact (§3.2), so that residual says nothing about per-epoch scatter. So the formula is a
+sanity check of the shape of the bound, not this stack's own number. The declared 1.5 is a **recorded
+decision**, not an output of that arithmetic — it sits between the
 current window's 0.52 and 1.69 and below the old window's 6.1 and 9.4. Only the real
 `process_case.py` path computes the bound, and that path has never run on a granule.
 
@@ -746,8 +750,9 @@ regime.*
 | `detect_change` | keep a date if it fires in `m` of `n` consecutive dates (`"2of3"`) — a *subset* of raw flags | implemented, gated on a real stack |
 
 Neither headline step is a helper: the aggregation (`h3_aggregate`) is P8 and covered in §4.3, and
-`velocity_metrics` is P7 — it *is* published, as `meta.stats` (`compaction_volume_m3_yr`,
-`storage_loss_m3_yr`, the percentiles).
+`velocity_metrics` is P7 — the real path publishes its output as `meta.stats` (the percentiles plus
+`compaction_volume_m3_yr` / `storage_loss_m3_yr`; the committed mock `meta.stats` carries the
+percentiles only, §3.4).
 
 ---
 
