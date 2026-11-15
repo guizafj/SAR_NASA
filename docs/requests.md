@@ -14,6 +14,9 @@
 | Rol 1 (pozo) | `.gitignore` ignora `AGENTS.md` rastreado; elegir `git rm --cached` o quitar la línea | resuelta en esta rama: se mantiene la regla y `AGENTS.md` sale del índice; verificado con `tests/test_gitignore_policy.py` |
 | Rol 3 (yuls) | Retirar la metáfora "one pump" de la narrativa y re-scopear la tesis a `docs/science-guide.md` §3.4 | abierta |
 | Rol 3 (yuls) | Manifiesto de contexto sin sello OSM por tile ni rango, `load_extract` leyendo un tile marcado como fallido y sha256 calculado sobre el buffer y no sobre el archivo | resuelta en esta rama: las tres correcciones están en el código |
+| Todos (integración) | El dueño ordenó integrar en `main` sin la firma de O-05 | integrado por decisión del dueño; firma pendiente |
+| Rol 2 (fradiaz) | Cuatro sitios de tu ámbito tocados al integrar (`app.py`, `context_view.py`, `test_ui_smoke.py`, `test_ui_unit_fallbacks.py`) | abierta — aplicados, redacción pendiente de revisión |
+| Rol 2 (fradiaz) | Coste de render tras la capa OSM: perfil medido, el join elemento→celda se paga dos veces | abierta — propuesta, sin cambios aplicados |
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
 **De:** Rol 2 (fradiaz)
@@ -280,7 +283,6 @@ Pedimos una decisión: si el contrato 1.1 debe permitir procedencia por capa (p.
 **Impacto en contrato de datos:** posiblemente §6 (propiedades de contexto) y el gate; no se añade ningún campo al esquema en ningún caso.  
 **Aprobación:** Rol 1 (dueño de `src/data/validation.py`); Rol 3 documenta el resultado.  
 **Estado:** ABIERTA — pendiente de Rol 1.
-`.gitignore` y `AGENTS.md` sale del índice (`git rm --cached AGENTS.md`, sin commit). No se reescribe la regla; el archivo sigue en el árbol de trabajo para quien lo lea en local. `tests/test_gitignore_policy.py` vuelve a verde. Si `main` prefiere el otro camino, basta con revertir la línea del índice y quitar la regla; el resto del cambio no depende de esta decisión.
 
 ## Rol 1 (`.gitignore`, CI) — un `AGENTS.md` rastreado también cae en una regla de ignore
 
