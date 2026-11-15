@@ -35,7 +35,8 @@ EMPTY_HINT = "Pick a cell on the map or in the list."
 SATURATION_NOTE = "Values outside the range are saturated."
 LIMIT_MISSING = "detection limit not available"
 # Reading panel: the series is the hero of the right column (plan Fase 1).
-HERO_HEIGHT = 280
+# 225 px keeps the whole figure above the fold at 1440x900 with the filters open.
+HERO_HEIGHT = 225
 HERO_MIN_HEIGHT = 420
 
 _RISK_CLASS = {
@@ -211,7 +212,7 @@ def _figure_line(
 
 
 def _risk_hint(value: str) -> str:
-    return f"Risk band: {risk_label(value)} (derived from |velocity|, not a separate measurement)."
+    return f"Risk band: {risk_label(value)} (from |velocity|, not a separate measurement)."
 
 
 def _candidate_cells(frame: Any, current: str | None, limit: int = 25) -> list[str]:
@@ -322,7 +323,7 @@ def _inspector_groups(detail: dict[str, Any], case_id: str | None) -> None:
                     detail.get("velocity_unit") if isinstance(detail.get("velocity_unit"), str) else None,
                 ),
                 # Rol 3: positive is toward the sensor, which reads as uplift here.
-                "Positive = toward the sensor (uplift in this geometry); not GNSS-validated.",
+                "Positive = toward the sensor (uplift); not GNSS-validated.",
             ],
         ),
         (
@@ -761,6 +762,8 @@ def render_map_tab(
             )
         else:
             _render_deck(frame, active, view, context_groups, case_id)
+        # The ramp belongs to the canvas: directly under it, before the export.
+        st.markdown(_legend_inline(scale, mode), unsafe_allow_html=True)
         export_csv = _call(loaders, "get_filtered_export_csv", case_id, active)
         if isinstance(export_csv, str) and export_csv:
             st.download_button(
@@ -772,10 +775,6 @@ def render_map_tab(
             )
 
     with panel_col:
-        # One compact ramp row keeps the hero series above the fold; the full
-        # adapter caption, saturation note, counts and provenance live in the
-        # lower expander ("Scale and provenance").
-        st.markdown(_legend_inline(scale, mode), unsafe_allow_html=True)
         with st.container(key="reading-slot"):
             selector_key = f"inspector_cell_{case_id}"
             # A previous run asked for "Clear selection"; the selectbox must be
