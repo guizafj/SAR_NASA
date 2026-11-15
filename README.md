@@ -8,18 +8,19 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 | | |
 |---|---|
 | Demo | *no public URL yet* — `app.py` boots locally on the committed mock (verified 2026-11-14: Streamlit `/_stcore/health` → 200, root → 200); deployment is the last open deliverable |
-| Repository | `github.com/neoyuls/SAR_NASA`, branch **`yuls`** (this is the branch with the artefacts; `main` lags) |
+| Repository | `github.com/neoyuls/SAR_NASA` — the default branch **`main`** carries the artefacts, the pipeline, the tests and **contract v1.1** (62 acquisition dates per case). `yuls` is the older contract-1.0 line (12 dates); `main` already contains it, so nothing is waiting on it |
 | Video | script ready in [`docs/video-script.md`](docs/video-script.md); recording pending |
 | Team | **yuls** SAR science, GIS, product · **pozo** geospatial backend, deployment · **fradiaz** frontend, interaction |
 | Challenge | NASA Space Apps 2026 — *Dancing with the SARs* |
 
-> **What works today (2026-11-14, ~hour 41 of 48).** Contract v1.0 frozen and enforced by tests ·
+> **What works today (2026-11-14, ~hour 41 of 48).** Contract v1.1 shipped and enforced by tests
+> (its Rol 1 + Rol 2 sign-off is still outstanding — §10 and `docs/decisions.md` O-05) ·
 > three contract-conformant **mock** artefact sets · the whole offline pipeline, rehearsed on
 > synthetic granules · a Streamlit shell (`app.py`) that boots on the committed mock with no
 > credentials · loaders, validation, filters and the PyDeck adapter (`src/data/`, `src/domain/`)
 > with their own tests · `deploy/Dockerfile` and `.github/workflows/ci.yml` in the tree ·
 > `./scripts/check_phase_a.sh` → PASS, `./scripts/preflight.sh` → `VERDICT: READY` (7/7 gates),
-> and a fresh clone of this branch runs the full suite green.
+> and a fresh clone of the default branch, `main`, runs the full suite green.
 >
 > **What does not exist yet:** any run on a real granule, and any deployed URL. The image build and
 > the first CI run are committed but unverified here, because this machine has no `docker` binary.
@@ -560,7 +561,7 @@ Short branches off `main`, one objective each, merged by PR (full detail in the 
 
 ```
 main
-├── feat/data-contract          ✅ frozen v1.0
+├── feat/data-contract          ✅ merged — contract v1.1
 ├── feat/pipeline-mock          ← next: unblocks the app
 ├── feat/gis-context
 ├── feat/backend-map-data
@@ -578,15 +579,31 @@ Commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`. Every PR states **Objetivo
 Dependencias nuevas / Impacto sobre el contrato / Validaciones ejecutadas / Riesgos**. Contract
 changes need all three roles; backend+data needs Rol 1 + Rol 3; UI needs Rol 2 + Rol 1.
 
-**Keep `main` true.** The work branch is ahead of `main`, and the merge is a conflict-free
-fast-forward that carries the artefacts, the pipeline and the tests. Do not restate the commit or
-file counts here — they rot on the next push (this sentence used to quote both, and was stale within
-a day). Ask git instead: `git rev-list --count main..HEAD` and `git diff --stat main..HEAD`.
-`origin/HEAD` points at `main`, so anyone cloning the default branch gets none of it until this is
-merged. Before submission:
+**Keep `main` true.** `main` is both the default branch and the integration branch: it carries the
+artefacts, the pipeline, the tests and contract v1.1, and `origin/yuls` — the frozen contract-1.0
+line, 12 acquisition dates — is already an **ancestor** of it. So the integration is not pending and
+there is no fast-forward waiting to happen: `main` is ahead of every work line, which makes an
+`--ff-only` fast-forward *onto* `yuls` impossible rather than merely unwise. Work merges **into**
+`main` from a short-lived branch off it (flujo §6), and nothing here undoes `main`.
+
+Two facts live in that paragraph, and conflating them is how this section went wrong. **v1.1 is on
+`main`** — reachable, measurable, and the commands below check it. **v1.1 is not yet approved** — the
+contract's own rule needs Rol 1 + Rol 2 sign-off for a `SCHEMA_VERSION` bump and no sign-off record
+exists, so what shipped is a merged proposal, kept in `docs/decisions.md` O-05. Do not read "it is on
+the default branch" as "the other two roles agreed".
+
+Do not restate the commit or file **distance** here — it rots on the next push (this sentence used to
+quote a commit count and a diffstat, and was stale within a day). Ask git instead:
+`git rev-list --count origin/yuls..origin/main` and `git diff --stat origin/yuls..origin/main`. The
+acquisition-date counts are the one exception, and they are safe to print because they are artefact
+data, re-derived by `tests/test_readme_numbers.py` from `data/processed/*/meta.json` on every suite
+run — so they cannot silently go stale. Measure the claims above rather than trusting this file:
 
 ```bash
-git checkout main && git merge --ff-only yuls && git push && git checkout yuls
+git rev-parse origin/HEAD origin/main       # same commit: the default branch is main
+git merge-base --is-ancestor origin/yuls origin/main && echo "yuls is contained in main: exit 0"
+git show origin/main:data/processed/mexico-city/meta.json | grep -E '"schema_version"|"n_dates"'
+git show origin/yuls:data/processed/mexico-city/meta.json | grep -E '"schema_version"|"n_dates"'
 ```
 
 Everything under `data/processed/` is 1.97 MB (1.687 MB of artefacts plus the `_availability/`
@@ -613,13 +630,15 @@ Use `git status` and `git diff` to inspect — they cannot lose work.
 
 **Tonight's checklist** (flujo §10, condensed)
 
-- [x] Contract frozen; all three can run `./scripts/python.sh -m pytest tests -q`
+- [x] Contract v1.1 shipped on `main` and enforced by the suite; **Rol 1 + Rol 2 sign-off on the
+      1.1 bump is still outstanding** (`docs/decisions.md` O-05), so it is merged, not approved
 - [x] NISAR / OPERA / Sentinel-1 / EGMS coverage confirmed and written to `_availability/`
 - [x] Mock artefacts generated and contract-conformant (`./scripts/check_phase_a.sh` → PASS)
 - [x] Real-data path implemented end to end (`02_search_download` → `inspect_hdf5` → `nisar_gunw` →
       `process_case` → `validate_artifacts`) and tested on synthetic granules
 - [ ] Real-data path **run on an actual granule** (blocked on Earthdata credentials + ASF approval)
-- [x] Mock artefacts committed and pushed once (`01de89e` on `yuls`) — pozo and fradiaz can pull them
+- [x] Mock artefacts committed and pushed once (`01de89e`, now contained in `main`) — pozo and
+      fradiaz can pull them
 - [x] **AOI refresh committed** — `config/aoi/*.geojson` plus the artefacts regenerated from them; a
       fresh clone resolves the current rings, and `tests/test_aoi_geometry.py` holds the single-ring rule
 - [x] The app boots on the committed mock alone (`/_stcore/health` → 200, `/` → 200, no credentials)

@@ -42,8 +42,13 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       hash in the `docs/data-contract-v1.md` header. The 1.1 bump moves it, so read the printed line
       instead of a remembered one. The retired v1.0 digest was `049376b0…678ce1e` <!-- fingerprint-historical: retired v1.0 digest, kept so the bump is visible; it does not describe this tree -->.
 - [ ] **Contract 1.1 carries Rol 1 + Rol 2 sign-off.** The contract's own rule (all three roles agree
-      to a `SCHEMA_VERSION` bump) makes the 1.1 adoption on `feat/contract-1.1` a proposal until they
-      agree: a green artefact gate is not approval (O-05, 2026-11-15).
+      to a `SCHEMA_VERSION` bump) makes the 1.1 adoption that shipped on `main` a proposal until they
+      agree: a green artefact gate is not approval (O-05, 2026-11-15). Say "merged", never "approved".
+- [ ] **The default branch is the submission branch.** `git rev-parse origin/HEAD origin/main` → one
+      commit, and `git show origin/main:data/processed/mexico-city/meta.json | grep schema_version` →
+      `"1.1"` with `n_dates: 62`. Point a judge at `main`; `yuls` is the frozen contract-1.0 line
+      (12 dates) and is already contained in `main` (`git merge-base --is-ancestor origin/yuls
+      origin/main` → exit 0), so it is not an artefact branch anyone still needs to merge.
 - [ ] `git status --porcelain` empty, then clean-tree reproduction (no `.git`, `.venv`, `data/raw`):
       ```bash
       rm -rf /tmp/freeze && mkdir -p /tmp/freeze/repo
