@@ -22,19 +22,20 @@ RUN python -m venv /app/.venv \
     && /app/.venv/bin/pip install --upgrade pip \
     && /app/.venv/bin/pip install -r requirements-app.txt
 
-# Copy application code, config and pre-computed <15 MiB processed artefacts
+# Copy application code, config and pre-computed <15 MB processed artefacts
+COPY .streamlit ./.streamlit
 COPY config ./config
+COPY docs/science-guide.md ./docs/science-guide.md
+COPY examples ./examples
 COPY scripts ./scripts
 COPY src ./src
 COPY data/processed ./data/processed
 COPY README.md ./README.md
+COPY app.py ./app.py
 
 # Validate contract & artefacts at image build time (fail-closed deploy)
 RUN /app/.venv/bin/python -m src.domain.contracts \
     && /app/.venv/bin/python -m src.data.validation --processed data/processed --require-cases
-
-# Copy Streamlit entry point + optional theme config once Rol 2 lands app.py
-COPY . ./
 
 EXPOSE 8501
 
