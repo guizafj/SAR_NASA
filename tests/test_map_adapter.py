@@ -20,6 +20,7 @@ from src.domain.map_adapter import (
     build_map_payload,
     build_pydeck_layer_specs,
     column_elevation_from_delta,
+    prepare_context_for_map,
 )
 from tests.conftest import classify_regime, write_synthetic_case
 
@@ -287,3 +288,43 @@ def test_flat_mode_keeps_elevation_at_zero(tmp_path: pathlib.Path):
         lyr for lyr in spec["layers"] if lyr["type"] in ("PolygonLayer", "H3HexagonLayer")
     )
     assert cell_layer["kwargs"]["get_elevation"] == "elevation_m"
+
+
+def test_context_styling_never_mutates_the_cached_feature_collection() -> None:
+    """Styling copies `properties` only; `geometry` is shared read-only, and nothing is written back.
+
+    A case can now carry ~700 OSM features instead of 12, and deep-copying each feature's
+    coordinates on every rerun was measured at roughly 130 ms of a one-second rerun. Sharing the
+    geometry is only safe because nothing in this path writes to it, so that is what this pins: the
+    input collection is unchanged, the style properties are a copy, and mutating what we hand back
+    cannot reach a caller's cached bundle.
+    """
+    context = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [1.0, 2.0]},
+                "properties": {"layer": "water", "class": "river", "name": "Río"},
+            },
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [3.0, 4.0]},
+                "properties": {"class": "bare"},
+            },
+        ],
+    }
+    original_properties = dict(context["features"][0]["properties"])
+    before = json.dumps(context, sort_keys=True)
+
+    styled = prepare_context_for_map(context)
+
+    assert json.dumps(context, sort_keys=True) == before, "the input collection was mutated"
+    first = styled["features"][0]
+    assert first["properties"]["fill_color"], "style properties were not added to the copy"
+    assert first["properties"]["tooltip_title"] == "Río"
+    assert context["features"][0]["properties"] == original_properties, "properties leaked back"
+    assert first["geometry"] is context["features"][0]["geometry"], "geometry should be shared"
+
+    first["properties"]["fill_color"].append(999)
+    assert json.dumps(context, sort_keys=True) == before, "mutating the output reached the input"

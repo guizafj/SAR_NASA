@@ -15,7 +15,6 @@ Responsibilities (flujo §3.1, §4):
 
 from __future__ import annotations
 
-import copy
 import datetime as dt
 import math
 from dataclasses import dataclass
@@ -460,14 +459,18 @@ def build_legend_spec(
 
 
 def prepare_context_for_map(context: Mapping[str, Any]) -> dict[str, Any]:
-    """Return a deep-copied GeoJSON FeatureCollection with PyDeck visual style properties."""
+    """Return a GeoJSON FeatureCollection with PyDeck visual style properties.
+
+    Only ``properties`` is copied per feature; ``geometry`` is shared read-only. That matters once a
+    case carries ~700 OSM features instead of 12: deep-copying each feature's coordinates on every
+    rerun was measured at ~130 ms of a ~1 s warm rerun, and nothing here mutates geometry.
+    """
     raw_features = context.get("features") or []
     styled_features: list[dict[str, Any]] = []
     for feat in raw_features:
         if not isinstance(feat, Mapping):
             continue
-        cloned = copy.deepcopy(dict(feat))
-        props = dict(cloned.get("properties") or {})
+        props = dict(feat.get("properties") or {})
         layer_name = str(props.get("layer", "land_use"))
         style = CONTEXT_LAYER_STYLES.get(layer_name, CONTEXT_LAYER_STYLES["land_use"])
         props["fill_color"] = list(style["fill_color"])
@@ -475,8 +478,11 @@ def prepare_context_for_map(context: Mapping[str, Any]) -> dict[str, Any]:
         props["line_width_min_pixels"] = int(style["line_width_min_pixels"])
         props["point_radius_min_pixels"] = int(style["point_radius_min_pixels"])
         props["tooltip_title"] = str(props.get("name") or props.get("class") or layer_name)
-        cloned["properties"] = props
-        styled_features.append(cloned)
+        # Every key except `properties` is carried through by reference (type/id/bbox/geometry); the
+        # input mapping is never written to, so the cached bundle cannot be poisoned from here.
+        styled = {key: value for key, value in feat.items() if key != "properties"}
+        styled["properties"] = props
+        styled_features.append(styled)
 
     return {
         "type": "FeatureCollection",
