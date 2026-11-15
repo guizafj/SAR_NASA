@@ -172,7 +172,7 @@ body,
 }}
 
 .block-container {{
-  padding-top: 0.75rem !important;
+  padding-top: 2.5rem !important;
   padding-bottom: 1.5rem !important;
   padding-left: clamp(0.85rem, 2.2vw, 2.25rem) !important;
   padding-right: clamp(0.85rem, 2.2vw, 2.25rem) !important;
@@ -1047,7 +1047,7 @@ button[data-baseweb="tab"]:focus-visible {{
     --map-height: clamp(300px, 46vh, 420px);
   }}
   .block-container {{
-    padding-top: 0.5rem !important;
+    padding-top: 2rem !important;
     padding-left: 0.65rem !important;
     padding-right: 0.65rem !important;
   }}
