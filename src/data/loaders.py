@@ -493,31 +493,21 @@ def load_all_available_bundles(
     return bundles
 
 
-# Re-export the exact Rol 1 -> Rol 2 UI bridge functions expected by `app.py._loaders()`.
-from src.data.ui_bridge import (  # noqa: E402
-    get_case_series,
-    get_cell_detail,
-    get_cell_export,
-    get_context_exposure,
-    get_filtered_export_csv,
-    get_color_scale,
-    get_land_use_bars,
-    get_layer_counts,
-    get_map_kpis,
-    get_map_layer_df,
-    get_scale_comparison,
-    get_series_kpis,
-    get_signal_status,
-    get_view_state,
-    load_availability,
-    load_context_layers,
-    load_documented_limits,
-    load_land_use_options,
-    load_meta,
-    load_risk_levels,
-    load_study_cases,
-    load_timeseries,
-)
+# Re-export the Rol 1 -> Rol 2 UI bridge functions expected by `app.py._loaders()`.
+# Resolved lazily: `src/data/ui_bridge.py` imports this module at the top, so a module-level
+# `from src.data.ui_bridge import ...` here made the import order decisive — importing
+# `src.data.ui_bridge` FIRST raised `ImportError: cannot import name 'get_case_series' from partially
+# initialized module`, while importing `loaders` first worked. Nothing caught it because every test
+# imports `loaders` first. `tests/test_import_order.py` now checks both directions in separate
+# interpreters.
+def __getattr__(name: str):
+    from src.data import ui_bridge
+
+    try:
+        return getattr(ui_bridge, name)
+    except AttributeError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+
 
 
 __all__ = [
