@@ -1,29 +1,21 @@
-"""Every rendered number must carry a unit or say it has none.
+"""Every rendered number must carry a unit, or say it has none.
 
-The submission checklist claims "units and sources always visible". Three render paths in
-`src/ui/map_view.py` printed the number alone when the artefact omitted `unit`, which made the claim
-false as written. These tests pin the fallback at each site.
+The submission checklist claims "every rendered number carries a unit or says it is not declared". Three render
+paths in `src/ui/map_view.py` printed the number alone when the artefact omitted `unit`, which made that claim false
+as written.
+
+`main` then refactored two of the three sites away: the detection caption stopped printing a limit at all, and the
+KPI renderer moved into the shared `src/ui/components.py::kpi_card`. This file follows the fixes rather than the old
+file layout — the point is the property, not the location.
+
+Note what is deliberately *not* asserted here: the KPI card's markup and the caption's wording are presentation
+choices owned by the UI role. These tests only pin that no path can print a number with a silent unit.
 """
 from __future__ import annotations
 
-import pytest
-
+from src.ui.components import kpi_card
 from src.ui.formatters import UNIT_NOT_DECLARED
-from src.ui.map_view import _figure_line, _render_kpis, detection_caption
-
-
-class _FakeColumn:
-    def __init__(self) -> None:
-        self.bodies: list[str] = []
-
-    def markdown(self, body: str, **_kwargs: object) -> None:
-        self.bodies.append(body)
-
-
-def test_detection_caption_states_a_missing_unit() -> None:
-    text = detection_caption(False, 1.5, None)
-    assert text is not None
-    assert UNIT_NOT_DECLARED in text, text
+from src.ui.map_view import _figure_line, detection_caption
 
 
 def test_figure_line_states_a_missing_unit() -> None:
@@ -32,16 +24,29 @@ def test_figure_line_states_a_missing_unit() -> None:
 
 
 def test_figure_line_stays_unitless_when_dimensionless() -> None:
+    """A ratio must not acquire a fabricated unit."""
     row = _figure_line("Ratio", 41.377, None, dimensionless=True)
     assert UNIT_NOT_DECLARED not in row, row
 
 
-def test_kpi_card_states_a_missing_unit(monkeypatch: pytest.MonkeyPatch) -> None:
-    import src.ui.map_view as mv
+def test_kpi_card_states_a_missing_unit() -> None:
+    """The shared card component is where the KPI path renders now."""
+    markup = kpi_card("Median velocity", -62.065, None)
+    assert UNIT_NOT_DECLARED in markup, markup
 
-    column = _FakeColumn()
-    monkeypatch.setattr(mv.st, "columns", lambda n: [column])
-    monkeypatch.setattr(mv.st, "caption", lambda *a, **k: None)
-    _render_kpis([{"label": "Median velocity", "value": -62.065, "unit": None, "provenance_id": "x"}])
-    body = "".join(column.bodies)
-    assert UNIT_NOT_DECLARED in body, body
+
+def test_kpi_card_prints_a_declared_unit() -> None:
+    markup = kpi_card("Median velocity", -62.065, "mm/year")
+    assert "mm/year" in markup, markup
+    assert UNIT_NOT_DECLARED not in markup, markup
+
+
+def test_detection_caption_prints_no_bare_number() -> None:
+    """`main` removed the numeric limit from this caption; with no number there is nothing to unit.
+
+    Asserting "no digits" rather than the exact sentence keeps the UI free to reword it while pinning the property
+    that made the old version wrong.
+    """
+    text = detection_caption(False, 1.5, None)
+    assert text is not None
+    assert not any(character.isdigit() for character in text), text
