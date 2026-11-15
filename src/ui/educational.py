@@ -80,7 +80,28 @@ def split_caveat(caveat: str | None) -> tuple[str, str]:
     return f"{lead}.", rest
 
 
-def _case_block(meta: dict[str, Any], case_roles: Mapping[str, Any] | None = None) -> None:
+def _median_from_bridge(loaders: Any, meta: dict[str, Any] | None) -> tuple[Any, Any]:
+    """Same key as tab 1: the 'Median velocity' item of `get_map_kpis`, unfiltered."""
+    case_id = (meta or {}).get("case_id")
+    function = getattr(loaders, "get_map_kpis", None)
+    if function is None or not case_id:
+        return None, None
+    try:
+        items = function(str(case_id), {})
+    except TypeError:
+        return None, None
+    for item in items or []:
+        if isinstance(item, Mapping) and str(item.get("label", "")).strip().lower() == "median velocity":
+            return item.get("value"), item.get("unit")
+    return None, None
+
+
+def _case_block(
+    meta: dict[str, Any],
+    case_roles: Mapping[str, Any] | None = None,
+    median: Any = None,
+    median_unit: Any = None,
+) -> None:
     stats = meta.get("stats") if isinstance(meta.get("stats"), Mapping) else {}
     cards: list[tuple[str, Any, str | None]] = []
     if isinstance(stats, dict):
@@ -90,7 +111,10 @@ def _case_block(meta: dict[str, Any], case_roles: Mapping[str, Any] | None = Non
         if "median_ratio_R" in stats:
             cards.append(("median_ratio_R", stats.get("median_ratio_R"), None))
         if "median_velocity_mm_yr" in stats:
-            cards.append(("median_velocity_mm_yr", stats.get("median_velocity_mm_yr"), "mm/year"))
+            # One figure for one magnitude: read the bridge key when available.
+            value = median if median is not None else stats.get("median_velocity_mm_yr")
+            unit = median_unit if isinstance(median_unit, str) else "mm/year"
+            cards.append(("median_velocity_mm_yr", value, unit))
         if "median_seasonal_amp_mm" in stats:
             cards.append(("median_seasonal_amp_mm", stats.get("median_seasonal_amp_mm"), "mm"))
         if "detection_limit_mm_yr" in stats:
@@ -172,7 +196,13 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
 
     if has_meta:
         case_roles = limits.get("case_roles") if isinstance(limits, Mapping) else None
-        _case_block(meta, case_roles if isinstance(case_roles, Mapping) else None)
+        median, median_unit = _median_from_bridge(loaders, meta)
+        _case_block(
+            meta,
+            case_roles if isinstance(case_roles, Mapping) else None,
+            median,
+            median_unit,
+        )
     else:
         st.markdown(
             '<div class="cockpit-card is-empty">'

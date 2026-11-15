@@ -200,3 +200,29 @@ def test_clear_selection_resets_cell_and_url() -> None:
     clear.click().run()
     assert app.session_state["selected_cell_id"] is None
     assert "cell" not in app.query_params
+
+
+def test_number_format_is_half_up_and_trimmed() -> None:
+    from src.ui.formatters import format_number
+
+    assert format_number(-62.065) == "-62.07"
+    assert format_number(-62.065, 2) != "-62.06"
+    assert format_number(41.3767) == "41.38"
+    assert format_number(11694.0) == "11694"
+    assert format_number(0.0) == "0"
+    assert format_number(None) == "None"
+
+
+def test_median_velocity_is_one_figure_across_tabs() -> None:
+    """P0-3: the same magnitude must not read -62.07 in one tab and -62.06 in another."""
+    from src.data import loaders
+    from src.ui.formatters import format_number
+
+    expected = format_number(loaders.load_meta(CASE_IDS[0])["stats"]["median_velocity_mm_yr"])
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.run()
+    text = "\n".join(node.value for node in app.markdown)
+    assert text.count(expected) >= 2, (expected, text.count(expected))
+    # The raw artefact record may still print -62.065 verbatim; no card may print -62.06.
+    assert "-62.06 mm" not in text
+    assert ">-62.06<" not in text
