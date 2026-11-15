@@ -70,6 +70,10 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
         or "n_features" in hazard
         or "Context" in text
     )
+    # The layer glossary lived as an import that was never rendered, while the video script promised one.
+    assert any(expander.label == "What each layer means" for expander in app.expander), [
+        expander.label for expander in app.expander
+    ]
     for token in (*FORBIDDEN, "Field Dossier", "mitigaciones", "índices estructurales", "verificado"):
         assert token not in text
 

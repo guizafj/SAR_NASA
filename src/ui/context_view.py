@@ -253,6 +253,12 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         unsafe_allow_html=True,
     )
     st.markdown(_render_table(shown, single_source), unsafe_allow_html=True)
+    # `CONTEXT_LAYER_GLOSSARY` was imported here and never rendered, so the video script promised a glossary no
+    # reader could find. Four layers with one line each is cheap, collapsed so it never displaces the table.
+    if CONTEXT_LAYER_GLOSSARY:
+        with st.expander("What each layer means", expanded=False):
+            for layer_name, meaning in CONTEXT_LAYER_GLOSSARY.items():
+                st.markdown(f"**{layer_name}** — {meaning}")
 
     text_cols = st.columns(2)
     with text_cols[0]:
