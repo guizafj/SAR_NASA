@@ -42,12 +42,10 @@ Thumbs.db
 .env
 .env.*
 .streamlit/secrets.toml
-tests
-docs
 
-# Test suite, heavy documentation assets and deployment scaffolding are not read at
-# runtime (README.md, docs/*.md and examples/ MUST stay: load_documented_limits()
-# reads README.md, the physics bullets come from it, and loaders.py imports examples/).
+# Test suite, heavy documentation assets and deployment scaffolding are not read at runtime.
+# README.md, docs/*.md (notably docs/science-guide.md, read by load_documented_limits for Tab 4)
+# and examples/ MUST stay: loaders.py imports examples/reference_loader.py at runtime.
 tests/
 deploy/
 docs/figures/
