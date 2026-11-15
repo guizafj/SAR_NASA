@@ -10,6 +10,7 @@ import streamlit as st
 from src.ui.formatters import (
     NOT_DECLARED,
     SOURCE_NOT_DECLARED,
+    UNIT_NOT_DECLARED,
     format_note,
     format_number,
 )
@@ -29,7 +30,9 @@ def render_kpi_cards(items: list[dict[str, Any]] | None) -> None:
     sources: list[str] = []
     for column, item in zip(columns, items):
         unit = item.get("unit")
-        unit_text = f" {unit}" if unit else ""
+        # A card must never print a bare number. Same fallback as the three sites fixed in `map_view.py`:
+        # the artefact may omit `unit`, and "unit not declared" is information, an empty string is not.
+        unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
         source = item.get("provenance_id")
         if source:
             sources.append(str(source))
