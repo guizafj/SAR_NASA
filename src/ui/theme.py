@@ -779,8 +779,8 @@ ul[data-baseweb="menu"] li {{
 /* Toggle: the off track needs to read against the dark surface. */
 [data-testid="stToggle"] [role="switch"],
 [data-testid="stToggle"] [data-baseweb="checkbox"] [role="switch"] {{
-  background-color: var(--border) !important;
-  border: 1px solid var(--border) !important;
+  background-color: color-mix(in srgb, var(--muted) 42%, var(--surface)) !important;
+  border: 1px solid var(--muted) !important;
   opacity: 1 !important;
 }}
 
@@ -1251,6 +1251,39 @@ button[data-baseweb="tab"]:focus-visible {{
   .compare-row {{
     grid-template-columns: 1fr;
     gap: 0.25rem;
+  }}
+}}
+
+/* Keyboard focus must be visible on every control (plan Fase 3). */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+[role="tab"]:focus-visible,
+[role="switch"]:focus-visible,
+[data-baseweb="select"] [role="combobox"]:focus-visible {{
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}}
+
+/* One animation only: the hero figure fades in when the selection changes. */
+@keyframes cockpit-plot-in {{
+  from {{ opacity: 0.35; }}
+  to {{ opacity: 1; }}
+}}
+
+.js-plotly-plot {{
+  animation: cockpit-plot-in 180ms ease-out both;
+}}
+
+@media (prefers-reduced-motion: reduce) {{
+  *,
+  *::before,
+  *::after {{
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }}
 }}
 """

@@ -275,7 +275,7 @@ def _stats_strip(items: list[tuple[Any, Any, Any]]) -> None:
         cells.append(
             '<div class="reading-stat">'
             f'<span class="stat-value">{html.escape(shown)}{unit_text}</span>'
-            f'<span class="stat-label">{html.escape(humanize(label))}</span>'
+            f'<span class="stat-label">{html.escape(str(label))}</span>'
             "</div>"
         )
     st.markdown(
@@ -621,6 +621,27 @@ def _render_deck(
                 point_radius_min_pixels=4,
             )
         )
+    # Selected cell: a stroked outline on top, never a second color ramp.
+    selected = st.session_state.get("selected_cell_id")
+    highlighted = [
+        row for row in records if selected and str(row.get("cell_id")) == str(selected)
+    ]
+    if highlighted:
+        layers.append(
+            pdk.Layer(
+                "H3HexagonLayer",
+                data=highlighted,
+                id="h3-selected",
+                get_hexagon="cell_id",
+                filled=False,
+                stroked=True,
+                extruded=False,
+                elevation_scale=0,
+                get_line_color=_hex_rgba(active_palette()["accent"], 255),
+                line_width_min_pixels=3,
+                pickable=False,
+            )
+        )
     deck = pdk.Deck(
         layers=layers,
         initial_view_state=pdk.ViewState(
@@ -729,6 +750,11 @@ def render_map_tab(
     with panel_col:
         with st.container(key="reading-slot"):
             selector_key = f"inspector_cell_{case_id}"
+            # A previous run asked for "Clear selection"; the selectbox must be
+            # reset before its widget exists, or Streamlit rejects the write.
+            if st.session_state.pop("_clear_cell_request", False):
+                st.session_state.selected_cell_id = None
+                st.session_state[selector_key] = ""
             current_cell = st.session_state.get("selected_cell_id")
             if current_cell:
                 initial_detail = _call(loaders, "get_cell_detail", case_id, current_cell)
@@ -747,6 +773,10 @@ def render_map_tab(
                     key=selector_key,
                 )
                 st.session_state.selected_cell_id = chosen or None
+            if st.session_state.get("selected_cell_id"):
+                if st.button("Clear selection", key=f"clear-cell-{case_id}"):
+                    st.session_state._clear_cell_request = True
+                    st.rerun()
             cell_id = st.session_state.get("selected_cell_id")
             detail = _call(loaders, "get_cell_detail", case_id, cell_id) if cell_id else None
             _reading_panel(

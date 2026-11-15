@@ -173,3 +173,30 @@ def test_every_figure_declares_a_unit_on_the_y_axis() -> None:
     # One Y axis only, in every figure.
     for name, figure in figures.items():
         assert not any(key.startswith("yaxis") and key != "yaxis" for key in figure.layout), name
+
+
+def test_compact_query_param_closes_the_filter_strip() -> None:
+    compact = AppTest.from_file(APP, default_timeout=60)
+    compact.query_params["compact"] = "1"
+    compact.run()
+    filters = next(e for e in compact.expander if e.label == "Filters")
+    assert filters.proto.expanded is False
+
+    normal = AppTest.from_file(APP, default_timeout=60)
+    normal.run()
+    assert next(e for e in normal.expander if e.label == "Filters").proto.expanded is True
+
+
+def test_clear_selection_resets_cell_and_url() -> None:
+    from src.data import loaders
+
+    cell = str(loaders.get_map_layer_df(CASE_IDS[0], {})["cell_id"].iloc[0])
+    app = AppTest.from_file(APP, default_timeout=60)
+    app.query_params["cell"] = cell
+    app.run()
+    assert app.session_state["selected_cell_id"] == cell
+
+    clear = next(button for button in app.button if button.label == "Clear selection")
+    clear.click().run()
+    assert app.session_state["selected_cell_id"] is None
+    assert "cell" not in app.query_params
