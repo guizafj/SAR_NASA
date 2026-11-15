@@ -46,6 +46,14 @@ MUTED = "#94A3B8"
 FOCUS = DARK["focus"]
 RADIUS = "4px"
 
+#: Categorical identity slots for the three cities, fixed order, validated with
+#: `dataviz/scripts/validate_palette.py` on both cockpit surfaces (light: one WARN
+#: at 2.82:1 for Málaga, hence the mandatory direct label). Never cycled.
+CASE_COLORS = {
+    "light": {"mexico-city": "#2a78d6", "jakarta": "#eb6834", "malaga": "#1baf7a"},
+    "dark": {"mexico-city": "#3987e5", "jakarta": "#d95926", "malaga": "#199e70"},
+}
+
 FONT_DISPLAY = '"Space Grotesk", "Segoe UI", system-ui, sans-serif'
 FONT_BODY = '"Inter", "Segoe UI", system-ui, sans-serif'
 FONT_MONO = '"JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace'
@@ -78,6 +86,13 @@ def active_palette() -> dict[str, str]:
     if reported_scheme() == "light":
         return LIGHT
     return DARK
+
+
+def case_color(case_id: str) -> str:
+    """Identity color for a case (fixed slot, never by rank or filter order)."""
+    scheme = "light" if reported_scheme() == "light" else "dark"
+    palette = CASE_COLORS[scheme]
+    return palette.get(str(case_id), active_palette()["muted"])
 
 
 def style_figure(

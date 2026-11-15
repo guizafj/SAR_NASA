@@ -139,3 +139,37 @@ def test_tab4_reader_plus_technical_equals_loader_total() -> None:
     assert n_tech_caveat == 1
     labels = [exp.label for exp in app.expander]
     assert f"Technical notes ({n_tech_items + n_tech_caveat})" in labels
+
+
+def test_every_figure_declares_a_unit_on_the_y_axis() -> None:
+    """Fase 2 (dataviz): no figure ships with a bare 'value' axis."""
+    from src.data import loaders
+    from src.ui.charts import bars_figure, line_figure, three_cities_figure
+
+    series = loaders.get_case_series("malaga", {})
+    bars = loaders.get_land_use_bars("malaga", {})
+    meta = loaders.load_meta("malaga")
+    frame = loaders.load_timeseries("malaga")
+    rows = frame.to_dict(orient="records")
+
+    figures = {
+        "line": line_figure(series),
+        "three-cities": three_cities_figure({"malaga": rows}, {"malaga": "Málaga, ES"}),
+        "bars": bars_figure(bars, meta),
+    }
+    for name, figure in figures.items():
+        y_title = str(figure.layout.yaxis.title.text or "")
+        assert "mm" in y_title, (name, y_title)
+    # Lines use unified hover; bars use per-mark hover (dataviz skill).
+    assert figures["line"].layout.hovermode == "x unified"
+    assert figures["three-cities"].layout.hovermode == "x unified"
+    assert figures["bars"].layout.hovermode in (None, "closest")
+
+    # The fitted seasonal term is drawn, never invented when absent.
+    assert any(trace.name == "Seasonal fit" for trace in figures["line"].data)
+    # Malaga declares a detection limit; the bars must show it as a reference.
+    annotations = " ".join(str(a.text) for a in figures["bars"].layout.annotations)
+    assert "Detection limit" in annotations
+    # One Y axis only, in every figure.
+    for name, figure in figures.items():
+        assert not any(key.startswith("yaxis") and key != "yaxis" for key in figure.layout), name
