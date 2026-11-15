@@ -49,14 +49,16 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       `"1.1"` with `n_dates: 62`. Point a judge at `main`; `yuls` is the frozen contract-1.0 line
       (12 dates) and is already contained in `main` (`git merge-base --is-ancestor origin/yuls
       origin/main` → exit 0), so it is not an artefact branch anyone still needs to merge.
-- [ ] `git status --porcelain` empty, then clean-tree reproduction (no `.git`, `.venv`, `data/raw`):
+- [ ] `git status --porcelain` empty, then clean-tree reproduction — a **clone**, not `git archive`:
+      `preflight.sh` gate 5 runs `git clone . $clone`, so an archive with no `.git` fails there and
+      takes three `test_preflight.py` tests with it:
       ```bash
-      rm -rf /tmp/freeze && mkdir -p /tmp/freeze/repo
-      git archive HEAD | tar -x -C /tmp/freeze/repo
+      rm -rf /tmp/freeze && git clone -q . /tmp/freeze/repo
       ln -s "$PWD/.venv" /tmp/freeze/repo/.venv
       cd /tmp/freeze/repo && ./scripts/check_phase_a.sh && ./scripts/python.sh -m pytest tests -q
       ```
-      → both exit 0. A dirty tree means the commit is not what you tested.
+      → both exit 0. The clone carries the commit and nothing else, so a dirty tree still means the
+      commit is not what you tested.
 - [ ] Figures newer than the artefacts: `newest=$(ls -t data/processed/*/meta.json | head -1); find
       docs/figures -name '*.png' ! -newer "$newest"` → no output for `velocity_shared_scale.png`,
       `timeseries_three_cities.png`, `coherence.png` (`./scripts/python.sh scripts/make_figures.py`).
@@ -73,8 +75,10 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - [ ] `provenance` on every artefact and layer (README §2: the only unconditional item).
 - [ ] The null result **with its detection limit** — `detection_limit_mm_yr = 1.50` beside median
       −1.36 mm/yr for Málaga; the bound is the result (`docs/data-contract-v1.md` §2.6).
-- [ ] The **mock badge** while all three cases are `product=mock` — `scripts/demo_numbers.py` prints
-      `!! product == 'mock' for 3/3 case(s)`; badge on screen for the whole demo.
+- [ ] The **mock disclaimer** while all three cases are `product=mock` — `scripts/demo_numbers.py`
+      prints `!! product == 'mock' for 3/3 case(s)`. On screen the persistent banner reads
+      `DEMONSTRATION DATA` (`DATOS DE DEMOSTRACIÓN` in the older Spanish build) and the footer names
+      `product=mock`; the banner itself does not spell `MOCK`, so do not claim it does.
 - [ ] The **coverage caveat**: intersecting ≠ covering; < 50 % of AOI H3 cells ⇒ no city-wide claim.
 
 ## 4. Cut order if short on time (README §2, in order)
@@ -98,8 +102,11 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - **Rol 1 pozo:** [ ] loaders + validation reject a malformed artefact before the UI sees it; [ ] filters
   and metrics computed once, server-side; [ ] CI reproduces artefacts from a clean checkout, public URL
   up; [ ] `main` runnable.
-- **Rol 2 fradiaz:** [ ] five views reachable; [ ] the app starts with **no NASA credentials**; [ ] URL
-  restores the exact state; [ ] units and sources always visible, keyboard-navigable, phone-ready.
+- **Rol 2 fradiaz:** [ ] the four views that exist are reachable — map, series/KPIs, hazard &
+  infrastructure, SAR physics & provenance (`tests/test_ui_smoke.py` pins exactly four tabs); a fifth
+  view is **not implemented**, so do not claim one; [ ] the app starts with **no NASA credentials**;
+  [ ] URL restores the exact state; [ ] units and sources always visible, keyboard-navigable,
+  phone-ready.
 - **Rol 3 yuls:** [ ] `meta.json` validates for all published cases; [ ] every artefact < 15 MB and
   carries `provenance` + `revisit_days`; [ ] limitations documented, Málaga with its detection limit;
   [ ] video numbers re-derived from `demo_numbers.py` after the last artefact regeneration.
