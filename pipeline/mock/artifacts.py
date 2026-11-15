@@ -19,9 +19,11 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+import numpy as np
 import pandas as pd
 from shapely.geometry import mapping
 
+from pipeline.science import transforms as V
 from src.domain import contracts as C
 
 from . import geography as G
@@ -197,6 +199,39 @@ def build_context(model: CaseModel, provenance: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------------
 
 
+def _not_fitted_limitation(model: CaseModel) -> str:
+    """The limitation that must travel with an amplitude of ``0.0`` and a null ``ratio_R``.
+
+    Contract 1.1: a null ratio without its reason reads as "no seasonality was measured", a claim
+    about the ground, when what happened is "no seasonal term was fitted", a statement about the
+    model. `contracts.validate_meta` requires the phrase "not fitted" whenever
+    ``stats.seasonal_n_harmonics`` is 0, and the real chain publishes the same caveat.
+    """
+    if float(model.case.field.seasonal_amplitude_mm) == 0.0:
+        why = (
+            "this case injects no seasonality (mock.seasonal_amplitude_mm: 0 in "
+            "config/study_cases.yaml), so there is no annual term to recover"
+        )
+        instead = (
+            "A non-zero mock.seasonal_amplitude_mm over a window that clears the "
+            f"{V.MIN_SEASONAL_COVERAGE_PER_HARMONIC:.2f} annual-cycle coverage gate fits one"
+        )
+    else:
+        why = (
+            f"the stack spans {float(model.annual_coverage):.2f} annual cycles over "
+            f"{len(model.dates)} dates, below the {V.MIN_SEASONAL_COVERAGE_PER_HARMONIC:.2f} "
+            "cycle-per-harmonic gate in pipeline.science.transforms.harmonic_order"
+        )
+        instead = "Lengthening the window until it clears that gate fits one"
+    return (
+        f"Seasonal term not fitted: {why}. seasonal_amp_mm is published as 0.0 (no seasonal term "
+        "is in the model — this is NOT a measurement that seasonality is zero), ratio_R as null "
+        "(|trend| / 0 is undefined, so neither inf nor a sentinel is published) and regime as "
+        "'transitional' (no regime information); velocity_mm_yr is identified by the span and is "
+        f"unaffected. {instead}."
+    )
+
+
 def build_meta(
     model: CaseModel,
     provenance: str,
@@ -212,7 +247,10 @@ def build_meta(
     p05 = float(pd.Series(velocities).quantile(0.05))
     p95 = float(pd.Series(velocities).quantile(0.95))
     median_seasonal_amp = float(pd.Series(model.seasonal_amp_mm).median())
-    median_ratio_R = float(pd.Series(model.ratio_R).median())
+    # The median of an undefined ratio is null, not NaN: `ratio_R` is NaN exactly where nothing was
+    # fitted (amplitude 0), and NaN is not valid JSON. Same rule as the real chain's `_stats`.
+    finite_ratio = model.ratio_R[np.isfinite(model.ratio_R)]
+    median_ratio_R = round(float(np.median(finite_ratio)), 6) if finite_ratio.size else None
     # Deterministic tie-break by label: `value_counts` alone would let two regimes with equal
     # counts swap places between runs and break byte-identical output.
     regime_counts = pd.Series(model.regime).value_counts()
@@ -223,7 +261,7 @@ def build_meta(
         "n_dates": len(model.dates),
         "median_velocity_mm_yr": round(median, 3),
         "median_seasonal_amp_mm": round(median_seasonal_amp, 3),
-        "median_ratio_R": round(median_ratio_R, 6),
+        "median_ratio_R": median_ratio_R,
         "dominant_regime": str(dominant_regime),
         "p05_velocity_mm_yr": round(p05, 3),
         "p95_velocity_mm_yr": round(p95, 3),
@@ -276,9 +314,20 @@ def build_meta(
                 "the first/last date; velocity_mm_yr, seasonal_amp_mm, ratio_R, regime, trend_mm_yr "
                 "and seasonal_mm are ALL outputs of one joint fit per cell by "
                 "pipeline.science.transforms.harmonic_fit over the whole window "
+            )
+            + (
                 f"({model.n_harmonics} annual harmonic(s), README §6 P6), not values copied from "
                 "the config; ratio_R = abs(velocity_mm_yr)/seasonal_amp_mm and regime is "
-                "transforms.classify_regime on the same pair; cells below the frozen "
+                "transforms.classify_regime on the same pair; "
+                if model.seasonal_fitted
+                else (
+                    "(no annual harmonic, README §6 P6): no seasonal term is fitted, so "
+                    "seasonal_amp_mm is 0.0 (not fitted), ratio_R is null and regime is "
+                    "'transitional'; "
+                )
+            )
+            + (
+                "cells below the frozen "
                 "coherence_min are dropped, so water and other decorrelating surfaces are absent "
                 "rather than zero; coherence, land use, risk bands and context layers are "
                 "deterministic spatial rules; land use and its polygons share one assignment."
@@ -296,6 +345,7 @@ def build_meta(
         },
         "stats": stats,
         "limitations": list(case.limitations)
+        + ([] if model.seasonal_fitted else [_not_fitted_limitation(model)])
         + [
             "MOCK: every number is synthesised by pipeline/generate_mock.py; validate the map and the "
             "schema, never the science.",

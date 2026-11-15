@@ -21,6 +21,15 @@ They all come out of :func:`fit_series`, which calls the pipeline's own
 the mock proves the contract can be filled from a fit. A config value copied into a column would
 prove nothing, and this module no longer does that.
 
+**A case with no seasonal term publishes the "not fitted" state, not NaN.** :func:`seasonal_order`
+returns 0 when the case injects no seasonality (``mock.seasonal_amplitude_mm: 0``) or when the
+window cannot identify a harmonic at all, and then every cell is fitted with the plain linear model
+``[1, t]``: ``seasonal_amp_mm`` is exactly ``0.0``, ``ratio_R`` is NaN (which
+``artifacts.build_meta`` publishes as JSON ``null``), ``regime`` is ``"transitional"`` and
+``meta.limitations`` names the reason. That is the same state, decided the same way, that
+``pipeline/process_case.py`` publishes for a too-short real stack — the mock has no second opinion
+about contract 1.1.
+
 The annual harmonic is inside the fit basis, so the published `velocity_mm_yr` is the *secular*
 trend and not a seasonal artefact — which is what "fitted trend" means in the contract.
 """
@@ -69,11 +78,11 @@ class CaseModel:
     val_t2: np.ndarray
     delta_change: np.ndarray
     series: np.ndarray  # (n_cells, n_dates) cumulative displacement, mm
-    seasonal_mm: np.ndarray  # (n_cells, n_dates) FITTED seasonal component, mm
-    seasonal_amp_mm: np.ndarray  # FITTED amplitude of the first harmonic, mm
-    ratio_R: np.ndarray  # |fitted trend| / fitted amplitude
+    seasonal_mm: np.ndarray  # (n_cells, n_dates) FITTED seasonal component, mm (zeros if none)
+    seasonal_amp_mm: np.ndarray  # FITTED amplitude of the first harmonic, mm; 0.0 == not fitted
+    ratio_R: np.ndarray  # |fitted trend| / fitted amplitude; NaN where nothing was fitted
     regime: np.ndarray  # from transforms.classify_regime, the pipeline's own rule
-    n_harmonics: int  # order asked of harmonic_fit (see transforms.harmonic_order)
+    n_harmonics: int  # order asked of harmonic_fit; 0 == no seasonal term fitted
     annual_coverage: float  # span in annual cycles, from the fit's own diagnostic
     design_condition: float  # column-normalised design condition number, from the fit
     dates: tuple[str, ...]
@@ -81,6 +90,11 @@ class CaseModel:
     @property
     def n_cells(self) -> int:
         return int(self.cell_id.size)
+
+    @property
+    def seasonal_fitted(self) -> bool:
+        """True when a seasonal term was fitted; False is the contract's "not fitted" state."""
+        return int(self.n_harmonics) > 0
 
 
 def _case_rng(seed: int, case_id: str) -> np.random.Generator:
@@ -159,34 +173,71 @@ def cumulative_series(case: CaseSpec, dates: tuple[str, ...], velocity: np.ndarr
     return velocity[:, None] * elapsed_years(dates)[None, :] + seasonal[None, :]
 
 
+def seasonal_order(case: CaseSpec, dates: tuple[str, ...]) -> int:
+    """How many annual harmonics this case may honestly fit (0 == "no seasonal term fitted").
+
+    Two ways to land on 0, and each is a statement about the **model**, never about the ground:
+
+    * the configured synthetic field injects no seasonality (``mock.seasonal_amplitude_mm: 0``), so
+      there is no term to recover. Fitting one anyway would report the least-squares noise floor
+      (~1e-13 mm) as an amplitude, and ``ratio_R = |trend| / 1e-13`` is the sentinel the contract
+      rejects — exactly the NaN/crash this function exists to avoid;
+    * the window cannot identify one (:func:`transforms.harmonic_order`: below 0.75 annual cycles
+      of span, or too few epochs), whatever was injected.
+
+    Either way the publication is the contract's "not fitted" state. A case that injects
+    seasonality *and* spans enough time still fits it: the shipped cases take that branch, so the
+    mock keeps proving the contract can be filled from a fit.
+    """
+    if float(case.field.seasonal_amplitude_mm) == 0.0:
+        return 0
+    t_years = elapsed_years(dates)
+    return int(V.harmonic_order(len(dates), float(t_years[-1])))
+
+
 def fit_series(
-    dates: tuple[str, ...], series: np.ndarray
+    dates: tuple[str, ...], series: np.ndarray, order: int
 ) -> tuple[list[V.HarmonicFit], np.ndarray]:
     """Fit the pipeline's harmonic model per cell and refuse an unpublishable seasonal term.
 
     One ``transforms.harmonic_fit`` call per cell — the function the real chain
-    (`pipeline/process_case.py`) uses — with the order chosen by ``transforms.harmonic_order`` (two
-    annual harmonics on a ≥1.5 yr span, one on ≥0.75 yr, none below). Returns the fits and the time
-    axis in years.
+    (`pipeline/process_case.py`) uses — with the order chosen by :func:`seasonal_order` (two annual
+    harmonics on a ≥1.5 yr span, one on ≥0.75 yr, none below or when nothing was injected).
+    Returns the fits and the time axis in years.
 
-    The mock injects a non-zero seasonal amplitude, so a fit that reports
+    With ``order > 0`` the mock injects a seasonal amplitude, so a fit that reports
     ``seasonal_identifiable=False`` (or an amplitude of zero) means the *window* or the *fit* is
     broken, not that the ground stopped moving seasonally. It raises instead of publishing a
     number the pipeline's own gate would reject: that is the whole point of the 1.1 change.
+
+    With ``order == 0`` no seasonal term is fitted by construction, so the expected result is the
+    "not fitted" state — an amplitude of exactly ``0.0`` on every cell (``harmonic_fit`` has no
+    harmonic column to fill) and regime ``"transitional"``. A non-zero amplitude there would mean
+    the fit invented a term, so it raises too.
     """
     t_years = elapsed_years(dates)
-    order = V.harmonic_order(len(dates), float(t_years[-1]))
-    fits = [V.harmonic_fit(t_years, row, n_harmonics=order) for row in series]
+    fits = [V.harmonic_fit(t_years, row, n_harmonics=int(order)) for row in series]
     unidentifiable = [fit for fit in fits if not fit.seasonal_identifiable]
     if unidentifiable:
         raise ValueError(
             f"the mock window cannot publish a seasonal amplitude: {len(unidentifiable)} of "
             f"{len(fits)} cells are seasonal_identifiable=False "
             f"({unidentifiable[0].warnings[0] if unidentifiable[0].warnings else 'no reason given'}). "
-            "A 1.1 grid requires a fitted seasonal_amp_mm, so lengthen processing.dates_count in "
-            "config/study_cases.yaml until the span clears the coverage and conditioning gates."
+            f":func:`seasonal_order` asked for {int(order)} harmonic(s) on a stack this function "
+            "says cannot carry them; it must return 0 for this window instead (the publication is "
+            "then the contract's 'not fitted' state, never a fitted-looking number)."
         )
     amplitudes = np.array([fit.seasonal_amp_mm for fit in fits], dtype=float)
+    if int(order) == 0:
+        invented = int(np.count_nonzero(amplitudes))
+        if invented:
+            raise ValueError(
+                f"no annual harmonic was fitted (harmonic_order = 0) but {invented} of "
+                f"{amplitudes.size} cells report a non-zero seasonal_amp_mm (max "
+                f"{float(np.max(amplitudes)):.3e} mm): the published amplitude must be exactly "
+                "0.0 in the not-fitted state"
+            )
+        return fits, t_years
     if not np.all(amplitudes > 0.0):
         raise ValueError(
             "the mock injected a non-zero seasonal amplitude but harmonic_fit recovered "
@@ -333,10 +384,16 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         land_use, coherence, secular = land_use[keep], coherence[keep], secular[keep]
 
     series = cumulative_series(case, study.dates, secular)
-    fits, t_years = fit_series(study.dates, series)
+    order = seasonal_order(case, study.dates)
+    fits, t_years = fit_series(study.dates, series, order)
     trend = np.array([fit.trend_mm_yr for fit in fits], dtype=float)
     amplitude = np.array([fit.seasonal_amp_mm for fit in fits], dtype=float)
-    ratio = np.abs(trend) / amplitude  # finite: fit_series refuses a zero amplitude
+    # `ratio_R` is undefined where nothing was fitted (amplitude exactly 0): publish NaN there,
+    # never inf and never a sentinel. `artifacts.build_meta` turns it into JSON null and
+    # `contracts.validate_grid` accepts the null exactly where the amplitude is 0 — the same
+    # `np.divide(where=...)` the real chain uses in pipeline/process_case.py.
+    ratio = np.full(trend.shape, np.nan, dtype=float)
+    np.divide(np.abs(trend), amplitude, out=ratio, where=amplitude > 0.0)
     regime = np.array([fit.regime for fit in fits], dtype=object)
     seasonal = np.vstack([V.seasonal_component_mm(t_years, fit) for fit in fits])
 

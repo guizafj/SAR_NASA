@@ -43,7 +43,7 @@ class CaseReport:
     land_use: dict[str, int]
     median_velocity: float
     median_seasonal_amp: float
-    median_ratio_R: float
+    median_ratio_R: float | None  # None == no cell fitted a harmonic (undefined median)
     dominant_regime: str
     p05_velocity: float
     p95_velocity: float
@@ -114,8 +114,15 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
 
     # -- 2. no nulls in the required fields ---------------------------------------------------
     for spec in C.GRID_FIELDS:
-        if spec.required:
-            _require(spec.name in grid.columns and grid[spec.name].notna().all(), f"grid.{spec.name} has nulls", failures)
+        if not spec.required:
+            continue
+        if spec.name == "ratio_R":
+            # The COLUMN is required even when nothing was fitted; a null VALUE is legal exactly
+            # where seasonal_amp_mm == 0 (|trend|/0 has no value). Section 7 checks both
+            # directions cell by cell, so this only has to insist the column exists.
+            _require(spec.name in grid.columns, "grid: required column 'ratio_R' is missing", failures)
+            continue
+        _require(spec.name in grid.columns and grid[spec.name].notna().all(), f"grid.{spec.name} has nulls", failures)
     for spec in C.TIMESERIES_FIELDS:
         if spec.required:
             _require(
@@ -246,6 +253,7 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     checks.append(f"provenance_id {sorted(all_ids)[0]} matches the regex and resolves in meta.json")
 
     # -- 7. derived fields are derived, not hand-written -------------------------------------
+    stats = meta["stats"]
     expected_risk = [C.risk_level_from_velocity(v) for v in grid["velocity_mm_yr"]]
     _require(
         (grid["risk_level"].astype(str).tolist() == expected_risk),
@@ -255,28 +263,88 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     # The 1.1 seasonal trio must be derived from the fitted pair, not copied from the config:
     # ratio_R is |trend|/amplitude and regime is the pipeline's own classify_regime on the same
     # numbers, so a hard-coded amplitude cannot survive this check.
-    expected_ratio = (grid["velocity_mm_yr"].abs() / grid["seasonal_amp_mm"]).to_numpy()
-    ratio_residual = float(np.max(np.abs(grid["ratio_R"].to_numpy() - expected_ratio))) if len(grid) else 0.0
+    # `fitted` splits the two legal states. Where a harmonic WAS fitted, ratio_R is the finite
+    # quotient and regime is classify_regime on the published pair. Where nothing was fitted
+    # (amplitude exactly 0.0, because the mock case injects no seasonality or its window is below
+    # the annual gate) the quotient is |trend|/0 — undefined — so the only honest values are a null
+    # ratio and the contract's cannot-classify regime. Both the inf and the sentinel are rejected:
+    # an undefined ratio must NOT be a number, and `regime` must not claim "inelastic" from a term
+    # that was never fitted.
+    amplitude = grid["seasonal_amp_mm"].to_numpy(dtype=float)
+    velocity = grid["velocity_mm_yr"].to_numpy(dtype=float)
+    ratio = grid["ratio_R"].to_numpy(dtype=float)
+    fitted = amplitude > 0.0
+    ratio_residual = 0.0
+    if fitted.any():
+        expected_ratio = np.abs(velocity[fitted]) / amplitude[fitted]
+        ratio_residual = float(np.max(np.abs(ratio[fitted] - expected_ratio)))
     _require(
         ratio_residual <= 1e-6,
         f"ratio_R is not abs(velocity_mm_yr)/seasonal_amp_mm (max residual {ratio_residual:.3e})",
         failures,
     )
+    defined_where_not_fitted = int(np.count_nonzero(~fitted & np.isfinite(ratio)))
+    _require(
+        defined_where_not_fitted == 0,
+        f"{defined_where_not_fitted} cell(s) publish a ratio_R where seasonal_amp_mm == 0: "
+        "|trend|/0 is undefined, so it must be null — never inf and never a sentinel",
+        failures,
+    )
     expected_regime = [
-        V.classify_regime(float(trend), float(amp))
-        for trend, amp in zip(grid["velocity_mm_yr"], grid["seasonal_amp_mm"], strict=True)
+        V.classify_regime(float(trend), float(amp)) if amp > 0.0 else "transitional"
+        for trend, amp in zip(velocity, amplitude, strict=True)
     ]
     _require(
         grid["regime"].astype(str).tolist() == expected_regime,
         "regime was not produced by pipeline.science.transforms.classify_regime on the published "
-        "(velocity_mm_yr, seasonal_amp_mm) pair",
+        "(velocity_mm_yr, seasonal_amp_mm) pair ('transitional' where no harmonic was fitted)",
         failures,
     )
-    _require(
-        bool((grid["seasonal_amp_mm"] > 0.0).all()),
-        "a fitted seasonal_amp_mm is 0: the mock injected a non-zero amplitude, so the fit lost it",
-        failures,
-    )
+    # One state per case, never a mixture: the order is chosen once, so a case either fitted the
+    # seasonal term on every cell or on none. A mixture would mean the per-cell fit lost it.
+    published_order = stats.get("seasonal_n_harmonics", stats.get("n_harmonics"))
+    if not fitted.any():
+        # The not-fitted branch: this is a legitimate publication, and it must be COMPLETE. An
+        # amplitude of 0.0 with a populated ratio, or a null median with a fitted-looking
+        # amplitude, is the half-state that reads as "we measured no seasonality".
+        _require(
+            int(published_order or 0) == 0,
+            f"stats.seasonal_n_harmonics is {published_order!r} but no cell carries a fitted "
+            "amplitude: the declared order and the grid must agree",
+            failures,
+        )
+        _require(
+            stats.get("median_ratio_R") is None,
+            f"meta.stats.median_ratio_R is {stats.get('median_ratio_R')!r} while no cell fitted a "
+            "harmonic: the aggregate of undefined ratios is null (NaN is not valid JSON)",
+            failures,
+        )
+        _require(
+            set(grid["regime"].astype(str)) == {"transitional"},
+            f"no harmonic was fitted, so no cell can be classified against one, but regime(s) "
+            f"{sorted(set(grid['regime'].astype(str)))} were published",
+            failures,
+        )
+        _require(
+            "not fitted" in " ".join(str(item) for item in meta["limitations"]).lower(),
+            "no limitation says the seasonal term was not fitted: a null ratio_R without its "
+            "reason reads as 'no seasonality measured', which is a claim about the ground",
+            failures,
+        )
+        checks.append(
+            f"seasonal term NOT fitted: amplitude 0.0 on all {len(grid)} cells (order "
+            f"{published_order}), ratio_R null, regime 'transitional', median_ratio_R null, "
+            "limitation present"
+        )
+    else:
+        _require(
+            bool(fitted.all()) and int(published_order or 0) > 0,
+            f"{int((~fitted).sum())} of {len(grid)} cell(s) publish a 0.0 amplitude (the "
+            "'not fitted' value) while others publish a fitted one, or stats declares "
+            f"seasonal_n_harmonics = {published_order!r}: the seasonal term is fitted once per "
+            "case, so the state must be the same on every cell",
+            failures,
+        )
     _require(
         bool(grid["coherence"].between(float(meta["thresholds"]["coherence_min"]), 0.95).all()),
         f"coherence outside [{meta['thresholds']['coherence_min']}, 0.95]: a published cell must "
@@ -302,8 +370,9 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         failures,
     )
     checks.append(
-        f"derived: risk bands from velocity, ratio_R = |trend|/amplitude (max residual "
-        f"{ratio_residual:.1e}), regime from classify_regime, coherence in "
+        f"derived: risk bands from velocity, ratio_R = |trend|/amplitude on the {int(fitted.sum())} "
+        f"fitted cell(s) (max residual {ratio_residual:.1e}), ratio_R null on the "
+        f"{int((~fitted).sum())} not-fitted one(s), regime from classify_regime, coherence in "
         f"[{meta['thresholds']['coherence_min']}, 0.95], land_use classes {len(land_use_counts)}"
     )
 
@@ -322,21 +391,33 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     checks.append("aoi series endpoints == mean(val_t1)/mean(val_t2) of the grid")
 
     # -- 9. stats describe the actual file ---------------------------------------------------
-    stats = meta["stats"]
     _require(stats["n_cells"] == len(grid), f"stats.n_cells {stats['n_cells']} != {len(grid)}", failures)
     _require(stats["n_dates"] == len(meta_dates), "stats.n_dates != len(meta.dates)", failures)
     regime_counts = grid["regime"].astype(str).value_counts()
     dominant = sorted(regime_counts.items(), key=lambda item: (-int(item[1]), str(item[0])))[0][0]
+    # The median of an undefined ratio is null, not NaN: `ratio_R` is NaN exactly where nothing was
+    # fitted, and `float(Series([nan]).median())` is NaN — which is neither JSON nor a number a
+    # reader can compare. Recompute with the same rule the producer uses (finite values only).
+    finite_ratio = ratio[np.isfinite(ratio)]
+    expected_ratio_median = float(np.median(finite_ratio)) if finite_ratio.size else None
     for key, actual_value, tolerance in (
         ("median_velocity_mm_yr", float(grid["velocity_mm_yr"].median()), 1e-2),
         ("median_seasonal_amp_mm", float(grid["seasonal_amp_mm"].median()), 1e-2),
-        ("median_ratio_R", float(grid["ratio_R"].median()), 1e-4),
+        ("median_ratio_R", expected_ratio_median, 1e-4),
         ("p05_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.05)), 1e-2),
         ("p95_velocity_mm_yr", float(grid["velocity_mm_yr"].quantile(0.95)), 1e-2),
     ):
+        published = stats[key]
+        if actual_value is None or published is None:
+            _require(
+                published is None and actual_value is None,
+                f"stats.{key} {published!r} != recomputed {actual_value!r}",
+                failures,
+            )
+            continue
         _require(
-            abs(float(stats[key]) - actual_value) <= tolerance,
-            f"stats.{key} {stats[key]} != recomputed {actual_value:.3f}",
+            abs(float(published) - actual_value) <= tolerance,
+            f"stats.{key} {published} != recomputed {actual_value:.3f}",
             failures,
         )
     _require(
@@ -354,21 +435,40 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     # trend/seasonal pair has to be the decomposition of the very numbers next to it. Then re-run
     # harmonic_fit on the aoi series and compare its seasonal component with the published column,
     # which is the check a typed constant cannot pass.
+    #
+    # The decomposition is a claim only a FIT can make. With n_harmonics = 0 the model has no
+    # seasonal basis, so a seasonal wiggle in the series cannot be absorbed and the residual is
+    # deliberately not constant — that is the honest outcome of a window that cannot carry the
+    # term, not a defect. What must hold there is that the published seasonal column is exactly
+    # zero (no term fitted) and that the trend is the plain linear fit of the same series.
     years = np.array(
         [(dt.date.fromisoformat(str(day)) - dt.date.fromisoformat(meta_dates[0])).days for day in series["date"]],
         dtype=float,
     ) / V.DAYS_PER_YEAR
-    residuals = (
-        series["value"] - series["trend_mm_yr"] * years - series["seasonal_mm"]
-    ).to_numpy(dtype=float)
-    spread = float(np.max(np.abs(residuals - residuals[0]))) if residuals.size else 0.0
-    _require(
-        spread <= 1e-6,
-        f"value - trend_mm_yr*t - seasonal_mm is not constant across dates (spread {spread:.3e} mm); "
-        "the published split does not decompose the published series",
-        failures,
-    )
-    order = V.harmonic_order(len(meta_dates), float(years.max()) - float(years.min()))
+    spread = 0.0
+    if fitted.any():
+        residuals = (
+            series["value"] - series["trend_mm_yr"] * years - series["seasonal_mm"]
+        ).to_numpy(dtype=float)
+        spread = float(np.max(np.abs(residuals - residuals[0]))) if residuals.size else 0.0
+        _require(
+            spread <= 1e-6,
+            f"value - trend_mm_yr*t - seasonal_mm is not constant across dates (spread {spread:.3e} mm); "
+            "the published split does not decompose the published series",
+            failures,
+        )
+    else:
+        non_zero = int(np.count_nonzero(series["seasonal_mm"].to_numpy(dtype=float)))
+        _require(
+            non_zero == 0,
+            f"no annual harmonic was fitted, so timeseries.seasonal_mm must be exactly 0.0 (the "
+            f"model contains no seasonal term), but {non_zero} row(s) carry a non-zero value",
+            failures,
+        )
+    order = published_order
+    if not isinstance(order, int) or isinstance(order, bool):
+        # Producer without the statistics key: fall back to the order the span supports.
+        order = V.harmonic_order(len(meta_dates), float(years.max()) - float(years.min()))
     aoi_sorted = aoi.sort_values("date", kind="stable")
     aoi_years = np.array(
         [
@@ -398,9 +498,10 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         failures,
     )
     checks.append(
-        f"seasonal columns decompose the series (value-trend*t-seasonal constant to {spread:.1e} mm) "
-        f"and a refit of the aoi series reproduces seasonal_mm to {seasonal_residual:.1e} mm "
-        f"(order {order}, coverage {refit.annual_coverage:.3f}, cond {refit.design_condition:.2f})"
+        f"seasonal columns decompose the series (value-trend*t-seasonal constant to {spread:.1e} mm "
+        f"on the {int(fitted.sum())} fitted cell(s), seasonal_mm exactly 0 where nothing was "
+        f"fitted) and a refit of the aoi series reproduces seasonal_mm to {seasonal_residual:.1e} "
+        f"mm (order {order}, coverage {refit.annual_coverage:.3f}, cond {refit.design_condition:.2f})"
     )
 
     # -- 10. null-result case: Málaga stays flat and publishes its bound ---------------------
@@ -455,7 +556,7 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         land_use=land_use_counts,
         median_velocity=median,
         median_seasonal_amp=float(grid["seasonal_amp_mm"].median()),
-        median_ratio_R=float(grid["ratio_R"].median()),
+        median_ratio_R=expected_ratio_median,
         dominant_regime=str(dominant),
         p05_velocity=float(grid["velocity_mm_yr"].quantile(0.05)),
         p95_velocity=float(grid["velocity_mm_yr"].quantile(0.95)),
@@ -478,10 +579,12 @@ def summary_table(reports: list[CaseReport]) -> str:
     for report in reports:
         total += report.total_bytes
         sizes = report.sizes
+        # A null ratio is a state, not a missing number: print it as one instead of "nan".
+        ratio_cell = "not fitted" if report.median_ratio_R is None else f"{report.median_ratio_R:.3f}"
         lines.append(
             f"{report.case_id:<12} {report.n_cells:>7} {report.n_dates:>5} {report.n_series_rows:>7} "
             f"{report.n_context_features:>4} {report.median_velocity:>9.2f} "
-            f"{report.median_seasonal_amp:>8.3f} {report.median_ratio_R:>9.3f} "
+            f"{report.median_seasonal_amp:>8.3f} {ratio_cell:>9} "
             f"{report.dominant_regime:<13} "
             f"{report.p05_velocity:>9.2f} "
             f"{report.p95_velocity:>9.2f} {sizes['nisar_grid.parquet'] / 1024:>8.1f} "
