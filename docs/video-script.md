@@ -24,7 +24,7 @@ The MOCK badge stays visible for every second of this section: all three cases c
 | 1:00–1:14 | Click one cell; side panel shows velocity, coherence, land use, risk, then the series panel (`nisar_grid.parquet`, `timeseries.csv`) | Click a cell: velocity, coherence, land use, risk. Open the series panel. One cell is the map unit. | `posting 80 m`, `~201 m across` — `DO NOT CLAIM` |
 | 1:14–1:30 | Toggle "shared legend" ±425; Málaga panel goes pale, Mexico City saturates nowhere | Switch to one shared scale, plus or minus 425 millimetres a year. Mexico City's spread is 50 times Málaga's, so Málaga goes nearly blank. | `shared legend = ±425 mm/yr`; `209.23 / 4.16 = 50.3x` — `CONTRAST` |
 | 1:30–1:40 | Málaga panel + null-result box; `timeseries_three_cities.png` inset | Blank is not missing data. Málaga's median is minus 1.4 millimetres a year, below its 1.5 detection bound. The bound is the result. | `detection_limit=1.50`, `median=-1.36` — `NULL RESULT malaga` |
-| 1:40–1:50 | Evidence card for the selected cell, or for one detected change if the pin layer shipped: unit, dates, coherence, `provenance_id` (`meta.json`) | Open the evidence card: unit, date range, coherence, provenance ID. Source, method and ID make the number re-derivable. | `provenance_id=mexico-city+mock+20261114+cc912b7a` |
+| 1:40–1:50 | Evidence card for the selected cell, or for one detected change if the pin layer shipped: unit, dates, coherence, `provenance_id` (`meta.json`) | Open the evidence card: unit, date range, coherence, provenance ID. Source, method and ID make the number re-derivable. | `provenance_id=mexico-city+mock+20261114+14fc3e1f` |
 
 ## 3 · Architecture and impact — 1:50–2:20
 

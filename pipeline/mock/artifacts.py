@@ -46,13 +46,29 @@ PER_CELL_SERIES_BUDGET_BYTES = 3 * 1024 * 1024
 ARTEFACTS = ("nisar_grid.parquet", "timeseries.csv", "context_layers.geojson", "meta.json")
 
 
-def provenance_digest(case_id: str, seed: int) -> str:
-    """sha256(case + product + seed): the stable digest behind `provenance_id`."""
-    return hashlib.sha256(f"{case_id}|{PRODUCT}|{int(seed)}".encode()).hexdigest()
+def provenance_digest(case_id: str, seed: int, dates: Iterable[str]) -> str:
+    """sha256(case + product + seed + sha256(epochs)): the digest behind `provenance_id`.
+
+    **The acquisition window is part of the digest**, because it is part of the dataset: two
+    stacks over different windows are two different claims and must never share an id. Before
+    contract 1.1 this hashed only ``case + product + seed``, and `PROCESSING_DATE` is a fixed
+    constant, so the 12-date 1.0 artefacts and the 62-date 1.1 artefacts of the same case came
+    out byte-identical (``jakarta+mock+20261114+57d20da8`` for both) — an id that cannot tell
+    two datasets apart cannot make "rerun and diff" work.
+
+    The epochs are hashed **in the order given** (the stack's acquisition order, as carried by
+    ``CaseModel.dates``: chronological, first to last). Nothing is sorted: a reordered window is
+    a different stack and is allowed to digest differently, while the same stack always produces
+    the same string regardless of platform or dict iteration order.
+
+    Input string: ``{case_id}|{product}|{seed}|sha256(",".join(iso_dates))``.
+    """
+    window = hashlib.sha256(",".join(str(date) for date in dates).encode()).hexdigest()
+    return hashlib.sha256(f"{case_id}|{PRODUCT}|{int(seed)}|{window}".encode()).hexdigest()
 
 
-def provenance_id(case_id: str, seed: int) -> str:
-    return C.provenance_id(case_id, PRODUCT, PROCESSING_DATE, provenance_digest(case_id, seed))
+def provenance_id(case_id: str, seed: int, dates: Iterable[str]) -> str:
+    return C.provenance_id(case_id, PRODUCT, PROCESSING_DATE, provenance_digest(case_id, seed, dates))
 
 
 # ---------------------------------------------------------------------------------------------

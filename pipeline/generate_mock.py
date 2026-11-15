@@ -113,7 +113,8 @@ def write_timeseries(
 
 def generate_case(case, study, out_dir: Path, seed: int, per_cell_series: bool) -> K.CaseReport:
     model = M.build_case(case, study, seed)
-    provenance = A.provenance_id(case.case_id, seed)
+    # The window is part of the id: a 12-date and a 62-date stack must not share a provenance.
+    provenance = A.provenance_id(case.case_id, seed, model.dates)
     case_dir = out_dir / case.case_id
     case_dir.mkdir(parents=True, exist_ok=True)
 

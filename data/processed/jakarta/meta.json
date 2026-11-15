@@ -87,8 +87,8 @@
     "method": "Synthetic field, no observation: secular velocity v = peak*exp(-d(peak_lonlat)/falloff) + N(0, noise) per H3 res-9 cell (config/study_cases.yaml mock block); cumulative displacement d(t) = v*(t-t_first) + A_seasonal*(cos(2*pi*(t-c)/yr) - cos(2*pi*c/yr)) with c the centre of the observation window, so both endpoints carry the same seasonal offset and val_t1 = 0 mm at the reference epoch; val_t1/val_t2 are d(t) at the first/last date; velocity_mm_yr, seasonal_amp_mm, ratio_R, regime, trend_mm_yr and seasonal_mm are ALL outputs of one joint fit per cell by pipeline.science.transforms.harmonic_fit over the whole window (2 annual harmonic(s), README §6 P6), not values copied from the config; ratio_R = abs(velocity_mm_yr)/seasonal_amp_mm and regime is transforms.classify_regime on the same pair; cells below the frozen coherence_min are dropped, so water and other decorrelating surfaces are absent rather than zero; coherence, land use, risk bands and context layers are deterministic spatial rules; land use and its polygons share one assignment.",
     "mock_seed": 7,
     "processing_date": "2026-11-14",
-    "product_id": "mock:jakarta:2026-11-14:57d20da8",
-    "provenance_id": "jakarta+mock+20261114+57d20da8",
+    "product_id": "mock:jakarta:2026-11-14:7176bda2",
+    "provenance_id": "jakarta+mock+20261114+7176bda2",
     "reference": "Synthetic; peak rates parameterised from config/study_cases.yaml published_rate_mm_yr and docs/data-contract-v1.md v1.1. Not a measurement.",
     "retrieved_utc": "2026-11-14T00:00:00Z",
     "source": "mock (synthetic stub, pipeline/generate_mock.py)"
