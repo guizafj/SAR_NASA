@@ -4,7 +4,7 @@
 **Date:** 2026-11-14 · **Owner:** Rol 3 (yuls) · **Consumers:** `pipeline/`, `meta.provenance`.
 
 This is the answer to Rol 3 task 2 in the flujo doc — *"elegir y documentar la fuente utilizada"*.
-It exists so that no artefact can claim a product we did not verify, and so the provenance badge in
+It exists so that no artefact can claim a product we did not verify, and so the provenance line in
 the app has something to point at.
 
 ---
