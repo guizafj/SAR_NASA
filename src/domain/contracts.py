@@ -57,6 +57,14 @@ SCHEMA_VERSION = "1.1"
 CONTRACT_REVISION = 2
 CONTRACT_FROZEN_UTC = "2026-11-14T00:00:00Z"
 
+#: Ceiling on a published ``ratio_R`` (``|trend| / seasonal_amp_mm``). A ratio this large does not
+#: describe a physical regime: it means the amplitude is indistinguishable from numerical zero — an
+#: exactly-linear series fits ~1e-14 mm and would otherwise publish ~1e15, the "sentinel" this
+#: contract's prose forbids. Real cells top out near 277 and a genuinely non-seasonal series fits the
+#: noise floor (~0.2 mm), not zero, so this only catches a numerical artefact. A fail-closed guard,
+#: not a scientific detectability threshold.
+MAX_PUBLISHABLE_RATIO_R: float = 1e9
+
 CHANGELOG: tuple[tuple[str, str], ...] = (
     (
         "1.1",
@@ -467,6 +475,35 @@ def validate_grid(
                             f"grid: ratio_R has {int(invented.sum())} value(s) where "
                             "seasonal_amp_mm == 0; an undefined ratio must be null, never inf "
                             "or a sentinel"
+                        )
+                velocity = numeric("velocity_mm_yr")
+                if amplitude is not None and velocity is not None:
+                    # `ratio_R` is DEFINED as |velocity_mm_yr| / seasonal_amp_mm, so a published
+                    # ratio has to equal it. Without this a sentinel (1e9) or any fabricated
+                    # ratio passes every other check here: the prose forbids it, the code did not.
+                    fitted_amp = amplitude.fillna(0.0) > 0.0
+                    defined = fitted_amp & values.notna() & velocity.notna()
+                    if defined.any():
+                        expected = velocity.abs() / amplitude
+                        tolerance = expected.abs() * 5e-3 + 5e-3
+                        inconsistent = defined & ((values - expected).abs() > tolerance)
+                        if inconsistent.any():
+                            problems.append(
+                                "grid: ratio_R disagrees with |velocity_mm_yr| / "
+                                f"seasonal_amp_mm on {int(inconsistent.sum())} row(s); publish "
+                                "the computed ratio rather than a typed or sentinel value"
+                            )
+                    # A ratio this large is not a measurement: it means the amplitude is
+                    # indistinguishable from numerical zero (an exactly-linear series fits
+                    # ~1e-14 mm and would otherwise publish ~1e15). Fail closed instead of
+                    # shipping the sentinel the contract's prose forbids.
+                    ratio_num = pd.to_numeric(values, errors="coerce")
+                    absurd = ratio_num.notna() & (ratio_num > MAX_PUBLISHABLE_RATIO_R)
+                    if absurd.any():
+                        problems.append(
+                            f"grid: ratio_R exceeds {MAX_PUBLISHABLE_RATIO_R:g} on "
+                            f"{int(absurd.sum())} row(s); that magnitude means the amplitude is "
+                            "numerically zero, so publish amplitude 0 with a null ratio instead"
                         )
                 observed = values.dropna()
             else:
@@ -964,6 +1001,14 @@ def _selfcheck() -> int:
         ),
         "null median ratio beside a fitted amplitude": validate_meta(
             {**meta, "stats": {**meta["stats"], "median_ratio_R": None}}
+        ),
+        "ratio_R that disagrees with its inputs": validate_grid(
+            pd.DataFrame([{**rows[0], "ratio_R": 1e9}])
+        ),
+        "ratio_R at numerical-noise magnitude": validate_grid(
+            pd.DataFrame(
+                [{**rows[0], "seasonal_amp_mm": 1e-13, "ratio_R": 128.0 / 1e-13}]
+            )
         ),
         "non-finite trend_mm_yr": validate_timeseries(series.assign(trend_mm_yr=float("nan"))),
         "undeclared product": validate_meta({**meta, "product": "opera-disp-s1", "sensor": "nisar"}),
