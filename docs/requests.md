@@ -6,7 +6,7 @@
 |---|---|---|
 | Rol 1 (pozo) | `get_map_layer_df`: extrusión por defecto en `False` | resuelta en `main` (`7f0b455`), integrada en `fradiaz` |
 | Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
-| Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta: caveat en `7f0b455` y continuación de ítems en el parser de `src/data/ui_bridge.py` |
+| Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta en `main` (`ui_bridge` y `_stubs` unen el párrafo del caveat y todas las líneas de continuación de `section_13`) |
 | Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | abierta |
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
@@ -66,7 +66,7 @@ La UI no puede reconstruirlo: solo recibe el string ya extraído y no lee el REA
 
 **Impacto en contrato de datos:** ninguno (solo el valor de un hook de presentación).  
 **Aprobación:** Rol 1. Rol 2 comprueba que el bloque "Known caveat" se lee completo.  
-**Estado:** RESUELTO por Rol 1 (`pozo`) — `load_documented_limits` devuelve el párrafo completo del README unido con espacios hasta la línea en blanco posterior.
+**Estado:** RESUELTO por Rol 1 (`pozo`) — `load_documented_limits` devuelve el párrafo completo del caveat del README y une las líneas de continuación de cada ítem numerado de `section_13` hasta la siguiente entrada o línea en blanco.
 
 ## Rol 3 — texto y contexto que el cockpit no puede inventar
 

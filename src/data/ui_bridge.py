@@ -630,28 +630,26 @@ def load_documented_limits(
 
     start = text.find("## 13.")
     end = text.find("## 14.")
+    numbered_re = re.compile(r"^(\d+)\.\s+(.*)$")
     items: list[str] = []
     if start != -1:
         block = text[start : end if end != -1 else None]
-        current: list[str] | None = None
+        current_parts: list[str] = []
         for line in block.splitlines():
             stripped = line.strip()
-            numbered = re.match(r"^(\d+)\.\s+(.*)$", stripped)
-            if numbered:
-                if current is not None:
-                    items.append(" ".join(current))
-                current = [numbered.group(2).strip()]
-                continue
-            if current is None:
-                continue
-            # Continuation lines are indented; a blank line or a new block ends the item.
-            if not stripped or not line[:1].isspace():
-                items.append(" ".join(current))
-                current = None
-                continue
-            current.append(stripped)
-        if current is not None:
-            items.append(" ".join(current))
+            match = numbered_re.match(stripped)
+            if match:
+                if current_parts:
+                    items.append(" ".join(current_parts))
+                current_parts = [match.group(2)]
+            elif current_parts:
+                if not stripped or stripped.startswith(("---", "#", "|", "![")):
+                    items.append(" ".join(current_parts))
+                    current_parts = []
+                else:
+                    current_parts.append(stripped)
+        if current_parts:
+            items.append(" ".join(current_parts))
     return {"section_8_caveat": caveat, "section_13": items}
 
 
