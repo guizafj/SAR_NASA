@@ -76,9 +76,9 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
       docs/figures -name '*.png' ! -newer "$newest"` → no output for `velocity_shared_scale.png`,
       `timeseries_three_cities.png`, `coherence.png` (`./scripts/python.sh scripts/make_figures.py`).
 - [ ] `data/processed` < 15 MB: `./scripts/python.sh pipeline/validate_artifacts.py --processed
-      data/processed --strict-size-mb 15` → `total size: 1.687 MB / 15 MB`, `RESULT: PASS (exit 0)`.
-      (The size changes whenever the mock or the AOIs change — re-read it, never quote a remembered
-      figure. With the two-year v1.1 window it is 1.687 MB, not the earlier 1.458.)
+      data/processed --strict-size-mb 15` → `RESULT: PASS (exit 0)` and a `total size: <x> MB / 15 MB`
+      line under the cap. Re-read that line: the size moves whenever the mock, the AOIs or the context
+      layers change, so a remembered figure is not evidence of anything.
 - [ ] `provenance.source` matches `product` on every layer (symmetric rule, `check_phase_a.sh` step 4/4):
       `jq -r '.product + " | " + .provenance.source' data/processed/*/meta.json` → `mock` with a source
       saying mock, a real product with nothing mock. Editing the gate, not the artefact, is forbidden.
@@ -86,9 +86,11 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 ## 3. Never cut
 
 - [ ] `provenance` on every artefact and layer (README §2: the only unconditional item).
-- [ ] The null result **with its detection limit** — `detection_limit_mm_yr = 1.50` beside median
-      −1.36 mm/yr for Málaga; the bound is the result (`docs/data-contract-v1.md` §2, row 6 — the
-      `stats` row, which is what the old `§2.6` meant).
+- [ ] The null result **with its detection limit** — `detection_limit_mm_yr = 1.50` beside Málaga's
+      median, which must sit below it; the bound is the result (`docs/data-contract-v1.md` §2, row 6 —
+      the `stats` row, which is what the old `§2.6` meant). Read both off
+      `./scripts/python.sh scripts/demo_numbers.py` (its `NULL RESULT malaga:` line), never off a
+      memory of them: the median moves whenever the artefact is regenerated.
 - [ ] The **mock disclaimer** while all three cases are `product=mock` —
       `./scripts/python.sh scripts/demo_numbers.py` prints `!! product == 'mock' for 3/3 case(s)`.
       On screen the persistent banner reads `DEMONSTRATION DATA` (`DEMO_BANNER` in
