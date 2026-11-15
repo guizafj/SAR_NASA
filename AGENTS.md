@@ -2,13 +2,15 @@
 
 Eres Rol 2 (fradiaz) en el NASA Space Apps 2026, "Dancing with the SARs". Imperativo: no escribas código de otros roles ni inventes lo que el repo no contiene. Lo ausente es "(pendiente)".
 
-## Estado actual (2026-11-15)
+## Estado actual (2026-11-15, tarde)
 
-- Rama `fradiaz`, con `main` integrado (`19622b9`). No trabajes sobre `main`.
+- **Rama única de trabajo: `fradiaz`** (en `aeabcf8`, idéntica a `main`/`origin/main`). Política nueva del equipo: todas las mejoras se gestionan desde `fradiaz`; se integra a `main` solo cuando todo funciona, y `main` se empuja al remoto. Las ramas `pozo`, `yuls` y las `feat/*` no se tocan. `origin/fradiaz` quedó atrás (`b3bb9b3`): empujarla cuando lo pida el usuario.
 - Cockpit en inglés, tema claro/oscuro según el sistema y layout responsive. Las pestañas son **1. Map**, **2. Series and KPIs**, **3. Hazard and infrastructure**, **4. Provenance and limits**.
-- Artefactos `mock` vigentes para `mexico-city`, `jakarta` y `malaga`: contrato 1.1 revisado, ventana de dos años (62 fechas), métricas estacionales ajustadas.
-- Tests de UI en verde (`tests/test_ui_smoke.py`, `tests/test_ui_bridge.py`). Suite completa en verde.
-- Peticiones abiertas: texto científico y glosario de Rol 3; continuación de líneas del ítem 5 del README (Rol 1). Detalle en `docs/requests.md`.
+- Estado UI espejado en la URL (`st.query_params`: `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell`): una copia de la URL restaura el cockpit. Ver `docs/presentation-integration.md`.
+- Artefactos `mock` vigentes para `mexico-city`, `jakarta` y `malaga`: contrato 1.1 revisado (fingerprint `ed92be80`), ventana de dos años (62 fechas), métricas estacionales ajustadas.
+- Tests de UI en verde (`tests/test_ui_smoke.py`, `tests/test_ui_bridge.py`). Suite completa en verde; `preflight.sh` 7/7 READY con árbol limpio.
+- Peticiones: las tres de Rol 1 cerradas. Rol 3 respondió (`3d6b858`): punto 4 resuelto y punto 5 confirmado (positivo = hacia el sensor, convención no validada contra GNSS; ya citada en el inspector); puntos 1–3 (párrafo por caso, módulo educativo, glosario por `layer`) siguen **no declarados** — la UI los muestra como ausencia, no los inventa. Detalle en `docs/requests.md`.
+- Pendiente de Rol 1 (no bloqueante, no tocar): en `origin/pozo` quedaron la paridad de signo O-07 (`98a3757`, `map_adapter` firmado + `test_height_sign_parity.py`) y la tolerancia BLAS de reproducibilidad (`df6c81b`). `main` usa `COLUMN_BASELINE_M`; si Rol 1 trae el cambio, Rol 2 verifica el mapa.
 - Registro de qué pinta cada bloque y de dónde sale: `docs/presentation-integration.md`.
 
 ## Proyecto
@@ -105,7 +107,7 @@ Python solo vía `./scripts/python.sh`. `.venv` existe.
 
 ## Git
 
-Ramas cortas de un solo objetivo (`feat/ui-shell`, `feat/ui-map`, `feat/ui-charts`, `docs/...`). No trabajes sobre `main`. No acumules objetivos en `fradiaz`.
+Rama única de trabajo: `fradiaz`. Todas las mejoras se commitean aquí, enfocadas por objetivo en el mensaje del commit. No se tocan `pozo`, `yuls` ni `feat/*`. El merge a `main` se hace solo con suite verde y app funcionando, y después `fradiaz` se realinea a `main`.
 
 PR con: Objetivo / Archivos / Dependencias nuevas / Impacto en contrato / Validaciones / Riesgos / Captura.
 
