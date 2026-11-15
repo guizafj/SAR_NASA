@@ -13,13 +13,29 @@ What is proven here, and why each assertion earns its place:
    are still produced;
 6. rerunning is deterministic in size (no random subsampling, no timestamped layout);
 7. the script never writes into `data/processed/` (it is a read-only consumer);
-8. the local projection and the shared colour limit are metric and symmetric (unit-level).
+8. the local projection and the shared colour limit are metric and symmetric (unit-level);
+9. the *committed* `docs/figures/*.png` are not stale: a fresh regeneration into `tmp_path` is
+   compared with them pixel by pixel (decoded RGBA, not md5), and every differing pixel is counted.
+
+Why 9 exists (the defect it guards, which nothing else caught): the footer of each figure prints
+its artefacts' `provenance_id`. When the provenance ids changed, all three committed PNGs kept
+showing the retired ids while the artefacts carried new ones, and every gate stayed green —
+`docs/submission-checklist.md` checks only mtimes, and `scripts/preflight.sh` gate 6 regenerates
+into a temp dir but never compares with `docs/figures/`. Byte equality is *not* asserted (a PNG
+encoder may legitimately differ); decoded pixels are.
+
+Version skip policy: Matplotlib stamps its version into every PNG (`Software: Matplotlib
+version…`). If the committed figure's stamp differs from the running `matplotlib.__version__`, the
+test **skips** naming both versions and saying which figure must be regenerated under the running
+version — a cross-version rendering difference is not honest evidence of staleness. Under the same
+version there is no such excuse, so a stale figure fails. The gate reads the version, then asserts
+on pixels; byte equality is never the assertion.
 
 The module skips with a clear reason if `data/processed` holds no complete case: the figures are a
 view of the artefacts, and there is nothing to test without them.
 
-Hermetic: every write goes to `tmp_path`; the only read outside it is the committed
-`data/processed/` tree. No network.
+Hermetic: every write goes to `tmp_path`; the only reads outside it are the committed
+`data/processed/` tree and the committed `docs/figures/` PNGs (read-only). No network.
 """
 
 from __future__ import annotations
@@ -39,6 +55,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "make_figures.py"
 PROCESSED = ROOT / "data" / "processed"
+DOCS_FIGURES = ROOT / "docs" / "figures"
 
 CASE_IDS = ("mexico-city", "jakarta", "malaga")
 FIGURES = (
@@ -57,6 +74,14 @@ SUMMARY_ROW = re.compile(
     r"^(?P<path>.+?)\s+(?P<w>\d+)x(?P<h>\d+)\s+(?P<kb>[\d.]+) KB\s+(?P<cells>[\d,]+)\s*$",
     re.MULTILINE,
 )
+
+#: Matplotlib writes this into the PNG tEXt chunk on save, e.g.
+#: ``Software: Matplotlib version3.11.2, https://matplotlib.org/`` (no space after "version" in
+#: 3.x). It is the only honest way to separate "the renderer changed" from "the figure is stale".
+SOFTWARE_VERSION = re.compile(r"Matplotlib version\s*(?P<version>[^,\s]+)")
+
+#: Fraction of the canvas (from the top) below which the footer provenance block is drawn.
+FOOTER_BAND_FRACTION = 0.75
 
 
 # ---------------------------------------------------------------------------------------------
@@ -145,6 +170,162 @@ def summary_rows(stdout: str) -> dict[str, dict]:
             "cells": int(match.group("cells").replace(",", "")),
         }
     return rows
+
+
+def decode_png(path: Path):
+    """The pixels a viewer sees, as an (H, W, 4) uint8 RGBA array.
+
+    Deliberately not `read_bytes()`: PNG compression level, chunk ordering and an encoder bump can
+    change the bytes without changing one visible pixel, and a guard that fails on those is a
+    flaky guard. The price is decoding ~13 MB per figure, which is a few hundred milliseconds.
+    """
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(path) as handle:
+        assert handle.format == "PNG", f"{path.name} is {handle.format}, not PNG"
+        return np.asarray(handle.convert("RGBA"), dtype=np.uint8)
+
+
+def embedded_matplotlib_version(path: Path) -> str | None:
+    """The `Matplotlib version…` stamp Matplotlib wrote into this PNG, or None if unparseable."""
+    from PIL import Image
+
+    with Image.open(path) as handle:
+        software = str(handle.info.get("Software") or "")
+    match = SOFTWARE_VERSION.search(software)
+    return match.group("version").strip() if match else None
+
+
+def running_matplotlib_version() -> str:
+    import matplotlib
+
+    return str(matplotlib.__version__)
+
+
+@dataclass(frozen=True)
+class PixelDiff:
+    """How one committed PNG differs from the freshly regenerated one (decoded pixels)."""
+
+    name: str
+    committed_shape: tuple[int, ...]
+    fresh_shape: tuple[int, ...]
+    differing: int
+    total: int
+    max_delta: int
+    #: (row0, row1, col0, col1) inclusive bounding box of the differing pixels, or None.
+    bbox: tuple[int, int, int, int] | None
+    footer_differing: int
+
+    @property
+    def shape_mismatch(self) -> bool:
+        return self.committed_shape != self.fresh_shape
+
+    @property
+    def has_drift(self) -> bool:
+        return self.shape_mismatch or self.differing > 0
+
+    def describe(self) -> str:
+        if self.shape_mismatch:
+            return (
+                f"{self.name}: canvas changed {self.committed_shape} -> {self.fresh_shape}; "
+                "the panel layout or the figure size is not what the committed upload shows"
+            )
+        if not self.has_drift:
+            return f"{self.name}: identical decoded RGBA canvas ({self.total:,} pixels)"
+        assert self.bbox is not None
+        row0, row1, col0, col1 = self.bbox
+        share = 100.0 * self.differing / self.total
+        return (
+            f"{self.name}: {self.differing:,} of {self.total:,} pixels differ ({share:.4f}%), "
+            f"max channel delta {self.max_delta}/255, bbox x={col0}..{col1} y={row0}..{row1}, "
+            f"{self.footer_differing:,} of them in the bottom-quarter footer band"
+        )
+
+
+def figure_diff(name: str, committed: Path, fresh: Path) -> PixelDiff:
+    """Compare one pair by decoded channels, and quantify the difference."""
+    import numpy as np
+
+    old = decode_png(committed)
+    new = decode_png(fresh)
+    if old.shape != new.shape:
+        return PixelDiff(name, old.shape, new.shape, 0, 0, 0, None, 0)
+    # int16 so unsigned subtraction cannot wrap around.
+    delta = np.abs(old.astype(np.int16) - new.astype(np.int16))
+    mask = delta.max(axis=2) > 0
+    differing = int(mask.sum())
+    if not differing:
+        return PixelDiff(name, old.shape, new.shape, 0, int(mask.size), 0, None, 0)
+    rows = np.flatnonzero(mask.any(axis=1))
+    cols = np.flatnonzero(mask.any(axis=0))
+    footer_from = int(old.shape[0] * FOOTER_BAND_FRACTION)
+    return PixelDiff(
+        name=name,
+        committed_shape=old.shape,
+        fresh_shape=new.shape,
+        differing=differing,
+        total=int(mask.size),
+        max_delta=int(delta.max()),
+        bbox=(int(rows[0]), int(rows[-1]), int(cols[0]), int(cols[-1])),
+        footer_differing=int(mask[footer_from:].sum()),
+    )
+
+
+def figure_diffs(
+    committed_dir: Path, fresh_dir: Path, names: tuple[str, ...] = FIGURES
+) -> list[PixelDiff]:
+    """One PixelDiff per figure pair present in both directories (missing files asserted upstream)."""
+    assert committed_dir.is_dir(), f"no committed figures directory: {committed_dir}"
+    return [
+        figure_diff(name, committed_dir / name, fresh_dir / name)
+        for name in names
+        if (committed_dir / name).is_file() and (fresh_dir / name).is_file()
+    ]
+
+
+def committed_provenance_ids() -> dict[str, str]:
+    """The provenance ids the footers must print, straight from the frozen artefacts."""
+    import json
+
+    ids = {}
+    for case in CASE_IDS:
+        meta = PROCESSED / case / "meta.json"
+        if not meta.is_file():
+            continue
+        with meta.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+        value = (payload.get("provenance") or {}).get("provenance_id")
+        if value:
+            ids[case] = str(value)
+    return ids
+
+
+def stale_figures_report(diffs: list[PixelDiff], fresh_dir: Path) -> str:
+    """A failure message that names the figure, the pixel count and the likely cause."""
+    lines = [
+        "committed docs/figures/*.png do not match a fresh regeneration of data/processed.",
+        f"fresh run: {fresh_dir}",
+        "",
+        "measured difference per figure (decoded RGBA pixels):",
+    ]
+    lines += [f"  - {diff.describe()}" for diff in diffs]
+    ids = committed_provenance_ids()
+    if ids:
+        lines += [
+            "",
+            "provenance_id the artefact footers must print (from data/processed/*/meta.json):",
+            *(f"  {case} = {value}" for case, value in ids.items()),
+        ]
+    lines += [
+        "",
+        "The footer draws each artefact's provenance_id. An un-regenerated figure after the",
+        "artefacts were re-frozen looks exactly like this — it can be stale while every mtime",
+        "gate stays green (see this module's docstring for the 2026 provenance-id incident).",
+        "Regenerate and commit:",
+        "  ./scripts/python.sh scripts/make_figures.py",
+    ]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -361,3 +542,109 @@ def test_shared_colour_limit_is_symmetric_and_covers_the_data(module):
     assert module.nice_symmetric_limit(27.9) == 50.0
     assert module.nice_symmetric_limit(0.0) == 25.0
     assert module.nice_symmetric_limit(-3.0) == 25.0, "a negative magnitude must not raise"
+
+
+# ---------------------------------------------------------------------------------------------
+# 9: committed figures must match a fresh regeneration (the provenance-footer drift guard)
+# ---------------------------------------------------------------------------------------------
+
+
+def test_committed_figures_match_a_fresh_regeneration(run: Run):
+    """The three uploaded PNGs must show what `data/processed` publishes today.
+
+    The `run` fixture is the same temp-dir regeneration the other tests use (`--out` only; the
+    default `--processed` is the committed artefact tree), so this costs one PNG decode per figure
+    and no extra generator run. Comparison is on decoded RGBA pixels; bytes are never asserted.
+
+    Skip, not fail, when the committed PNG was rendered by another Matplotlib: that is a renderer
+    difference, not evidence that the figure is stale. When the stamp names the running version,
+    there is no such excuse and any differing pixel fails.
+    """
+    assert_ok(run)
+    missing = [name for name in FIGURES if not (DOCS_FIGURES / name).is_file()]
+    assert not missing, (
+        f"committed figure(s) absent from {DOCS_FIGURES}: {', '.join(missing)}; the submission "
+        "ships those PNGs, so generate and commit them: ./scripts/python.sh "
+        "scripts/make_figures.py"
+    )
+
+    running = running_matplotlib_version()
+    embedded: dict[str, str | None] = {
+        name: embedded_matplotlib_version(DOCS_FIGURES / name) for name in FIGURES
+    }
+    # A fresh PNG is written by the running Matplotlib right now: it says what the stamp looks
+    # like on this host, so "unparseable" can be told apart from "committed file carries none".
+    fresh_stamp = embedded_matplotlib_version(run.out / FIGURES[0])
+    if fresh_stamp is None:
+        pytest.skip(
+            "cannot read a Matplotlib version from the freshly written PNG either "
+            f"(Software chunk = {embedded[FIGURES[0]]!r}, running matplotlib {running}); the "
+            "metadata format changed, so cross-version and stale cannot be told apart here"
+        )
+
+    unverifiable = sorted(name for name, version in embedded.items() if version is None)
+    assert not unverifiable, (
+        f"{', '.join(unverifiable)}: the committed PNG carries no readable 'Matplotlib version…' "
+        f"Software stamp, while a fresh render under {running} does ({fresh_stamp!r}). That is not "
+        "a cross-version difference — the file was not written by this script (stripped metadata "
+        "or foreign tool) — so it cannot be excused as one. Regenerate and commit it: "
+        "./scripts/python.sh scripts/make_figures.py"
+    )
+
+    foreign = {name: version for name, version in embedded.items() if version != running}
+    if foreign:
+        detail = "; ".join(
+            f"{name} was rendered by Matplotlib {version}" for name, version in foreign.items()
+        )
+        pytest.skip(
+            f"{detail}, while the running Matplotlib is {running}. Rendered pixels are not "
+            "comparable across versions, so staleness cannot be proven here; regenerate the "
+            f"committed figure(s) under the running version {running} "
+            "(./scripts/python.sh scripts/make_figures.py) and commit the result"
+        )
+
+    diffs = figure_diffs(DOCS_FIGURES, run.out)
+    assert {diff.name for diff in diffs} == set(FIGURES), (
+        f"compared {sorted(diff.name for diff in diffs)} but expected {sorted(FIGURES)}"
+    )
+    stale = [diff for diff in diffs if diff.has_drift]
+    assert not stale, stale_figures_report(diffs, run.out)
+
+
+def test_pixel_comparison_rejects_a_single_altered_pixel(tmp_path: Path):
+    """Non-vacuity: the guard above must reject a mutated committed figure, with an exact count.
+
+    A throwaway copy of `docs/figures/` gets one pixel XORed to its complement, never the tracked
+    file. The comparison must then report exactly one differing pixel on that figure and nowhere
+    else, with max channel delta 255 — proving the mask, the count and the message are real, and
+    that a stale upload cannot pass by being "roughly the same picture".
+    """
+    import numpy as np
+    from PIL import Image
+
+    if not all((DOCS_FIGURES / name).is_file() for name in FIGURES):
+        pytest.skip(f"no committed figures in {DOCS_FIGURES} to mutate")
+    copy = tmp_path / "figures"
+    shutil.copytree(DOCS_FIGURES, copy)
+    target = copy / "coherence.png"
+    pixels = decode_png(target).copy()
+    row, col = int(pixels.shape[0] * 0.9), pixels.shape[1] // 2
+    pixels[row, col, :3] ^= 0xFF  # complement the RGB channels: every channel moves by 255
+    Image.fromarray(pixels, mode="RGBA").save(target)
+
+    diffs = figure_diffs(DOCS_FIGURES, copy)
+    changed = [diff for diff in diffs if diff.has_drift]
+    assert [diff.name for diff in changed] == ["coherence.png"], (
+        f"a one-pixel change to coherence.png must be reported for exactly that figure, got "
+        f"{[diff.name for diff in changed]} (all: {[diff.describe() for diff in diffs]})"
+    )
+    mutated = changed[0]
+    assert mutated.differing == 1, mutated.describe()
+    assert mutated.max_delta == 255, mutated.describe()
+    assert mutated.total == EXPECTED_PX[0] * EXPECTED_PX[1]
+    assert mutated.bbox is not None and mutated.bbox[0] == row and mutated.bbox[1] == row
+
+    report = stale_figures_report(diffs, copy)
+    assert "coherence.png: 1 of 3,240,000 pixels differ" in report, report
+    assert "max channel delta 255/255" in report, report
+    assert "provenance_id" in report, report
