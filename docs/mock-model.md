@@ -81,10 +81,17 @@ La antigua cascada de anillos concéntricos sobrevive sólo dentro del fallback 
   `pipeline/mock/geography.py` sólo reexporta esa API). Mientras esta rama está activa, *todas* las
   features de contexto dicen `mock (synthetic …)` en su `source` y `meta.limitations` declara que la
   geografía es inventada. Las dos ramas son mutuamente excluyentes — un único booleano en la capa de
-  contexto elige una, y `meta.limitations` publica una sola de las dos frases — y la
-  compuerta de artefactos reconstruye el caso desde `meta.provenance.mock_seed`, así que una
-  geografía y un `meta.json` de ramas distintas no pasan juntos. Su único motivo de existir es que un
-  clon sin `data/raw/` pueda regenerar.
+  contexto elige una, y `meta.limitations` publica una sola de las dos frases — y quien reconstruye
+  el caso para comprobarlo es `pipeline/generate_mock.py --check`, que llama a
+  `pipeline/mock/checks.py::assert_case`: esa rutina relee `meta.provenance.mock_seed`, vuelve a
+  construir el modelo con el contexto que ve en disco y exige que el conjunto de celdas publicado
+  coincida celda a celda con el reconstruido (la elipse de cobertura menos las celdas por debajo de
+  `coherence_min`, y la coherencia depende del `land_use`), así que una geografía y un grid de ramas
+  distintas no pasan juntos. La **compuerta de artefactos no hace eso**:
+  `pipeline/validate_artifacts.py` y `src/data/validation.py` comprueban forma de contrato,
+  vocabulario y unidades, presupuesto de tamaño y concordancia entre los cuatro ficheros, y nunca
+  leen `mock_seed`; por sí solas no reconstruyen la geografía ni distinguen una rama de la otra.
+  Su único motivo de existir es que un clon sin `data/raw/` pueda regenerar.
 - **coherence**: `0.80` base ± a land-use bonus (urban-dense +0.10, water −0.30, …), a −0.20 edge
   penalty for `rho → 1`, a small coastal penalty, and `N(0, 0.025)` jitter, clipped to [0.05, 0.95].
   Water is then forced to `0.35·(0.35 + 0.55·rand)`, i.e. **strictly below** `coherence_min`, so it

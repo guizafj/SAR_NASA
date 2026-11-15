@@ -100,9 +100,11 @@ Two reasons settle it:
 1. **Single-ring pipeline constraint.** `process_case.py` builds the cell set from one ring
    (`h3.LatLngPoly(cfg.aoi_ring)`), so a MultiPolygon would need multipart support end-to-end before
    it could be an AOI at all.
-2. **The coverage bar.** Measured on the AOI denominator, coverage is 53.69 % / 55.41 % / 57.26 %
+2. **The coverage bar.** Measured on the AOI denominator, coverage is 54.01 % / 57.18 % / 66.00 %
    (Mexico City / Jakarta / Málaga) — all three clear the 50 % bar. A 5.3–7.2× larger envelope
-   dilutes NISAR swath overlap and pushes that bar out of reach.
+   dilutes NISAR swath overlap and pushes that bar out of reach: the bbox envelope alone already
+   gives 52.30 % / 48.85 % / 36.32 %, below the 50 % bar for Jakarta and Málaga. The bbox figure is
+   the envelope of the AOI and is never coverage of the city.
 
 Same polygons, different area formula: the loader's equirectangular estimate quoted in §Evidence
 reads 1,498 / 748 / 394 km², under 0.5 % from the figures above. Neither is a survey measurement;

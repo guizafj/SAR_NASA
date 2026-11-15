@@ -90,3 +90,16 @@ tmp/
 Thumbs.db
 *.swp
 *~
+
+# ---------------------------------------------------------------- local scratch that must never be committed
+# pytest's tmp_path base when TMPDIR points inside the repo (it reached 114 GB here), matplotlib's
+# figure dump and the pitch deck are working artefacts, not inputs: `git add -A` must not see them,
+# because a directory that size cannot be undone from history. `/test` is anchored so it cannot
+# shadow a future `test/` directory.
+pytest-of-*/
+make-figures-mpl-*/
+SAR_PITCH_PPT.pptx
+/test
+# The role contract stays local: it is the project's working agreement, not part of the published
+# repo. The file is tracked nowhere and read by every contributor from their own checkout.
+AGENTS.md

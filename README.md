@@ -24,8 +24,9 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 >
 > **What does not exist yet:** any run on a real granule, and any deployed URL. The image build and
 > the first CI run are committed but unverified here, because this machine has no `docker` binary.
-> **Every number in `data/processed/` is synthetic** — `product: "mock"`, and every artefact says so
-> in its own `provenance` and `limitations`.
+> **Every displacement value in `data/processed/` is synthetic** — `product: "mock"`, and every
+> artefact says so in its own `provenance` and `limitations`. The context geometry is **not**
+> synthetic: it is derived from an OpenStreetMap extract and offered under the ODbL 1.0 (§17).
 >
 > **Language.** This README is the entry point (English). The operative role/workflow document
 > [`flujo_trabajo_y_responsabilidades.md`](flujo_trabajo_y_responsabilidades.md) is in Spanish and
@@ -78,15 +79,15 @@ Both gates need the venv first — the two setup lines are in the setup section 
 clone without it, `check_phase_a.sh` fails with four `.venv/bin/python missing` errors.
 
 ```bash
-./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.687 MB / 15 MB
+./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 4.740 MB / 15 MB
 ./scripts/preflight.sh         # fuller: seven gates, per-gate table, ends in a VERDICT line
 ```
 
 | case | cells | window | median mm/yr | product | source |
 |---|---:|---|---:|---|---|
-| `mexico-city` | 11,694 | 2024-11-10 → 2026-11-12 | −62.1 | mock | synthetic |
-| `jakarta` | 4,811 | same window | −25.4 | mock | synthetic |
-| `malaga` | 2,645 | same window | −1.4 | mock | synthetic |
+| `mexico-city` | 11,600 | 2024-11-10 → 2026-11-12 | −64.7 | mock | synthetic |
+| `jakarta` | 4,936 | same window | −25.9 | mock | synthetic |
+| `malaga` | 2,758 | same window | −1.3 | mock | synthetic |
 
 The full suite (`./scripts/python.sh -m pytest tests`, ~4.5 min) is the thorough check; the gate is
 what a judge should run first. `scripts/demo_numbers.py` prints every number a presenter may say,
@@ -182,7 +183,7 @@ app; it is versioned, validated in code and locked by a regression suite.
 |---|---|
 | `nisar_grid.parquet` | One row per H3 res-9 cell (~200 m): `cell_id`, `lat`, `lon`, `val_t1`, `val_t2`, `delta_change` (mm, cumulative), `velocity_mm_yr`, `coherence`, `land_use`, `risk_level`, `case_id`, `sensor`, `product`, `unit`, `velocity_unit`, `source`, `acquisition_date`, `provenance_id` |
 | `timeseries.csv` | `case_id`, `cell_id` (`"aoi"` = aggregate, H3 index = drill-down), `date`, `value` (mm), `unit`, `sensor`, `product`, `quality`, `provenance_id` |
-| `context_layers.geojson` | `FeatureCollection` in EPSG:4326: land use, infrastructure, hydrology, boundaries — each feature carries `layer`, `class`, `case_id`, `crs`, `source`, `provenance_id` |
+| `context_layers.geojson` | `FeatureCollection` in EPSG:4326: land use, infrastructure, hydrology, boundaries — each feature carries `layer`, `class`, `case_id`, `crs`, `source`, `provenance_id`. © OpenStreetMap contributors, ODbL 1.0; a Derivative Database, not MIT (§17) |
 | `meta.json` | `schema_version`, `case_id`, `name`, `bbox`, `crs`, `reference_point`, `dates`, `revisit_days`, `sensor`, `product`, `thresholds`, `provenance`, `stats`, `limitations`, `null_policy` (nested objects `thresholds{}`/`provenance{}`/`stats{}`; `limitations` is a list) |
 
 Normative details: **[`docs/data-contract-v1.md`](docs/data-contract-v1.md)**.
@@ -642,7 +643,7 @@ git show origin/main:data/processed/mexico-city/meta.json | grep -E '"schema_ver
 git show origin/yuls:data/processed/mexico-city/meta.json | grep -E '"schema_version"|"n_dates"'
 ```
 
-Everything under `data/processed/` is 1.97 MB (1.687 MB of artefacts plus the `_availability/`
+Everything under `data/processed/` is 5.02 MB (4.740 MB of artefacts plus the `_availability/`
 evidence), so it belongs in the repo; `data/raw/` never does.
 
 **Working safely with uncommitted work.** On 2026-11-14 a `git reset --hard` silently reverted every
@@ -865,5 +866,15 @@ Code, docs and figures are **MIT** (`LICENSE`). That licence does **not** relice
   the C-band path runs; its coherence is never pooled with NISAR's (6-day vs 12-day revisit).
 - **Map context and place names** — © OpenStreetMap contributors (ODbL), fetched via Nominatim into
   `data/staging/`.
+- **Context layers** (`data/processed/<case>/context_layers.geojson`, pinned by
+  `config/context/<case>.json`) — © OpenStreetMap contributors, **ODbL 1.0**
+  (<https://opendatacommons.org/licenses/odbl/1-0/>), read from an Overpass API extract
+  (`pipeline/ingest/fetch_context.py`; the raw extract stays gitignored). The committed GeoJSON is a
+  **Derivative Database**, offered under the ODbL and not under the MIT licence above. A rendered
+  map, screenshot or figure is a **Produced Work**: no share-alike, but the attribution notice
+  travels with it — *"Contains information from OpenStreetMap, which is made available here under
+  the Open Database License (ODbL). © OpenStreetMap contributors"*. The Derivative/Produced split,
+  the `unknown`-share measured per case and the open question of mixing OSM polygons with building
+  footprints are in [`docs/context-sources.md`](docs/context-sources.md) §5.
 - **Published subsidence rates** — cite the paper actually used in the provenance record (§16), not
   the closest headline number.

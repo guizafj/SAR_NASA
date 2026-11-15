@@ -320,7 +320,8 @@ def test_no_override_reproduces_the_existing_mock_cell_counts(tmp_path):
 
     The expected values are computed from a *manually built* pre-loader `CaseSpec` (bbox and mock
     field read straight from the YAML). Comparing that against `load_study_cases()` proves the new
-    indirection changed nothing; nothing here depends on the model's current water/coherence tuning.
+    indirection changed nothing. That equality holds under any model tuning; the anchored snapshot
+    at the end does not — it follows the context labels and the coherence filter as well.
     """
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -334,8 +335,11 @@ def test_no_override_reproduces_the_existing_mock_cell_counts(tmp_path):
     wired_counts: dict[str, int] = {}
     baseline_counts: dict[str, int] = {}
     for case_id in ("mexico-city", "jakarta", "malaga"):
-        wired = MM.build_case(study.cases[case_id], study, seed)
-        baseline = MM.build_case(legacy[case_id], study, seed)
+        # Shape-valid provenance id: `build_case` stamps it on the mapped context, and nothing here
+        # asserts a digest, so a fixed literal keeps the run hermetic.
+        provenance = f"{case_id}+mock+20261114+abc12345"
+        wired = MM.build_case(study.cases[case_id], study, seed, provenance=provenance)
+        baseline = MM.build_case(legacy[case_id], study, seed, provenance=provenance)
         wired_counts[case_id] = wired.n_cells
         baseline_counts[case_id] = baseline.n_cells
         assert wired.n_cells == baseline.n_cells, (
@@ -344,10 +348,13 @@ def test_no_override_reproduces_the_existing_mock_cell_counts(tmp_path):
         )
         assert list(wired.cell_id) == list(baseline.cell_id), f"{case_id}: wired cell ids changed"
 
-    # Published mock snapshot at seed 7 for the current study areas (the OSM-envelope bboxes in
-    # config/study_cases.yaml). It moves only when the study area is redefined; update it in the
-    # same change that moves the bbox, never by deleting the anchor.
-    published_snapshot = {"mexico-city": 11_694, "jakarta": 4_811, "malaga": 2_645}
+    # Published mock snapshot at seed 7 (it equals `stats.n_cells` in data/processed/*/meta.json).
+    # It moves when the study area is redefined (the OSM-envelope bboxes in config/study_cases.yaml,
+    # or a config/aoi/ override) and it also moves when the context labels move: the pinned OSM
+    # coastline feeds the coherence model, so a different context changes which cells clear
+    # `coherence_min` and survive the filter. Update this anchor in the same change that moves either
+    # input, never by deleting it.
+    published_snapshot = {"mexico-city": 11_600, "jakarta": 4_936, "malaga": 2_758}
     assert baseline_counts == published_snapshot, (
         "the YAML's bboxes no longer yield the published mock cell counts: "
         f"{baseline_counts} != {published_snapshot}"

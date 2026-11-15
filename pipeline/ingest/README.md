@@ -143,3 +143,87 @@ Consequences, in the order they matter:
 `sizeMB`, `downloadUrl`), synthetic reports under `tmp_path`, and a read-only replay of the
 committed `data/processed/_availability/*.json`. Cases whose committed report predates stack
 derivation are skipped with a note (refreshing them needs the network).
+
+## Contexto OSM (offline)
+
+Las capas `land_use`, `water` e `infrastructure` de `context_layers.geojson` salen de un extracto de
+OpenStreetMap cacheado en disco. Lector y productor están separados y commiteados: el lector
+`pipeline/ingest/osm_context.py` sólo lee (`load_extract` levanta `FileNotFoundError` si no hay
+`manifest.json`) y no importa nada de red, y el productor del extracto es
+`pipeline/ingest/fetch_context.py` (`./scripts/python.sh pipeline/ingest/fetch_context.py --dry-run`;
+`--case` repetible, `--force`, `--include-buildings` opt-in, y `--pause`/`--attempts`/`--backoff`/
+`--timeout`/`--endpoint` para la política de red). La extracción se ejecuta una vez, a mano; a partir
+de ahí el pipeline es offline y determinista. Qué fuente es, qué cobertura tiene y con qué licencia, en
+[`docs/context-sources.md`](../../docs/context-sources.md).
+
+### Disposición en disco
+
+```
+data/raw/<case_id>/context/manifest.json                  registro de la recuperación
+data/raw/<case_id>/context/tiles/<case>_r<r>_c<c>.json   respuestas de Overpass, literales, una por tile
+```
+
+`data/raw/` está en `.gitignore`: un dump de Overpass son decenas de MB. Lo que se commitea es el
+artefacto, y el registro de la recuperación viaja en `manifest.json` y en el `source` de cada
+feature.
+
+### Cómo se recupera (una vez)
+
+| Regla | Valor |
+|---|---|
+| Rejilla de tiles | como máximo 0.15° por lado, por AOI |
+| Peticiones | una cada vez, con `User-Agent` propio |
+| Espera entre tiles | 8 s |
+| Backoff | 30 s ante 429 / 502 / 504 |
+| Escalera de reintentos | `overpass-api.de` → `overpass.private.coffee` → `ovp.dresel.systems` |
+| Respuesta | geometría incluida: `_relation_geometry` ensambla los multipolígonos desde la geometría de cada miembro, sin node store |
+
+Los tiles se piden por separado y un way que toca dos tiles vuelve en los dos: `load_extract`
+deduplica por `(type, id)` y ordena, así que el frame no depende del orden de los tiles ni del orden
+en que Overpass devolvió los elementos.
+
+### Cómo comprobar qué está cacheado
+
+```bash
+./scripts/python.sh -c "from pipeline.ingest import osm_context as O; import json; print(json.dumps(O.summarise('malaga'), indent=2, ensure_ascii=False))"
+```
+
+`osm_context.summarise(case_id)` no construye geometría: cuenta elementos, devuelve el `record`
+(`retrieved_utc`, `timestamp_osm_base`, `tiles_ok`/`tiles_failed`, `elements`, `bbox`) y un censo de
+tags `landuse`/`natural`/`waterway`/`leisure`. Sin manifest devuelve `{"cached": false}`.
+
+### Contexto fijado: `pin_context`
+
+El extracto está gitignored y el artefacto tiene que regenerarse idéntico en una máquina que nunca
+lo descargó (CI incluida). La pieza que se commitea para eso es el **pin** del caso: las decisiones
+que el extracto implica (una clase por celda H3 r9 más las features simplificadas de agua,
+infraestructura y límite administrativo), no los tiles.
+
+```bash
+./scripts/python.sh -m pipeline.ingest.pin_context --case malaga   # reconstruye un caso
+./scripts/python.sh -m pipeline.ingest.pin_context                 # por defecto: los casos declarados
+```
+
+| | |
+|---|---|
+| Entrada | el extracto cacheado del caso, `data/raw/<case_id>/context/` (gitignored) |
+| Salida | `config/context/<case_id>.json`, commiteado |
+| Escritor | `pipeline/ingest/pin_context.py` (offline; el generador no lo importa) |
+| Lector | `pipeline/context.py`: `read_pin` → `pinned_context` → `label_cells` |
+
+Sin extracto el comando falla nombrando el `manifest.json` que falta en vez de escribir un pin
+vacío. El pin es dato derivado y no se edita a mano: se reconstruye, y su `pin_sha256` permite
+comparar la reconstrucción con el fichero commiteado. Qué contiene cada clave, por qué el tope de
+features es por tipo de geometría y qué pasa con una celda que el pin no nombra están en
+[`docs/context-sources.md`](../../docs/context-sources.md) §7.
+
+El pin es lo que hace reproducible `pipeline/generate_mock.py` sin el extracto: con él, un clon sin
+`data/raw/` produce el mismo `context_layers.geojson` y la misma columna `land_use`.
+
+### Licencia
+
+Los polígonos publicados van bajo **ODbL 1.0** y cada feature lleva el proveedor y la licencia en su
+`source` (`osm_context.SOURCE`). El texto de atribución, la distinción entre base de datos derivada
+y produced work, y la cuestión de licencia mixta que sigue abierta están en
+[`docs/context-sources.md`](../../docs/context-sources.md) §5; la atribución visible del repositorio
+está en `README.md` §17.

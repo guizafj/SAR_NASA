@@ -83,7 +83,10 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert (df_flat["height"] == 0.0).all()
 
     counts = loaders.get_layer_counts("mexico-city", filters)
-    assert 0 < counts["shown"] < counts["total"] == 11694
+    # The published cell count is Rol 3's artefact, not a UI constant (11,694 -> 11,600 when the
+    # grid was regenerated): derive it from the payload/meta already loaded, never pin a literal.
+    assert 0 < counts["shown"] < counts["total"]
+    assert counts["total"] == meta_cdmx["stats"]["n_cells"] == len(df_flat)
 
     scale = loaders.get_color_scale("mexico-city", filters)
     assert scale["min"] == -425.0 and scale["max"] == 425.0
@@ -133,7 +136,12 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert shares["malaga"] < 0.05
 
     ctx = loaders.load_context_layers("mexico-city")
-    assert ctx is not None and ctx["summary"]["n_features"] == 12
+    assert ctx is not None
+    # Context is now OSM-backed (708 features, not 12): check the summary against the published
+    # body and meta.stats, and that every feature lands in exactly one `layers` bucket.
+    assert ctx["summary"]["n_features"] == len(ctx["geojson"]["features"])
+    assert ctx["summary"]["n_features"] == meta_cdmx["stats"]["n_context_features"]
+    assert sum(ctx["summary"]["layers"].values()) == ctx["summary"]["n_features"]
 
     limits = loaders.load_documented_limits()
     assert limits["section_8_caveat"] is not None

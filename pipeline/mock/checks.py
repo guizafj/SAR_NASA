@@ -155,7 +155,11 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         "the quality filter cannot be audited",
         failures,
     )
-    model = M.build_case(case, study, seed) if seed >= 0 else None
+    model = (
+        M.build_case(case, study, seed, provenance=str(meta["provenance"]["provenance_id"]))
+        if seed >= 0
+        else None
+    )
     if model is not None:
         modelled_prefilter = {str(v) for v in model.prefilter_cell_id}
         _require(
@@ -354,7 +358,9 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     known_land_use = set(C.LAND_USE)
     _require(set(grid["land_use"].astype(str)) <= known_land_use, "land_use outside the frozen vocabulary", failures)
     land_use_counts = {str(k): int(v) for k, v in grid["land_use"].value_counts().items()}
-    _require(len(land_use_counts) >= 5, f"land_use only uses {sorted(land_use_counts)}: rule is too coarse", failures)
+    # Three classes is the floor, not a target: the labels come from real OSM tags now, and a
+    # case whose extract carries only a few classes is telling the truth about its AOI.
+    _require(len(land_use_counts) >= 3, f"land_use only uses {sorted(land_use_counts)}: rule is too coarse", failures)
     # Water must be ABSENT from the grid (a specular surface has no usable phase, so the quality
     # filter drops those cells) while remaining a context layer, so the app can draw the coastline
     # without publishing "ocean with subsidence".
@@ -364,11 +370,15 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
         f"surface must not carry a displacement",
         failures,
     )
-    _require(
-        "water" in {f["properties"]["layer"] for f in context.get("features", [])},
-        "no water feature in context_layers: the synthetic coastline/lake rule did not fire",
-        failures,
-    )
+    for layer in ("water", "infrastructure"):
+        if model is None or model.context.synthetic or not model.context.features_of(layer).empty:
+            _require(
+                layer in {f["properties"]["layer"] for f in context.get("features", [])},
+                f"no {layer} feature in context_layers although the context carries one",
+                failures,
+            )
+        else:
+            checks.append(f"context: no {layer} feature in the extract for this AOI (declared absent)")
     checks.append(
         f"derived: risk bands from velocity, ratio_R = |trend|/amplitude on the {int(fitted.sum())} "
         f"fitted cell(s) (max residual {ratio_residual:.1e}), ratio_R null on the "
@@ -535,6 +545,55 @@ def assert_case(case: CaseSpec, study: StudyCases, directory: Path) -> CaseRepor
     )
     layers = {f["properties"]["layer"] for f in context["features"]}
     _require({"land_use", "infrastructure", "water"} <= layers, f"context layers {sorted(layers)} incomplete", failures)
+    # Sea cells must not carry a displacement. The context derives the sea geometrically from the
+    # real coastline (`context.sea_polygons`), so the gate is stated against that polygon:
+    #   (a) an extract with coastline features must have produced a sea polygon — a cap that ranked
+    #       the water layer by area once dropped every line, and the rule then failed silently;
+    #   (b) no published cell may sit inside it.
+    # Testing a *sign* against the coastline would pass vacuously; that is why it is not done.
+    if model is not None and model.context.synthetic:
+        # The declared fallback has no derived sea polygon: it excludes the sea with the side it
+        # declares per case (`Coast.sea_side`) inside `_synthetic_land_use`. What must hold there is
+        # that the rule actually fired and the filtered cells are gone.
+        _require(
+            "water" not in land_use_counts,
+            "the synthetic fallback published water cells: its declared-side rule did not fire, so a "
+            "specular surface carries a displacement",
+            failures,
+        )
+        checks.append("sea: synthetic fallback excluded the sea with its declared side")
+    elif model is not None:
+        water_rows = model.context.features_of("water")
+        # `coastline_lines` is recorded by the pin writer: a pinned context keeps only the largest
+        # water features, so losing every coastline row to the per-kind cap would otherwise look
+        # exactly like an inland AOI and this check would pass vacuously.
+        has_coastline = bool(
+            int(model.context.counters.get("coastline_lines") or 0) > 0
+            or (not water_rows.empty and (water_rows["class"] == "coastline").any())
+        )
+        _require(
+            model.context.sea is not None or not has_coastline,
+            "the context carries coastline features but no sea polygon was derived: nothing excludes "
+            "the sea, so the artefact could publish a displacement over it",
+            failures,
+        )
+        if model.context.sea is not None:
+            from shapely.geometry import Point  # noqa: PLC0415 - only this branch needs it
+
+            inside_sea = sum(
+                1
+                for lon, lat in zip(model.lon, model.lat, strict=True)
+                if model.context.sea.contains(Point(float(lon), float(lat)))
+            )
+            _require(
+                inside_sea == 0,
+                f"{inside_sea} published cell(s) fall inside the derived sea polygon: a specular "
+                "surface must not carry a displacement",
+                failures,
+            )
+            checks.append(
+                f"sea: the derived sea polygon excludes all {int(model.n_cells)} published cells"
+            )
     checks.append(f"context: {len(context['features'])} features, land_use classes match the grid")
 
     # -- 13. budget: this case cannot own the whole 15 MB tree -------------------------------

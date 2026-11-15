@@ -38,29 +38,38 @@ imports Streamlit and nothing needs NASA credentials.
 
 | case | cells | median mm/yr | p05 | coherence | land-use classes | size |
 |---|---:|---:|---:|---|---:|---:|
-| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.44–0.95 | 6 | 0.99 MB |
-| `jakarta` | 4,811 | −25.4 | −141.9 | 0.35–0.95 | 6 | 0.44 MB |
-| `malaga` | 2,645 | −1.4 | −3.5 | 0.35–0.95 | 6 | 0.25 MB |
+| `mexico-city` | 11,600 | −64.7 | −232.2 | 0.47–0.95 | 7 | 2.15 MB |
+| `jakarta` | 4,936 | −25.9 | −144.0 | 0.45–0.95 | 7 | 1.51 MB |
+| `malaga` | 2,758 | −1.3 | −3.4 | 0.37–0.94 | 7 | 1.08 MB |
 
-The published cells are the AOI's **bbox** ∩ the coverage ellipse, and the `admin_boundary` polygon is that
-ellipse: **12 / 5 / 2** published cells (Mexico City / Jakarta / Málaga) lie outside its ring, so clipping to
-it counts **11,682** instead of **11,694** in Mexico City; trust the grid counts. The QGIS ring in
-`config/aoi/{case}.geojson` is much tighter than that footprint — only 6,620 / 3,873 / 2,051 published cells
-fall inside it — so clipping to it is a real filter, not a rounding.
+The published cells are the configured **bbox** ∩ the coverage ellipse: the ellipse decides which cells
+exist, and nothing else. The `admin_boundary` / `aoi` feature is not that ellipse — it is the real OSM
+city limit in `config/aoi/{case}.geojson`, the ring `pipeline/aoi.py` validates; any other `admin_boundary`
+feature is a real district from the same extract. That ring is much tighter than the ellipse footprint, so
+clipping to it is a real filter, not a rounding: it removes published cells instead of trimming a stray
+corner. Trust the grid counts.
 
 Three changes since the first cut, all deliberate — if your numbers differ, you are reading a stale copy:
 
 - **Water cells are absent from the grid.** A specular surface has no usable phase, so the quality
-  filter drops those cells (the contract's nodata rule: absent, never 0). The coastline, lake and
-  river are still in `context_layers.geojson` as `layer: "water"` features, so the map can draw the
-  coast without publishing "ocean with subsidence". That is also why `land_use` shows 6 classes in
-  the grid instead of 7.
+  filter drops those cells (the contract's nodata rule: absent, never 0). The water is real geometry,
+  not an invented ring: coastline, lake and river come from the OpenStreetMap join (on a clone with
+  no raw extract, from the committed pin `config/context/<case>.json`, which carries the same
+  features; the declared synthetic fallback is only for a clone with neither) and stay in
+  `context_layers.geojson` as
+  `layer: "water"` features, so the map can draw the coast without publishing "ocean with subsidence".
+  The sea is a *derived polygon*, not a declared side (`pipeline/context.py::sea_polygons`): the
+  coastline is polygonized together with the AOI bbox ring, and a closed candidate is sea when almost
+  none of its area is covered by mapped land use. A per-case side cannot describe a bay — one sign
+  labelled Jakarta's land as water. Cells whose centroid falls inside that polygon are labelled
+  `water` and the coherence filter then removes them. `land_use` carries whatever classes the extract's OSM tags do — a cell no mapped polygon
+  contains is `unknown`, and so is a cell whose containing polygon maps to no class; `unknown` is published.
 - **The seasonal term is a fitted result, not an assumption.** The window is two years (62 dates,
   `2024-11-10 → 2026-11-12`), so `stats.annual_coverage = 2.004` and `stats.design_condition = 4.12`
   clear the repo's own identifiability gates (`0.75` yr per harmonic, condition `30`) with margin.
   `seasonal_amp_mm`, `ratio_R` and `regime` are therefore *published* per cell, as outputs of one
   joint fit over the whole stack (`harmonic_fit`), with the aggregates
-  `stats.median_seasonal_amp_mm` = **1.5 / 12.0 / 3.5 mm**, `stats.median_ratio_R` = **41.4 / 2.1 /
+  `stats.median_seasonal_amp_mm` = **1.5 / 12.0 / 3.5 mm**, `stats.median_ratio_R` = **43.1 / 2.2 /
   0.4** and `stats.dominant_regime` = inelastic / inelastic / elastic (Mexico City / Jakarta /
   Málaga). The first cut could not say this: at 132 days (0.36 cycles, condition 66.8) the same gate
   failed, so its seasonal amplitude was *not publishable* and `delta_change/T` overstated the trend
@@ -70,12 +79,32 @@ Three changes since the first cut, all deliberate — if your numbers differ, yo
   5 dp, zero sign disagreements in all three cases). The seasonal bulge is still visible mid-window;
   it is a dip-and-return, not a ramp.
 - **Coherence is no longer clipped up to 0.45.** Modelled coherence now reaches the frozen threshold
-  (0.35), so the coherence filter removes cells instead of being a no-op on land: Jakarta
-  5,000 → 4,811 and Málaga 3,647 → 2,645 cells, and every published cell satisfies
-  `coherence ≥ 0.35`.
+  (0.35), so the coherence filter removes cells instead of being a no-op on land: the three grids are
+  published at 11,600 / 4,936 / 2,758 cells, and every published cell satisfies `coherence ≥ 0.35`.
 
-Water is context, not a grid class, and differs by case: `reservoir` + `river` (Mexico City), `coastline` +
-`canal` (Jakarta), `coastline` + `river` (Málaga). `water` and `unknown` never appear in the grid's `land_use` — cells are dropped, not relabelled.
+`water` never appears in the grid's `land_use` — those cells are dropped, not relabelled. Every other class
+in the frozen vocabulary can appear, and which ones do depends on the OSM tags the extract carries: there is
+no per-case expected set, and no class is guaranteed in every case. `unknown` does appear, and it is a
+legitimate published value with two causes: no mapped polygon contains the cell's centroid, or one
+does and its OSM tags map to no class in the frozen table. Neither is "no data". Because both causes
+are real, `meta.limitations` names both and publishes the total, not a split: "either no mapped
+polygon contains their centroid, or the containing polygon's tags map to no class of the frozen
+land-use vocabulary. Both causes stay `unknown` and neither is extrapolated from a neighbouring
+cell." Which share fell to which cause is a *measurement*, not a published field: it needs the
+extract, which is gitignored. Joining the published cells against `data/raw/<case>/context/` with
+`osm_context.load_extract` + `enrich_context.join_land_use` gives Málaga 0 of its 1,080 `unknown`
+cells with no polygon (all 1,080 sit inside a mapped polygon whose tags carry no class), Jakarta 2,288
+of 2,434, and Mexico City 7,792 of 7,897. Quote those as a measurement over the extract, never as a
+number `meta.json` carries.
+
+What you may rely on in the context layers: `land_use` is one frozen-vocabulary string per cell, and the
+context features carry `source` (provider plus licence) as well as the same single `provenance_id` as the
+grid, so a feature and a cell are attributable to one artefact. That `source` is also how you tell the two
+geographies apart without opening the pipeline: the mapped path names OpenStreetMap and the ODbL, the
+declared fallback says `mock (synthetic ...)` on every feature, and the first sentence of the matching
+`meta.limitations` entry says which one you are holding — "Mock geography (coastline, lake, river,
+POIs) is invented by the synthetic fallback" versus "Context geography (land use, water, infrastructure) is
+derived from an OpenStreetMap extract".
 
 All three: 62 dates, `2024-11-10 → 2026-11-12`, `product = mock`, `revisit_days = 12`,
 `cell_id == "aoi"` series starting at 0 mm. If a number you see is wildly off this table, you are
@@ -163,7 +192,7 @@ cards = kpis(case)                                                 # dict, copie
   `p95`, `spread` (`p95 − p05`), `dates`, `window_days`, `product`, `provenance_id`, plus
   `coverage_fraction` and `detection_limit_mm_yr` **when `meta.stats` publishes them**. Málaga
   carries the **configured mock value** `detection_limit_mm_yr = 1.5` with
-  `median_velocity_mm_yr = −1.358`, so `|median| < limit` is a card you can render:
+  `median_velocity_mm_yr = −1.31`, so `|median| < limit` is a card you can render:
   **"below detection"**, not a dash. The 1.5 is not estimated from mock residuals. Mexico City and
   Jakarta do not publish the key, so it is *absent* there — absent means "not a flat case", not
   "unknown".
@@ -195,14 +224,14 @@ read them from `meta.stats`, never from this table:
 
 | case | p05 | p95 | spread |
 |---|---:|---:|---:|
-| `mexico-city` | −231.9 | −22.7 | 209.2 |
-| `jakarta` | −141.9 | 2.7 | 144.5 |
-| `malaga` | −3.5 | 0.7 | 4.2 |
+| `mexico-city` | −232.2 | −23.5 | 208.6 |
+| `jakarta` | −144.0 | 2.6 | 146.6 |
+| `malaga` | −3.4 | 0.7 | 4.2 |
 
-**Do not clip the shared scale at p05/p95.** That range (−231.9 … 2.7 mm/yr) would hide Mexico
+**Do not clip the shared scale at p05/p95.** That range (−232.2 … 2.6 mm/yr) would hide Mexico
 City's core, whose cells reach **−415.1 mm/yr** — the bowl would saturate and the strongest signal
 in the demo would render flat-topped. Use a **symmetric scale about 0 at ±425 mm/yr**: the contrast
-survives (Mexico City's spread is still **50.3×** Málaga's), the extreme cells stay visible, and no
+survives (Mexico City's spread is still **50×** Málaga's), the extreme cells stay visible, and no
 panel needs clipping. `docs/figures/velocity_shared_scale.png` uses exactly this scale, so the app
 and the pitch figure agree.
 
@@ -215,9 +244,9 @@ as the default, or the contrast disappears.
 
 | case | mean mm/yr (chart) | median mm/yr (KPI) | mean×T | median×T |
 |---|---:|---:|---:|---:|
-| `mexico-city` | −85.8 | −62.1 | −172.0 mm | −124.4 mm |
-| `jakarta` | −40.6 | −25.4 | −81.4 mm | −50.9 mm |
-| `malaga` | −1.4 | −1.4 | −2.8 mm | −2.7 mm |
+| `mexico-city` | −87.8 | −64.7 | −176.0 mm | −129.6 mm |
+| `jakarta` | −41.3 | −25.9 | −82.8 mm | −51.8 mm |
+| `malaga` | −1.3 | −1.3 | −2.7 mm | −2.6 mm |
 
 ## 4. What the UI must surface from `meta.json`
 

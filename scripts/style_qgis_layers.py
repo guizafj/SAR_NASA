@@ -17,7 +17,8 @@ What it writes (default ``data/staging/qgis/styles/``)
 ``grid_coherence.qml``   graduated on ``coherence``, 0–1
 ``grid_risk.qml``        categorised on ``risk_level`` (estable / moderado / critico)
 ``grid_quality.qml``     rule-based: coherence mask + risk bands on one map
-``context_layers.qml``   rule-based on ``layer``, geometry-aware (water is Polygon *and* Line)
+``context_layers.qml``   rule-based on ``layer`` + ``class`` + ``geometry_type()``: one rule per
+                         contract class per geometry kind, then a layer fallback
 ``aoi_ring.qml``         dashed no-fill outline for ``config/aoi/*.geojson``
 ``styles_manifest.json`` which file styles which field, with the renderer and class count
 
@@ -38,6 +39,9 @@ Rules this file will not break
   that would paint Málaga as weak subsidence when the artefacts say the trend is not recoverable.
 * **No invented breaks.** Coherence is cut only at the app's own anchors (0 / 0.35 / 0.65); the
   top swatch colour covers the 0.65–1.0 leg rather than a 0.85 split that no document authorises.
+* **The class vocabulary is not re-typed here.** Context classes come from
+  ``contracts.CONTEXT_CLASSES``: a class the contract declares is a class the map can draw, and a
+  class it does not declare falls to that layer's fallback rule instead of being invented.
 * **Deterministic.** Fixed UUIDv5 keys, sorted case order, no timestamps: re-running produces
   byte-identical files, so a style change shows up as a real diff.
 * **Nodata stays absent.** Nothing here invents cells; a hole in the grid is a hole in the map.
@@ -46,6 +50,7 @@ Rules this file will not break
 from __future__ import annotations
 
 import argparse
+import colorsys
 import json
 import os
 import pathlib
@@ -54,11 +59,13 @@ import sys
 import tempfile
 import uuid
 import xml.sax.saxutils as sax
+from collections.abc import Mapping, Sequence
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.domain import contracts as C  # noqa: E402
 from src.domain import map_adapter as MA  # noqa: E402
 
 #: QML written by QGIS 3.x is still read by QGIS 4; declare a 3.x version so both open it.
@@ -363,68 +370,277 @@ def quality_rules() -> tuple[tuple[str, str, str], ...]:
     )
 
 
+#: Geometry kinds a context layer is published with, in rule order. QGIS's ``geometry_type()``
+#: collapses ``MultiPolygon``/``MultiLineString`` onto these three names.
+CONTEXT_GEOMETRY_KINDS: tuple[tuple[str, str], ...] = (
+    ("Polygon", "area"),
+    ("Line", "line"),
+    ("Point", "point"),
+)
+
+_CONTEXT_KIND_LABEL: Mapping[str, str] = dict(CONTEXT_GEOMETRY_KINDS)
+
+#: Kinds each layer is styled for, read off the published artefacts rather than guessed.
+#:
+#: ``land_use`` is dissolved grid cells (polygons only); ``infrastructure`` and ``admin_boundary``
+#: are published as polygons and lines (a levee or pipeline as a way, a district as a boundary ring);
+#: ``water`` adds points because the extract's ``natural=spring`` is a point feature
+#: (``docs/context-sources.md`` §1), so a lone spring is a declared publication, not an invention.
+#: Nothing here is a claim that a feature exists: a kind with no rule still draws through its
+#: layer fallback — it just stops being labelled as a class.
+CONTEXT_LAYER_GEOMETRIES: Mapping[str, tuple[str, ...]] = {
+    "land_use": ("Polygon",),
+    "infrastructure": ("Polygon", "Line"),
+    "water": ("Polygon", "Line", "Point"),
+    "admin_boundary": ("Polygon", "Line"),
+}
+
+#: Legend names per layer. Text only — no name here is a case name or a scientific claim.
+_CONTEXT_LAYER_LABEL: Mapping[str, str] = {
+    "land_use": "land use",
+    "infrastructure": "infrastructure",
+    "water": "water",
+    "admin_boundary": "admin boundary",
+}
+
+#: Stroke widths [mm] and marker sizes [mm]. Cartography, not thresholds; every size is in
+#: millimetres of screen, because a map unit is a degree under an EPSG:4326 project.
+_CONTEXT_OUTLINE_WIDTH: Mapping[str, float] = {
+    "land_use": 0.25,
+    "infrastructure": 0.5,
+    "water": 0.4,
+    "admin_boundary": 0.9,
+}
+_CONTEXT_LINE_WIDTH: Mapping[str, float] = {
+    "infrastructure": 1.0,
+    "water": 0.8,
+    "admin_boundary": 0.9,
+}
+_CONTEXT_MARKER_SIZE: Mapping[str, float] = {
+    "infrastructure": 3.4,
+    "water": 3.0,
+}
+
+#: Marker silhouettes, cycled by class, so two point classes never share one.
+_CONTEXT_MARKER_SHAPES: tuple[str, ...] = (
+    "circle",
+    "square",
+    "diamond",
+    "triangle",
+    "pentagon",
+    "star",
+)
+
+#: Class tones sit on a fixed lightness ramp carried by the layer's own hue. Anchoring the ramp on
+#: the base lightness instead would make the bright end invisible: `infrastructure`'s line colour is
+#: almost white, so its "+" steps would wash out on paper white. Hue and saturation still come from
+#: `CONTEXT_LAYER_STYLES`, and the layer fallback keeps the exact base colour and alpha.
+_CONTEXT_TONE_LIGHTNESS: tuple[float, float] = (0.40, 0.76)
+
+#: How far past the class ladder ``unknown`` sits: the ladder darkens from -1 to +1, so -1.6 is
+#: darker than every data class, and its alpha/dash treatment keeps it apart from the layer fallback.
+_UNKNOWN_TONE = -1.6
+
+
+def _tinted(values: Sequence[int], offset: float, *, alpha_scale: float = 1.0) -> str:
+    """A class tone derived from a layer colour: hue stays the layer's, tone carries the class.
+
+    ``offset`` runs -1..+1 across a layer's declared classes (see ``_tone``). Hue is nudged, never
+    replaced: a water polygon stays recognisably water whatever its class, and the *alpha* of every
+    class rule stays the layer alpha from ``map_adapter.CONTEXT_LAYER_STYLES`` — transparency is the
+    honesty channel that keeps the grid readable, so class coding must not touch it by default.
+    """
+    r, g, b, a = (int(v) for v in values[:4])
+    hue, _, sat = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+    hue = (hue + 0.025 * offset) % 1.0
+    low, high = _CONTEXT_TONE_LIGHTNESS
+    light = low + (high - low) * (offset + 1.0) / 2.0
+    light = min(0.94, max(0.10, light))
+    sat = min(0.95, max(0.25, sat * (1.0 - 0.15 * abs(offset))))
+    rr, gg, bb = colorsys.hls_to_rgb(hue, light, sat)
+    alpha = min(255, max(0, round(a * alpha_scale)))
+    return ",".join(str(v) for v in (round(rr * 255), round(gg * 255), round(bb * 255), alpha))
+
+
+def _tone(index: int, count: int) -> float:
+    """Symmetric class ladder over [-1, 1]; a lone class sits in the middle of the ramp."""
+    if count <= 1:
+        return 0.0
+    return 2.0 * index / (count - 1) - 1.0
+
+
+def _flat(values: Sequence[int]) -> str:
+    return ",".join(str(int(v)) for v in values[:4])
+
+
+def _kinds_for(layer: str, context_class: str) -> tuple[str, ...]:
+    """Geometry kinds to style for one class. ``aoi`` is the traced footprint: a ring, nothing else."""
+    if layer == "admin_boundary" and context_class == "aoi":
+        return ("Polygon",)
+    return CONTEXT_LAYER_GEOMETRIES[layer]
+
+
+def _context_symbol(
+    layer: str, kind: str, *, fill: str, line: str, shape: str = "circle"
+) -> str:
+    """One symbol for one (layer, geometry kind), with the two colours already resolved."""
+    if kind == "Polygon":
+        unfilled = layer == "admin_boundary"
+        return fill_symbol(
+            "0",
+            "0,0,0,0" if unfilled else fill,
+            outline_rgba=line,
+            outline_width=_CONTEXT_OUTLINE_WIDTH[layer],
+            outline_style="dash" if unfilled else "solid",
+            style="no" if unfilled else "solid",
+        )
+    if kind == "Line":
+        return line_symbol("0", line, width=_CONTEXT_LINE_WIDTH[layer])
+    return marker_symbol(
+        "0",
+        fill,
+        shape=shape,
+        size=_CONTEXT_MARKER_SIZE[layer],
+        size_unit="MM",
+        stroke_rgba=line,
+        stroke_width=0.3,
+        stroke_style="solid",
+    )
+
+
+def _unknown_symbol(layer: str) -> str:
+    """``unknown``: a coverage gap in the source, not a land-use class. Neutral, muted, dashed."""
+    st = MA.CONTEXT_LAYER_STYLES[layer]
+    return fill_symbol(
+        "0",
+        _tinted(st["fill_color"], _UNKNOWN_TONE, alpha_scale=0.65),
+        outline_rgba=_tinted(st["line_color"], _UNKNOWN_TONE, alpha_scale=1.3),
+        outline_width=0.3,
+        outline_style="dash",
+    )
+
+
 def context_rules() -> tuple[tuple[str, str, str], ...]:
-    """Mock geography beneath the grid, geometry-aware (``water`` is Polygon *and* LineString)."""
+    """Mock geography beneath the grid: one rule per contract class per geometry kind, then a
+    layer fallback.
+
+    Every class in ``contracts.CONTEXT_CLASSES`` gets a labelled rule for each geometry kind its
+    layer can be published as, so a class is never silently dropped to the fallback just because it
+    arrived as a line instead of a polygon. Rule order is most specific first; the layer fallback
+    only ever catches a class the contract does not declare, and the ``unknown`` class — which *is*
+    declared, meaning "no mapped polygon here" — is drawn so it cannot be read as a data class.
+    """
     st = MA.CONTEXT_LAYER_STYLES
+    rules: list[tuple[str, str, str]] = []
 
-    def rgba(values) -> str:
-        return ",".join(str(int(v)) for v in values)
+    for layer, classes in C.CONTEXT_CLASSES.items():
+        layer_label = _CONTEXT_LAYER_LABEL[layer]
+        ordered = sorted(classes)
+        for index, context_class in enumerate(ordered):
+            fill = _tinted(st[layer]["fill_color"], _tone(index, len(ordered)))
+            line = _tinted(st[layer]["line_color"], _tone(index, len(ordered)))
+            shape = _CONTEXT_MARKER_SHAPES[index % len(_CONTEXT_MARKER_SHAPES)]
+            for kind in _kinds_for(layer, context_class):
+                flt = (
+                    f"\"layer\" = '{layer}' AND \"class\" = '{context_class}' "
+                    f"AND geometry_type($geometry) = '{kind}'"
+                )
+                label = f"{layer_label} {_CONTEXT_KIND_LABEL[kind]}: {context_class}"
+                symbol = (
+                    _unknown_symbol(layer)
+                    if context_class == "unknown"
+                    else _context_symbol(layer, kind, fill=fill, line=line, shape=shape)
+                )
+                rules.append((flt, label, symbol))
 
-    return (
-        (
-            '\"layer\" = \'infrastructure\'',
-            "infrastructure",
-            marker_symbol(
+        # Layer fallbacks: a class outside contracts.CONTEXT_CLASSES (a contract violation upstream)
+        # still draws, so the map does not lose a feature — it just stops claiming to know it.
+        fallback_fill = _flat(st[layer]["fill_color"])
+        fallback_line = _flat(st[layer]["line_color"])
+        if layer == "water":
+            for kind, label in (
+                ("Polygon", "water (area)"),
+                ("Line", "water (course)"),
+                ("Point", "water (point)"),
+            ):
+                rules.append(
+                    (
+                        f"\"layer\" = '{layer}' AND geometry_type($geometry) = '{kind}'",
+                        label,
+                        _context_symbol(
+                            layer, kind, fill=fallback_fill, line=fallback_line
+                        ),
+                    )
+                )
+            continue
+        if layer == "infrastructure":
+            symbol = marker_symbol(
                 "0",
-                rgba(st["infrastructure"]["fill_color"]),
+                fallback_fill,
                 shape="circle",
-                size=3.2,
+                size=_CONTEXT_MARKER_SIZE[layer] - 0.2,
                 size_unit="MM",
-                stroke_rgba=rgba(st["infrastructure"]["line_color"]),
+                stroke_rgba=fallback_line,
                 stroke_width=0.3,
                 stroke_style="solid",
-            ),
-        ),
-        (
-            "\"layer\" = 'water' AND geometry_type($geometry) = 'Polygon'",
-            "water (area)",
-            fill_symbol(
+            )
+        elif layer == "admin_boundary":
+            symbol = fill_symbol(
                 "0",
-                rgba(st["water"]["fill_color"]),
-                outline_rgba=rgba(st["water"]["line_color"]),
-                outline_width=0.4,
-                outline_style="solid",
-            ),
-        ),
-        (
-            "\"layer\" = 'water' AND geometry_type($geometry) = 'Line'",
-            "water (course)",
-            line_symbol("0", rgba(st["water"]["line_color"]), width=0.8),
-        ),
-        (
-            "\"layer\" = 'land_use'",
-            "land use",
-            fill_symbol(
-                "0",
-                rgba(st["land_use"]["fill_color"]),
-                outline_rgba=rgba(st["land_use"]["line_color"]),
-                outline_width=0.2,
-                outline_style="solid",
-            ),
-        ),
-        (
-            "\"layer\" = 'admin_boundary'",
-            "admin boundary",
-            fill_symbol(
-                "0",
-                rgba(st["admin_boundary"]["fill_color"]),
-                outline_rgba=rgba(st["admin_boundary"]["line_color"]),
+                fallback_fill,
+                outline_rgba=fallback_line,
                 outline_width=0.7,
                 outline_style="dash",
                 style="no",
-            ),
-        ),
+            )
+        else:
+            symbol = _context_symbol(
+                layer, "Polygon", fill=fallback_fill, line=fallback_line
+            )
+        rules.append((f"\"layer\" = '{layer}'", _CONTEXT_LAYER_LABEL[layer], symbol))
+
+    return tuple(rules)
+
+
+def context_manifest(rule_count: int) -> dict:
+    """What the context renderer claims to cover: vocabulary, geometry kinds, rule counts."""
+    class_vocabulary = {layer: list(sorted(classes)) for layer, classes in C.CONTEXT_CLASSES.items()}
+    geometry_kinds = {
+        layer: list(CONTEXT_LAYER_GEOMETRIES[layer]) for layer in class_vocabulary
+    }
+    per_class = {
+        layer: len(classes) * len(CONTEXT_LAYER_GEOMETRIES[layer])
+        for layer, classes in C.CONTEXT_CLASSES.items()
+    }
+    # `aoi` is polygon-only, so the admin_boundary total is one rule short of classes x kinds.
+    per_class["admin_boundary"] = sum(
+        len(_kinds_for("admin_boundary", cls)) for cls in C.CONTEXT_CLASSES["admin_boundary"]
     )
+    fallback_rules = 1 + 3 + 1 + 1  # land_use, water (3 kinds), infrastructure, admin_boundary
+    declared = sum(per_class.values()) + fallback_rules
+    if declared != rule_count:
+        raise RuntimeError(
+            f"context renderer emitted {rule_count} rules but the manifest describes {declared}: "
+            "the class vocabulary and the emitted rules have drifted apart"
+        )
+    return {
+        "field": "layer",
+        "class_field": "class",
+        "class_vocabulary": class_vocabulary,
+        "geometry_kinds": geometry_kinds,
+        "class_rules": per_class,
+        "rules": rule_count,
+        "note": (
+            "most specific first: one labelled rule per contract class per geometry kind "
+            "(geometry_type() collapses Multi* onto Polygon/Line/Point), then one layer fallback for "
+            "an undeclared class. Class identity is tone within the layer hue from "
+            "map_adapter.CONTEXT_LAYER_STYLES; alpha stays the layer alpha so the grid stays "
+            "readable. admin_boundary is an unfilled dashed ring and never hides a cell. 'unknown' "
+            "is darker, muted and dashed: a centre with no mapped polygon is a coverage gap in the "
+            "source, not a place without land use, and it must not read as a data class or as bare "
+            "basemap."
+        ),
+    }
 
 
 def aoi_symbol() -> str:
@@ -514,13 +730,7 @@ def build_styles(meta: dict) -> dict[str, tuple[str, dict]]:
     context = context_rules()
     styles["context_layers.qml"] = (
         wrap_qml(rule_renderer(context)),
-        {
-            "applies_to": "context_layers",
-            "field": "layer",
-            "renderer": "RuleRenderer",
-            "rules": len(context),
-            "note": "geometry-aware: water is Polygon and LineString in the same file",
-        },
+        {"applies_to": "context_layers", "renderer": "RuleRenderer", **context_manifest(len(context))},
     )
 
     styles["aoi_ring.qml"] = (

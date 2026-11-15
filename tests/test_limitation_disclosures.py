@@ -32,7 +32,8 @@ today:
 disclosure                           jakarta  malaga  mexico-city  stable phrase asserted
 ===================================  =======  ======  ===========  ============================================
 no real granule processed (mock)     [4]      [5]     [4]          ``synthesised by pipeline/generate_mock.py``
-invented mock geography              [5]      [6]     [5]          ``mock geography``
+OSM context geography (ODbL)         [5]      [6]     [5]          ``never extrapolated from a neighbouring cell``
+invented mock geography (fallback)   —        —       —            ``invented by the synthetic fallback``
 two-year window identifies season    [3]      [3]     [2]          ``does identify the seasonal term``
 GUNW posting 80 m / not buildings    [2]      [2]     [1]          ``not building scale``
 detection floor *is* the result      —        [0]     —            ``detection floor``
@@ -44,6 +45,15 @@ not the capital-planning case        [0]      —       —            ``not the
 coastal inundation drives the story  [1]      —       —            ``coastal: inundation``
 seasonal term NOT fitted             n/a      n/a     n/a          ``not fitted`` (0-harmonic branch only)
 ===================================  =======  ======  ===========  ============================================
+
+The geography row is the one that forks: `pipeline/mock/artifacts.py::_geography_limitation`
+publishes the invented-geography confession only when the context is the declared synthetic
+fallback, and the OpenStreetMap/ODbL sentence — the share of published cells that stay `unknown`,
+attributed to *either* of two causes (no mapped polygon contains the centroid, or the containing
+polygon's tags map to no class of the frozen land-use vocabulary) and never extrapolated —
+otherwise. The three artefacts above are all on the OpenStreetMap branch, so the fallback row is
+empty; which sentence is *owed* is read from `meta.provenance` (never from `limitations`, which
+would be circular) and the two sentences are mutually exclusive in both directions.
 
 Two of the four §7 disclosures are **not** in any artefact's `meta.limitations`, and that is
 intended rather than a gap. §7 asks the submission to *say* those two before a judge finds them,
@@ -119,12 +129,18 @@ class Disclosure:
     ``phrases`` are alternatives, matched case-insensitively as substrings of the normalised
     entry: any one is enough. They are the stable core of the sentence, never the whole sentence,
     so improving the wording does not break the guard while deleting the claim does.
+
+    ``all_phrases`` are conjunctive: every one must also appear in the *same* entry. They exist for
+    a claim whose several parts are each independently falsifiable — the geography sentence names
+    two causes of `unknown`, and a sentence that kept only one of them would still match any single
+    ``phrases`` fragment while pinning the false single cause.
     """
 
     key: str
     title: str
     obligation: str
     phrases: tuple[str, ...]
+    all_phrases: tuple[str, ...] = ()
 
 
 POSTING_80M = Disclosure(
@@ -151,12 +167,54 @@ NO_REAL_GRANULE = Disclosure(
     phrases=("synthesised by pipeline/generate_mock.py", "no real granule"),
 )
 
-MOCK_GEOGRAPHY = Disclosure(
+#: The context-geography disclosure is **two mutually exclusive sentences**, because
+#: `pipeline/mock/artifacts.py::_geography_limitation` publishes exactly one of them per artefact:
+#: the synthetic fallback must confess that the geography is invented, while the OpenStreetMap path
+#: has to disclose its *own* limit instead: the share of published cells that stay `unknown`, with
+#: **both** of its causes named — no mapped polygon contains the centroid, and the containing
+#: polygon's tags map to no class of the frozen vocabulary — because the extract alone cannot
+#: attribute them per artefact. Hence one :class:`Disclosure` per branch, with phrase lists that
+#: cannot match the other branch's sentence — an OSM artefact carrying the invented-geography
+#: sentence would keep both presence tests green only if one list covered both, which is what these
+#: two avoid. The OSM branch additionally pins the two-cause disjunction conjunctively, so a
+#: reworded sentence may change everything except that it keeps asserting both causes.
+INVENTED_GEOGRAPHY = Disclosure(
     key="invented_mock_geography",
-    title="the coastline, lake, river and corridor geography is invented, not mapped",
-    obligation="pipeline/mock/artifacts.py:368 — the mock producer's second mandatory sentence",
-    phrases=("mock geography",),
+    title="the coastline, lake, river and POIs are invented by the synthetic fallback, not mapped",
+    obligation=(
+        "pipeline/mock/artifacts.py::_geography_limitation — the synthetic branch; "
+        "README.md §13 limitation 10"
+    ),
+    phrases=("mock geography", "invented by the synthetic fallback"),
 )
+
+OSM_GEOGRAPHY = Disclosure(
+    key="osm_context_geography",
+    title=(
+        "context geography comes from an OpenStreetMap extract under the ODbL 1.0, and the cells "
+        "that stay `unknown` are attributed to either cause — no containing polygon, or a "
+        "containing polygon whose tags map to no class — never extrapolated"
+    ),
+    obligation="pipeline/mock/artifacts.py::_geography_limitation — the OpenStreetMap branch",
+    phrases=("odbl 1.0", "never extrapolated from a neighbouring cell"),
+    # The two-cause disjunction, copied from `_geography_limitation` verbatim. Conjunctive on
+    # purpose: Málaga measures 0 of 1,080 `unknown` cells without a containing polygon, so a
+    # sentence that dropped the tag-class cause would state a cause the extract contradicts while
+    # still matching ``phrases`` above. `_normalise` folds the em dash into "-".
+    all_phrases=(
+        "either no mapped polygon contains their centroid, or the containing polygon's tags map "
+        "to no class of the frozen land-use vocabulary",
+        "both causes stay `unknown` and neither is extrapolated from a neighbouring cell",
+    ),
+)
+
+#: The branch each artefact declares in `provenance`, and the one sentence it therefore owes.
+#: Exactly one is true per artefact: the guard reads which one the artefact published rather than
+#: accepting either, so a swapped sentence is a failure and not a free pass.
+GEOGRAPHY_BRANCHES: dict[str, Disclosure] = {
+    "synthetic": INVENTED_GEOGRAPHY,
+    "osm": OSM_GEOGRAPHY,
+}
 
 MOCK_NATURE = Disclosure(
     key="mock_or_synthetic",
@@ -185,7 +243,10 @@ ALWAYS_REQUIRED: tuple[Disclosure, ...] = (POSTING_80M, SEASONAL_WINDOW)
 
 #: Required *because* the product is mock. A real granule discharges these rather than drops them,
 #: so the test skips (with that reason) instead of failing once a case is no longer synthetic.
-MOCK_REQUIRED: tuple[Disclosure, ...] = (NO_REAL_GRANULE, MOCK_GEOGRAPHY)
+#: The two geography sentences are both listed because they are alternatives: the presence test
+#: skips the one the artefact's declared branch does not owe, and
+#: :func:`test_the_geography_disclosure_matches_the_context_branch` asserts the exclusion.
+MOCK_REQUIRED: tuple[Disclosure, ...] = (NO_REAL_GRANULE, INVENTED_GEOGRAPHY, OSM_GEOGRAPHY)
 
 #: Case-specific extras: the caveats that only that city owes. Nothing here is in the §7 list —
 #: they are the per-case science, and they are the entries most likely to be trimmed as "verbose".
@@ -315,10 +376,12 @@ def _limitations(case_dir: pathlib.Path) -> tuple[dict, list[str]]:
 def _matches(limitations: list[str], disclosure: Disclosure) -> list[int]:
     """Indices of the entries that discharge ``disclosure``; empty means it is not published."""
     normalised = [_normalise(entry) for entry in limitations]
+    required = [_normalise(phrase) for phrase in disclosure.all_phrases]
     return [
         index
         for index, entry in enumerate(normalised)
         if any(_normalise(phrase) in entry for phrase in disclosure.phrases)
+        and all(phrase in entry for phrase in required)
     ]
 
 
@@ -340,6 +403,7 @@ def _require(case: str, limitations: list[str], disclosure: Disclosure) -> None:
         f"  missing: {disclosure.title}\n"
         f"  required by: {disclosure.obligation}\n"
         f"  looked for any of: {list(disclosure.phrases)}\n"
+        f"  looked for all of: {list(disclosure.all_phrases)}\n"
         f"  published entries ({len(limitations)}):\n{_published(limitations)}\n"
         "  If the sentence was reworded, add its new stable phrase to the Disclosure in "
         "tests/test_limitation_disclosures.py. Do not delete the sentence to make this green: "
@@ -367,11 +431,50 @@ def _check_count(case: str, limitations: list[str]) -> None:
     )
 
 
+def _geography_branch(meta: dict) -> str:
+    """Which of the two context-geography sentences this artefact must carry.
+
+    Decided from `meta.provenance`, the field the producer writes the truth into: an OSM-derived
+    artefact names the extract in `method` and the ODbL in `license`, the synthetic fallback names
+    its own rule instead. Reading the sentence out of `limitations` would be circular — the guard
+    would only prove that whatever is published is published.
+    """
+    case = meta.get("case_id", "?")
+    provenance = meta.get("provenance") or {}
+    declared = _normalise(f"{provenance.get('method', '')} {provenance.get('license', '')}")
+    # The land-use clause is the precise discriminator: the OSM path writes "land use is joined
+    # from the OpenStreetMap extract", the fallback writes "land use is a deterministic spatial
+    # rule". Matching bare "deterministic spatial rule" would misfire, because an OSM method also
+    # describes its coherence/risk *bands* as "deterministic spatial rules".
+    synthetic = (
+        "land use is a deterministic spatial rule" in declared
+        or "no third-party data (repo-internal artefact)" in declared
+    )
+    osm = (
+        "land use is joined from the openstreetmap extract" in declared
+        or "context layers © openstreetmap contributors" in declared
+        or "odbl 1.0" in declared
+    )
+    assert osm != synthetic, (
+        f"{case}: provenance declares "
+        f"{'both an OpenStreetMap and a synthetic' if osm else 'no'} context geography, so the "
+        f"guard cannot tell which sentence is owed (method: {provenance.get('method')!r}, "
+        f"license: {provenance.get('license')!r})"
+    )
+    return "osm" if osm else "synthetic"
+
+
 def _disclosures_for(meta: dict) -> tuple[Disclosure, ...]:
-    """What every case owes, before the seasonal branch is decided."""
+    """What every case owes, before the seasonal branch is decided.
+
+    The geography obligation is branch-specific, so only the sentence the artefact's declared
+    branch owes is mapped here: the wrong one is then reported as unpublishable by
+    :func:`test_every_published_limitation_is_mapped_to_a_disclosure` instead of being waved
+    through by a phrase list wide enough to cover both.
+    """
     required = list(ALWAYS_REQUIRED)
     if str(meta.get("product", "")).strip().lower() == "mock":
-        required.extend(MOCK_REQUIRED)
+        required.extend((NO_REAL_GRANULE, GEOGRAPHY_BRANCHES[_geography_branch(meta)]))
     return tuple(required)
 
 
@@ -435,8 +538,11 @@ def test_required_disclosure_is_published(
 ) -> None:
     """The §7 disclosures that *are* carried today, asserted positively.
 
-    `NO_REAL_GRANULE` and `MOCK_GEOGRAPHY` are obligations of a *mock* artefact; when a case stops
-    being mock they are discharged, not deleted, so the test says so instead of failing.
+    `NO_REAL_GRANULE` and the two context-geography sentences are obligations of a *mock*
+    artefact; when a case stops being mock they are discharged, not deleted, so the test says so
+    instead of failing. Of the two geography sentences only one can be true — the one the
+    artefact's declared branch owes — so the other skips here and is excluded by
+    :func:`test_the_geography_disclosure_matches_the_context_branch`.
     """
     meta, limitations = _limitations(_case_dir(case))
     if disclosure in MOCK_REQUIRED and str(meta.get("product")).lower() != "mock":
@@ -444,7 +550,45 @@ def test_required_disclosure_is_published(
             f"{case} is product={meta.get('product')!r}, so the mock disclosure "
             f"{disclosure.key!r} is discharged by the real product rather than missing"
         )
+    if disclosure is INVENTED_GEOGRAPHY or disclosure is OSM_GEOGRAPHY:
+        branch = _geography_branch(meta)
+        if GEOGRAPHY_BRANCHES[branch] is not disclosure:
+            pytest.skip(
+                f"{case} publishes the {branch!r} context geography, so it owes "
+                f"{GEOGRAPHY_BRANCHES[branch].key!r} rather than {disclosure.key!r}"
+            )
     _require(case, limitations, disclosure)
+
+
+def _require_geography(case: str, meta: dict, limitations: list[str]) -> None:
+    """One geography sentence, the one the declared branch owes — and not the other one.
+
+    Split out so :func:`test_the_geography_exclusion_bites_on_a_flipped_branch` can prove the
+    exclusion fires on a corrupted copy without duplicating the two assertions.
+    """
+    branch = _geography_branch(meta)
+    required = GEOGRAPHY_BRANCHES[branch]
+    forbidden = OSM_GEOGRAPHY if branch == "synthetic" else INVENTED_GEOGRAPHY
+    _require(case, limitations, required)
+    leaked = _matches(limitations, forbidden)
+    assert not leaked, (
+        f"{case}: provenance declares the {branch!r} context geography, but limitations{leaked} "
+        f"carries the {forbidden.key!r} sentence of the other branch: {forbidden.title}.\n"
+        f"  published entries ({len(limitations)}):\n{_published(limitations)}"
+    )
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_the_geography_disclosure_matches_the_context_branch(case: str) -> None:
+    """One geography sentence per artefact, the one its provenance declares — never both, never neither.
+
+    `_geography_limitation` writes the invented-geography confession for the synthetic fallback and
+    the ODbL/`unknown`-share confession for the OpenStreetMap path. The two are contradictory, so
+    an artefact carrying the other branch's sentence is lying about where its geography came from;
+    asserting both directions here keeps the pair mutually exclusive without weakening either.
+    """
+    meta, limitations = _limitations(_case_dir(case))
+    _require_geography(case, meta, limitations)
 
 
 @pytest.mark.parametrize(
@@ -1037,6 +1181,76 @@ def test_the_repository_artefacts_are_untouched_by_this_file() -> None:
             f"{case} contains a stray temporary file — an anti-vacuity test wrote into the repo"
         )
     assert not (PROCESSED / "jakarta" / "corrupted").exists()
+
+
+def test_the_geography_exclusion_bites_on_a_flipped_branch() -> None:
+    """Two corrupted copies, one per direction, neither touching the repository.
+
+    (a) provenance claims the fallback while the OSM sentence is published, (b) an OSM artefact
+    that also carries the invented-geography sentence. In both the count is unchanged and every
+    other required phrase survives, so only the branch/sentence contradiction notices them.
+    """
+    meta = json.loads(json.dumps(_meta(PROCESSED / "jakarta")))
+    limitations = list(meta["limitations"])
+    meta["provenance"]["method"] = (
+        "Synthetic context: land use is a deterministic spatial rule and the published land_use "
+        "polygons are the dissolved H3 cells of this grid."
+    )
+    meta["provenance"]["license"] = "Synthetic mock — no third-party data (repo-internal artefact)"
+    assert _geography_branch(meta) == "synthetic", "the flipped copy did not read as the fallback"
+    with pytest.raises(AssertionError) as raised:
+        _require_geography("jakarta", meta, limitations)
+    assert INVENTED_GEOGRAPHY.key in str(raised.value), (
+        "the failure does not name the sentence the declared branch owes"
+    )
+
+    # The mirror image: an OSM artefact that also publishes the invented-geography sentence.
+    meta = json.loads(json.dumps(_meta(PROCESSED / "jakarta")))
+    assert _geography_branch(meta) == "osm", "the published copy is no longer the OSM branch"
+    limitations = list(meta["limitations"]) + [
+        "Mock geography (coastline, lake, river, POIs) is invented by the synthetic fallback in "
+        "pipeline/context.py."
+    ]
+    with pytest.raises(AssertionError) as raised:
+        _require_geography("jakarta", meta, limitations)
+    assert INVENTED_GEOGRAPHY.key in str(raised.value), (
+        "the failure does not name the contradicting sentence"
+    )
+
+
+def test_osm_geography_pins_the_two_cause_disjunction_not_one_cause() -> None:
+    """A sentence naming only the no-polygon cause must fail, as the old one did.
+
+    This is the regression the wording fix exists for: Málaga's 1,080 `unknown` cells all sit
+    *inside* a mapped polygon, so "no mapped polygon contains their centroid" is false there. The
+    old single-cause sentence is replayed verbatim against a published artefact's limitations (in
+    memory, never on disk) and the guard must reject it; the same entry with the disjunction
+    restored must pass. Without this, a reword back to one cause would keep every other phrase
+    green and publish a claim the grid contradicts.
+    """
+    meta, limitations = _limitations(_case_dir("jakarta"))
+    index = _matches(limitations, OSM_GEOGRAPHY)[0]
+    sentence = limitations[index]
+
+    old = sentence.replace(
+        "are `unknown` — either no mapped polygon contains their centroid, or the containing "
+        "polygon's tags map to no class of the frozen land-use vocabulary. Both causes stay "
+        "`unknown` and neither is extrapolated from a neighbouring cell.",
+        "have no mapped polygon containing their centroid and are published as `unknown` — never "
+        "extrapolated from a neighbouring cell.",
+    )
+    assert old != sentence, (
+        "the pinned disjunction is no longer present in the published sentence, so this "
+        "anti-vacuity replay cannot construct the old single-cause wording"
+    )
+    assert not _matches([old], OSM_GEOGRAPHY), (
+        "a single-cause sentence still discharges the OSM geography disclosure: the guard no "
+        "longer pins the disjunction"
+    )
+    assert _matches([sentence], OSM_GEOGRAPHY) == [0], (
+        "the published sentence does not discharge its own disclosure"
+    )
+    assert GEOGRAPHY_BRANCHES[_geography_branch(meta)] is OSM_GEOGRAPHY
 
 
 # ---------------------------------------------------------------------------------------------

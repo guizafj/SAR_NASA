@@ -465,7 +465,7 @@ centred on c = t_end/2:
 
 ASCII picture of the **current 2-year window** (secular trend downwards, 2.00 annual cycles). The
 seasonal term is drawn far larger than life: the real amplitudes are 1.5 / 12.0 / 3.5 mm against
-172 / 81 / 2.8 mm of secular motion across the whole window (Mexico City / Jakarta / Málaga, from
+176 / 83 / 2.7 mm of secular motion across the whole window (Mexico City / Jakarta / Málaga, from
 the published AOI row: `trend_mm_yr` × the 2.004 yr span). Because 2.004 cycles leave the last epoch
 at almost the same phase as the first, an anchored and a centred harmonic put nearly equal offsets
 at the two ends, so the two anchorings differ only marginally in `delta_change` here:
@@ -689,7 +689,7 @@ project does not have.
 
 ### 3.5 Detection limit: the null result *is* the result
 
-Málaga's median is −1.4 mm/yr. Publishing "no significant motion" without a bound is a claim without
+Málaga's median is −1.3 mm/yr. Publishing "no significant motion" without a bound is a claim without
 content, so the contract *requires* `stats.detection_limit_mm_yr` whenever
 `|median_velocity_mm_yr| < 5`:
 
@@ -839,11 +839,18 @@ the AOI polygon (`h3.polygon_to_cells(LatLngPoly(ring))`).
 4. **Inside the ring** — the set to use when someone says "the city". Clipping the published
    grid to `config/aoi/{case}.geojson` is a real filter, not a rounding operation.
 
-The mock's `admin_boundary` context feature is the **coverage ellipse** (named "AOI de cobertura"),
-not the city ring. There is exactly **one** `admin_boundary` feature per case, and in the committed
-mock it is the ellipse. The **real** path instead publishes the AOI ring as the `admin_boundary`/`aoi`
-feature, sourced as `"<aoi source> (analysis extent, not a legal boundary)"` — so "the city boundary"
-in a mock artefact is a synthetic stand-in and must be labelled as one.
+The `admin_boundary` layer is where the coverage ellipse is **absent**. The committed mock publishes
+101 features per case: 100 from the OpenStreetMap extract, capped at `ADMIN_FEATURE_CAP = 50` per
+geometry kind (50 polygons + 50 lines) — Mexico City 99 `district` + 1 `municipality`, Jakarta 88 +
+12, Málaga 99 + 1 — plus exactly **one** `admin_boundary`/`aoi` feature, the
+`config/aoi/<case>.geojson` city limit, sourced as `"<aoi source> (analysis extent, not a legal
+boundary)"`. The ellipse ("AOI de cobertura" in the pre-OSM artefacts) survives only as the mock's
+cell-membership rule (§4.2), never as a feature: the declared synthetic fallback draws no boundary
+and names itself in `source` and `meta.limitations`. The **real** path is narrower still —
+`process_case._context_layers` writes the `aoi` ring and the grid's own `land_use`, no districts. A
+boundary is context and not a measurement because it assigns nothing: not a land-use class (a border
+covers every use and would win any tie-break) and not a displacement — no cell value, velocity or
+`unknown` share derives from it. It says where a cell is; the grid says how fast it moves.
 
 AOI **validation** is separate from counting. A MultiPolygon or a polygon with holes is refused
 (merging parts would silently cover the ground between them), as are unclosed rings,

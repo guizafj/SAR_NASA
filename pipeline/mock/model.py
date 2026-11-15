@@ -46,10 +46,11 @@ import pandas as pd
 import shapely
 from shapely.geometry import Polygon
 
+from pipeline import enrich_context as EC
 from pipeline.science import transforms as V
 from src.domain import contracts as C
 
-from . import geography as G
+from pipeline import context as G
 from .cases import CaseSpec, StudyCases
 
 SECONDS_PER_YEAR = 365.25
@@ -86,6 +87,7 @@ class CaseModel:
     annual_coverage: float  # span in annual cycles, from the fit's own diagnostic
     design_condition: float  # column-normalised design condition number, from the fit
     dates: tuple[str, ...]
+    context: G.CaseContext  # the geography the land_use labels came from (real or declared)
 
     @property
     def n_cells(self) -> int:
@@ -108,30 +110,26 @@ def _case_key(case_id: str) -> int:
 
 def bbox_cells(bbox: tuple[float, float, float, float], resolution: int) -> list[str]:
     """Every H3 cell of `resolution` whose centroid follows the bbox quad (pre-filter)."""
-    west, south, east, north = bbox
-    ring = h3.LatLngPoly(
-        [(south, west), (south, east), (north, east), (north, west)]
-    )
-    return sorted(h3.polygon_to_cells(ring, resolution))
+    return G.bbox_cells(bbox, resolution)
 
 
 def expected_cells(case: CaseSpec, resolution: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Cell ids whose centroid is inside the bbox *and* the coverage ellipse.
 
-    This is the nodata rule: anything outside is absent from the parquet, never written as 0.
+    This is the nodata rule: anything outside is absent from the parquet, never written as 0. The
+    geometry lives in `pipeline/context.py` so the pinned context labels exactly this set.
     """
-    hexes = bbox_cells(case.bbox, resolution)
-    lat = np.empty(len(hexes))
-    lon = np.empty(len(hexes))
-    for i, cell in enumerate(hexes):
-        lat[i], lon[i] = h3.cell_to_latlng(cell)
-    west, south, east, north = case.bbox
-    ell = case.field.coverage_ellipse
-    _, _, rho = G.ellipse_rho(
-        lon, lat, ell.center_lon, ell.center_lat, ell.semi_axes_km[0], ell.semi_axes_km[1], ell.rotation_deg
+    ellipse = case.field.coverage_ellipse
+    ids, lat, lon = G.prefilter_cells(
+        case.bbox,
+        ellipse.center_lon,
+        ellipse.center_lat,
+        ellipse.semi_axes_km[0],
+        ellipse.semi_axes_km[1],
+        ellipse.rotation_deg,
+        resolution,
     )
-    keep = (rho <= 1.0) & (lat >= south) & (lat <= north) & (lon >= west) & (lon <= east)
-    return np.array(hexes, dtype=object)[keep], lat[keep], lon[keep]
+    return np.array(ids, dtype=object), lat, lon
 
 
 def velocity_field(case: CaseSpec, lat: np.ndarray, lon: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -253,13 +251,51 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
 
 
 def assign_land_use(
-    case: CaseSpec, geo: G.CaseGeography, lon: np.ndarray, lat: np.ndarray, rho: np.ndarray, rng: np.random.Generator
+    case: CaseSpec,
+    context: G.CaseContext,
+    cell_id: np.ndarray,
+    lon: np.ndarray,
+    lat: np.ndarray,
+    rho: np.ndarray,
+    rng: np.random.Generator,
 ) -> np.ndarray:
-    """Deterministic spatial rule over the whole frozen vocabulary (§7.1) except `unknown`.
+    """One class per cell, from the real extract when there is one.
 
-    Order matters and is deliberate: water wins over everything (a cell whose centroid is at sea
-    is water), then the corridor (infrastructure spine inside industrial), then the urban rings,
-    then the fringe with hash-driven bare patches.
+    Real path: the cell centroid is joined to the mapped OSM polygons with
+    `enrich_context.join_land_use` (the same function the CLI uses), so the published layer and the
+    published column cannot disagree. Sea is the one class that is *derived* rather than contained:
+    OSM publishes the coastline as a line, and a line contains no centroid, so cells on the sea side
+    of the real coastline are labelled `water` from that geometry. Nothing else is extrapolated: a
+    centroid inside no mapped polygon stays `unknown`, and `unknown` is published.
+
+    Fallback path (`context.synthetic`): the old elliptical rule, kept only so a clone with no
+    cached extract still runs. Its output is declared synthetic in every `source` string.
+    """
+    if context.synthetic:
+        return _synthetic_land_use(case, G.SYNTHETIC[case.case_id], lon, lat, rho, rng)
+
+    # `label_cells` owns the two paths — the pinned labels of the committed context and the live
+    # centroid join against a freshly mapped extract — plus the sea-side override. Doing the join
+    # here instead was a real defect: with a pinned context, `features` carries only water /
+    # infrastructure / admin, so joining against it labelled every cell `unknown`.
+    return G.label_cells(context, cell_id, lon, lat)
+
+
+def _synthetic_land_use(
+    case: CaseSpec,
+    geo: G.SyntheticGeography,
+    lon: np.ndarray,
+    lat: np.ndarray,
+    rho: np.ndarray,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Declared fallback: the elliptical rings, straight corridor and invented water of the old mock.
+
+    Deterministic spatial rule over the whole frozen vocabulary (§7.1) except `unknown`. Order
+    matters and is deliberate: water wins over everything (a cell whose centroid is at sea is
+    water), then the corridor (infrastructure spine inside industrial), then the urban rings, then
+    the fringe with hash-driven bare patches. **This is not evidence about the city it labels** —
+    it exists so a clone without `data/raw/<case>/context/` can still regenerate artefacts.
     """
     n = lon.size
     land_use = np.full(n, "vegetation", dtype=object)
@@ -286,7 +322,21 @@ def assign_land_use(
         _, _, lake_rho = G.ellipse_rho(lon, lat, lake_lon, lake_lat, lake_a, lake_b, lake_rot)
         water |= lake_rho <= 1.0
     if geo.coast is not None:
-        water |= geo.coast.signed_distance(lon, lat) > 0.0
+        # The synthetic coastline still DECLARES which side is sea (`Coast.sea_side`); the real path
+        # derives a sea polygon instead (`context.sea_polygons`), which is why `Coast` no longer
+        # carries a signed distance. The nearest line decides, as it did before. Without this the
+        # fallback crashed on every coastal case (`AttributeError: 'Coast' object has no attribute
+        # 'signed_distance'`), so the "a clone without the extract still runs" promise was false.
+        best = np.full(n, np.inf)
+        chosen = np.zeros(n)
+        for verts in geo.coast.lines:
+            if len(verts) < 2:
+                continue
+            dist, side = G.polyline_metrics(lon, lat, verts)
+            closer = dist < best
+            best = np.where(closer, dist, best)
+            chosen = np.where(closer, side, chosen)
+        water |= chosen == geo.coast.sea_side
     if geo.waterway is not None:
         river_km, _ = G.polyline_metrics(lon, lat, geo.waterway[2])
         water |= river_km <= 0.30
@@ -296,7 +346,7 @@ def assign_land_use(
 
 def assign_coherence(
     case: CaseSpec,
-    geo: G.CaseGeography,
+    coast: G.Coast | None,
     land_use: np.ndarray,
     rho: np.ndarray,
     lon: np.ndarray,
@@ -330,9 +380,11 @@ def assign_coherence(
     # Dense core: extra looks and stable scatterers.
     base += 0.04 * (1.0 - _smoothstep(0.0, 0.38, rho))
     # Water/coast proximity: specular surfaces decorrelate.
-    if geo.coast is not None:
-        distance = geo.coast.signed_distance(lon, lat)
-        base -= 0.18 * np.exp(-np.maximum(distance, 0.0) / 2.5) * (distance > -6.0)
+    if coast is not None:
+        # Unsigned distance: the sea itself is now a polygon (`context.sea_polygons`), so the
+        # coherence model only needs "how close is the shoreline", not which side of it we are.
+        distance = coast.distance(lon, lat)
+        base -= 0.18 * np.exp(-distance / 2.5)
     base += rng.normal(0.0, 0.025, lon.size)
     base = np.clip(base, 0.05, 0.95)  # low clip only: the filter below, not this clip, decides
 
@@ -347,8 +399,22 @@ def assign_coherence(
     return base
 
 
-def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
-    """Synthesise one case: cells, fields, series and fitted trend (fully deterministic)."""
+def build_case(
+    case: CaseSpec,
+    study: StudyCases,
+    seed: int,
+    *,
+    provenance: str,
+    context: G.CaseContext | None = None,
+    allow_synthetic: bool = True,
+) -> CaseModel:
+    """Synthesise one case: cells, fields, series and fitted trend (fully deterministic).
+
+    `provenance` is the id every artefact of this case will carry; the context is mapped with it
+    because the artefact gate requires a single id across grid, series and context. `context` can
+    be supplied (tests pass a fixture); by default it is loaded from the cached OSM extract of the
+    case, falling back to the declared synthetic geography when there is none.
+    """
     rng = _case_rng(seed, case.case_id)
     cell_ids, lat, lon = expected_cells(case, study.h3_resolution)
     ellipse = case.field.coverage_ellipse
@@ -361,13 +427,18 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         ellipse.semi_axes_km[1],
         ellipse.rotation_deg,
     )
-    geo = G.GEOGRAPHY[case.case_id]
+    if context is None:
+        context = G.load_context(
+            case.case_id,
+            provenance=provenance,
+            allow_synthetic=allow_synthetic,
+        )
 
     smooth, _ = velocity_field(case, lat, lon)
     secular = smooth + rng.normal(0.0, case.field.noise_mm_yr, lon.size)
 
-    land_use = assign_land_use(case, geo, lon, lat, rho, rng)
-    coherence = assign_coherence(case, geo, land_use, rho, lon, lat, rng)
+    land_use = assign_land_use(case, context, cell_ids, lon, lat, rho, rng)
+    coherence = assign_coherence(case, context.coast, land_use, rho, lon, lat, rng)
 
     # The pre-filter cell set and its modelled coherence are kept on the model: the post-write gate
     # rebuilds the model from the published seed and must reproduce this cell set *exactly*. That is
@@ -428,6 +499,7 @@ def build_case(case: CaseSpec, study: StudyCases, seed: int) -> CaseModel:
         annual_coverage=float(fits[0].annual_coverage),
         design_condition=float(fits[0].design_condition),
         dates=tuple(study.dates),
+        context=context,
     )
 
 

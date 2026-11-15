@@ -25,15 +25,16 @@ displacement it produces are vertical quantities, so the fraction belongs over t
 fringe (153.4 mm).  :func:`test_fringe_fractions_use_the_vertical_denominator` asserts that on
 every document claim, and explicitly fails the LOS reading.
 
-Coverage is checked only for the conflation invariant, not re-derived from artefacts: the
-availability metadata carries no coverage fraction, and recomputing AOI coverage means loading
-the grids and rings (already pinned by ``tests/test_demo_numbers.py``).  What matters here is that
-a bbox-envelope figure is never presented as coverage of the AOI.
+The two coverage percentages are derived, not written down: :func:`_coverage_sets` asks
+``scripts/demo_numbers.py`` -- the same code that prints the demo cards -- what the current AOI and
+bbox coverage are.  What matters here is that a bbox-envelope figure is never presented as
+coverage of the AOI.
 """
 
 from __future__ import annotations
 
 import datetime
+import importlib.util
 import json
 import math
 import pathlib
@@ -79,11 +80,35 @@ MEXICO_GRID = ROOT / "data" / "processed" / "mexico-city" / "nisar_grid.parquet"
 #: each document that restates it.
 INCIDENCE_DEG = 39.0
 
-#: Coverage figures from ``scripts/demo_numbers.py``.  The AOI is the threshold denominator; the
-#: bbox is the AOI's envelope and is never coverage of the city (_availability carries no fraction,
-#: so these two sets are the reference values, not recomputed here).
-AOI_COVERAGE = {53.69, 55.41, 57.26}
-BBOX_COVERAGE = {52.73, 47.61, 34.83}
+def _coverage_sets() -> tuple[frozenset[float], frozenset[float]]:
+    """(AOI, bbox) coverage percentages to 2 dp, over every published case.
+
+    The AOI is the threshold denominator; the bbox is the AOI's envelope and is never coverage of
+    the city.  Deriving them instead of writing them down is deliberate: a hardcoded pair outlived
+    one regeneration and then failed the document that was right rather than the one that was
+    stale.  ``scripts/demo_numbers.py`` owns the arithmetic, so there is no second formula here.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_demo_numbers", ROOT / "scripts" / "demo_numbers.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # The module must be registered before execution: `@dataclass` resolves annotations through
+    # `sys.modules[cls.__module__]`, and a dataclass here would fail with a bare AttributeError.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    aoi: set[float] = set()
+    bbox: set[float] = set()
+    for case_dir in sorted(pathlib.Path(ROOT / "data" / "processed").iterdir()):
+        if not (case_dir / "meta.json").is_file():
+            continue
+        numbers = module.load_case(case_dir)
+        aoi.add(round(float(numbers.aoi_coverage_fraction) * 100.0, 2))
+        bbox.add(round(float(numbers.bbox_coverage_fraction) * 100.0, 2))
+    return frozenset(aoi), frozenset(bbox)
+
+
+AOI_COVERAGE, BBOX_COVERAGE = _coverage_sets()
 COVERAGE_THRESHOLD = 50.0
 
 #: One radian and one fringe, in millimetres, on both bases.

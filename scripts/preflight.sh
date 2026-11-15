@@ -254,7 +254,9 @@ gate_contracts() {
 # ── gate 2: full test suite ────────────────────────────────────────────────────────────────────
 gate_pytest() {
   G_LOG=$LOGS/02-pytest.log
-  ./scripts/python.sh -m pytest tests -q >"$G_LOG" 2>&1
+  # Explicit basetemp: when TMPDIR resolves inside the checkout, pytest's default basetemp lands in
+  # the repo root, and every later worktree copy carries it (see COPY_IGNORE in tests/test_preflight.py).
+  ./scripts/python.sh -m pytest tests -q --basetemp="$TMP_PF/pytest-suite" >"$G_LOG" 2>&1
   G_EXIT=$?
   if ((G_EXIT == 0)); then
     G_STATUS=PASS
@@ -366,7 +368,8 @@ gate_clone() {
   (cd "$clone" && env -u SAR_PYTHON ./scripts/python.sh -m pytest \
     tests/test_docs_commands.py tests/test_docs_links.py \
     tests/test_readme_numbers.py tests/test_pipeline_readme_numbers.py \
-    -q -x -p no:cacheprovider) >"$TMP_PF/clone-docs.log" 2>&1 || drc=$?
+    -q -x -p no:cacheprovider --basetemp="$TMP_PF/pytest-clone") \
+    >"$TMP_PF/clone-docs.log" 2>&1 || drc=$?
 
   local cfp csize dfirst dref dtest
   cfp=$(sed -n 's/^contract fingerprint: //p' "$TMP_PF/clone-contracts.log" | head -1)

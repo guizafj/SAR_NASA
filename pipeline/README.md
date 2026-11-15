@@ -32,6 +32,40 @@ Per case under `data/processed/<case>/` (contract §1 names `data/processed/{cas
 | `context_layers.geojson` | FeatureCollection, EPSG:4326 declared per feature: `land_use`, `infrastructure`, `water`, `admin_boundary` | contract §6 |
 | `meta.json` | dates, `revisit_days`, `thresholds`, `provenance`, `stats`, `limitations`, `null_policy` | contract §5 |
 
+Las capas de contexto siguen la misma regla que el grid al que anotan. `land_use` ya no sale de una
+regla elíptica: el centroide de cada celda se une a los polígonos reales de OpenStreetMap del caso
+(`pipeline/enrich_context.py::join_land_use`, precedencia
+`water > infrastructure > industrial > urban-dense > urban-residential > vegetation > bare >
+unknown`, desempate por área menor y después por digest de geometría) y las etiquetas por celda se
+leen del pin commiteado `config/context/<case>.json`, de modo que regenerar no necesita `data/raw/`.
+`water` es la única clase derivada de una geometría que no contiene centroides — una costa es una
+línea —: `pipeline/context.py::sea_polygons` la poligoniza contra el anillo del bbox y se queda el
+candidato que los polígonos de land use mapeados cubren en ≤ 5 % de su superficie, así que una celda
+dentro de ese mar derivado se etiqueta `water`; el agua mapeada entra por el join normal (México no
+tiene costa en el extracto y su pin etiqueta 422 celdas `water` desde cuerpos de agua). `urban-dense` es el tejido de
+servicio, comercial e institucional por semántica del tag de OSM, no un umbral de densidad: un corte
+por fracción construida por celda se midió y se descartó porque la distribución es un continuo (las
+cifras están en `docs/context-sources.md` §4). Una celda que ningún polígono mapeado contiene —o que
+está dentro de uno cuyo tag no mapea a ninguna clase— se
+publica `unknown`, sin extrapolar, y su recuento y su proporción viajan en `meta.limitations`.
+
+Los polígonos `land_use` del artefacto son la unión de las mismas celdas que publica el grid
+(`pipeline/mock/artifacts.py::build_context`), así que la capa y la columna no pueden discrepar; los
+polígonos crudos de OSM no se publican porque no caben en el presupuesto de tamaño del artefacto (la
+medida está en el docstring de `build_context`), y las features mapeadas se publican con tope por tipo
+de geometría (`FEATURE_CAP_PER_KIND = 150`; `ADMIN_FEATURE_CAP = 50` por tipo en `admin_boundary`),
+aplicado al escribir el pin. La feature `admin_boundary/aoi` es el anillo real de
+`config/aoi/<case>.geojson`, no la elipse de cobertura: la elipse sigue decidiendo qué celdas existen.
+Primero se prueba el pin commiteado de cada caso (`config/context/<case>.json`, los tres en
+`git ls-files`), así que un clon sin `data/raw/` regenera desde él. Sin pin y sin extracto se activa
+el fallback sintético declarado, y entonces cada feature de contexto dice
+`mock (synthetic …)` y `meta.limitations` dice que la geografía es inventada. Las dos geografías son
+mutuamente excluyentes en el escritor — un único booleano (`context.synthetic`) elige una y
+`meta.limitations` publica una sola de las dos frases —, y la compuerta posterior a la escritura
+reconstruye la compuerta de calidad desde `meta.provenance.mock_seed` (celdas y coherencia por celda);
+la frase de `meta.limitations` no se re-deriva de esa reconstrucción, así que sustituirla a mano no la
+pone roja.
+
 ## 3. Stages
 
 `done` = the file exists **and** a test module exercises it. "Hermetic" = the test builds its own input (synthetic HDF5, in-memory frame): evidence the code does what it says, not that real data behaves that way.
@@ -47,7 +81,8 @@ Per case under `data/processed/<case>/` (contract §1 names `data/processed/{cas
 | Asc/desc joint inversion | — | **planned**: mixed flight direction is refused (`process_case.py`), not solved | — |
 | H3 res-9 aggregation | `transforms.h3_aggregate` | done (`test_science_transforms.py`) | §4 |
 | Trend + seasonal fit | `transforms.harmonic_fit` | done, gated: below `MIN_SEASONAL_COVERAGE_PER_HARMONIC` it returns the trend but marks the amplitude unpublishable | §4 |
-| Context join | `pipeline/enrich_context.py` | **partially wired**: writes a `land_use.csv` sidecar, never rewrites the grid (docstring says why); fold in via `process_case --land-use-csv` | CLI only |
+| Contexto OSM: extracto → pin | `pipeline/ingest/fetch_context.py` → `pipeline/ingest/pin_context.py` → `pipeline/context.py` | done: el extracto se cachea en crudo (gitignored) y se fija en el pin commiteado de cada caso; `load_context` lo prefiere al extracto y `label_cells` deja en `unknown` lo que el pin no nombra. Hermetic (`test_fetch_context.py`, `test_context_pin.py`, `test_context_pin_reproducibility.py`, `test_context_order_reproducibility.py`, `test_sea_and_coverage_gate.py`) | `docs/context-sources.md` §7 |
+| Context join (CSV path) | `pipeline/enrich_context.py` | **partially wired**: writes a `land_use.csv` sidecar, never rewrites the grid (docstring says why); fold in via `process_case --land-use-csv` | CLI only |
 | Artefact emission | `mock/artifacts.py` writers; `generate_mock.py` (mock), `process_case.py` (real) | done (`test_mock_expectations.py`, `test_process_case.py`) | §4 |
 | Validation gate | `validate_artifacts.py` + `src/domain/contracts.py` | done (`test_validate_artifacts.py`, `test_contracts.py`); fail-closed | §4 |
 
@@ -56,7 +91,7 @@ Per case under `data/processed/<case>/` (contract §1 names `data/processed/{cas
 Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path), never `.venv/bin/python`.
 
 ```bash
-# 1 regenerate the mock (seed 7, all cases, 1.69 MB total)
+# 1 regenerate the mock (seed 7, all cases, 4.74 MB total)
 ./scripts/python.sh pipeline/generate_mock.py
 # 2 validate the artefacts on disk (fail-closed: zero cases is a FAIL)
 ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed
@@ -82,7 +117,7 @@ Always through `./scripts/python.sh` (venv plus the Nix `libstdc++`/`libz` path)
 ./scripts/check_phase_a.sh
 ```
 
-Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 1.69 MB.
+Step 6 refuses a directory whose `meta.json` says `product == "mock"` unless `--force` is given. Step 7 exits 0 only if all four sub-steps pass; on 2026-11-14 it printed `PHASE A: PASS`, 3 cases, 4.74 MB.
 
 ## 5. Provenance chain
 
@@ -114,18 +149,18 @@ Mock headline numbers (`docs/handoff-mock.md` §1, re-read from disk and reprint
 
 | case | cells | median mm/yr | p05 | size |
 |---|---:|---:|---:|---:|
-| `mexico-city` | 11,694 | −62.1 | −231.9 | 0.99 MB |
-| `jakarta` | 4,811 | −25.4 | −141.9 | 0.44 MB |
-| `malaga` | 2,645 | −1.4 | −3.5 | 0.25 MB |
+| `mexico-city` | 11,600 | −64.7 | −232.2 | 2.15 MB |
+| `jakarta` | 4,936 | −25.9 | −144.0 | 1.51 MB |
+| `malaga` | 2,758 | −1.3 | −3.4 | 1.08 MB |
 
-Coherence 0.35–0.95 (0.44–0.95 in Mexico City) and 6 `land_use` classes in every case; water cells are absent, not zero. Regenerating into an empty directory reproduces all twelve files byte-identically (`cmp`, 2026-11-14). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
+Coherence 0.37–0.95 (0.47–0.95 in Mexico City) and 7 `land_use` classes in each of the three cases — Málaga spans 0.37–0.94 and Jakarta 0.45–0.95. That count is what survives the coherence filter, not the class list the extract carries: the pin assigns eight classes, water included (422 / 221 / 890 cells labelled `water`, in the table order), and no water cell is published — inside the cell set they are all below `coherence_min` 0.35 — so water cells are absent, not zero; `unknown` is published where no mapped polygon contains a cell or where the containing polygon's tag maps to no class. Regenerating into an empty directory from `config/context/` alone (the pin path, `data/raw/` never read) reproduces all twelve files byte-identically (`cmp`, 2026-11-15). Málaga's `|median| < 5 mm/yr` forces `stats.detection_limit_mm_yr = 1.5`: the bound, not "no data", is the result.
 
 ## 7. Known limits and unverified parts
 
 1. **NISAR urban coverage unverified**: GUNW is provisional and cryosphere-derived, and intersecting is not covering (`docs/data-source-decision.md`; its checklist has not been run).
 2. **Dataset names confirmed only against published documentation**, not a real 2026 granule: x/y dataset names, CRS location, fill convention and 80 m vs 20 m coherence stay open (`docs/nisar-gunw-layout.md` status line, §5). The first granule must correct that page.
 3. **80 m posting**: city scale, not building scale (README §13.3, contract §7.3).
-4. **Seasonality is identified on the current window; the old one is history**: the current 732-day stack spans annual coverage 2.004 yr (2.00 cycles against the 0.75 yr-per-harmonic gate) at design condition 4.12 (limit `MAX_DESIGN_CONDITION = 30`), so the annual term *is* separable from `[1, t]` and `seasonal_amp_mm`, `ratio_R` and `regime` are published as FIT results, not typed constants (`science/transforms.py`; the per-case medians are `stats.median_seasonal_amp_mm` 1.5 / 12.0 / 3.5 mm, `stats.median_ratio_R` 41.38 / 2.12 / 0.40 and `stats.dominant_regime` inelastic / inelastic / elastic, in the order of the table above). The gates were calibrated against the old 132-day window (0.36 annual cycles, design condition 66.8), where `harmonic_fit` set `seasonal_identifiable=False` and withheld the amplitude: that is why the gates exist, not a statement about the current tree (O-05, 2026-11-15). One caveat is unchanged: the mock is noise-free in time, so the fit recovers the injected amplitude exactly; a real 2-year stack would carry an uncertainty this artefact does not.
+4. **Seasonality is identified on the current window; the old one is history**: the current 732-day stack spans annual coverage 2.004 yr (2.00 cycles against the 0.75 yr-per-harmonic gate) at design condition 4.12 (limit `MAX_DESIGN_CONDITION = 30`), so the annual term *is* separable from `[1, t]` and `seasonal_amp_mm`, `ratio_R` and `regime` are published as FIT results, not typed constants (`science/transforms.py`; the per-case medians are `stats.median_seasonal_amp_mm` 1.5 / 12.0 / 3.5 mm, `stats.median_ratio_R` 43.12 / 2.16 / 0.39 and `stats.dominant_regime` inelastic / inelastic / elastic, in the order of the table above). The gates were calibrated against the old 132-day window (0.36 annual cycles, design condition 66.8), where `harmonic_fit` set `seasonal_identifiable=False` and withheld the amplitude: that is why the gates exist, not a statement about the current tree (O-05, 2026-11-15). One caveat is unchanged: the mock is noise-free in time, so the fit recovers the injected amplitude exactly; a real 2-year stack would carry an uncertainty this artefact does not.
 5. **Sign and heading conventions need GNSS validation**: ISCE2, MintPy and SNAP disagree on azimuth origin and on which LOS direction is positive (README §6, `transforms.los_to_vertical`); target < 5 mm/yr RMSE (README §13). `process_case` writes "NOT yet validated against GNSS" into `provenance.method` on purpose.
 6. **One geometry only**: `v_north ≈ 0` is an assumption, residual `tanθ·sinα·v_north`, east unconstrained, no asc/desc pairing (`transforms.los_to_vertical`).
 7. **Nothing has run on real data**: no download (no credentials), no real granule read, no coverage number; real-path evidence is synthetic fixtures only.

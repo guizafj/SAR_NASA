@@ -51,7 +51,24 @@ ALL_GATES = [
 #: Files copied into the scratch repo used to prove the clone gate catches a broken committed doc.
 #: `.venv` is symlinked instead (it is 500 MB and only needed for its interpreter).
 COPY_IGNORE = shutil.ignore_patterns(
-    ".git", ".venv", ".venv*", ".venv312", "__pycache__", ".pytest_cache", ".mypy_cache", "node_modules"
+    ".git",
+    ".venv",
+    ".venv*",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "node_modules",
+    # Generated scratch that must never travel with the worktree. When pytest's temp dir resolves
+    # inside the checkout, the copy below carried the previous run's `pytest-of-yuls` into the
+    # scratch repo; the nested run then created another one, and each generation carried the last.
+    # That reached 133 GB. A .gitignore entry cannot help: copytree is not git-aware.
+    "pytest-of-*",
+    "make-figures-mpl-*",
+    # mktemp's shape, `preflight.` + 10 characters. NOT a bare `preflight.*`: ignore_patterns
+    # matches basenames at every level, so that also matched `scripts/preflight.sh` -- the script
+    # the clone gate sources -- and silently dropped it from the copy.
+    "preflight.??????????",
+    "tmp*",
 )
 
 
@@ -61,8 +78,11 @@ def run_preflight(
     """Run the real script from the repo root with all scratch data under ``tmp_root``."""
     env = dict(os.environ)
     # Keep the nested pytest inside check_phase_a.sh from racing the outer run on the repo's
-    # .pytest_cache; this changes no gate, only where the cache would be written.
-    env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
+    # .pytest_cache; this changes no gate, only where the cache would be written. The explicit
+    # basetemp and TMPDIR keep the nested run's scratch out of the repo root: when gettempdir()
+    # resolves inside the checkout, an inherited temp dir is exactly what makes the tree grow.
+    env["PYTEST_ADDOPTS"] = f"-p no:cacheprovider --basetemp={tmp_root / 'pytest'}"
+    env["TMPDIR"] = str(tmp_root)
     return subprocess.run(
         [str(PREFLIGHT), *args],
         cwd=ROOT,
@@ -140,9 +160,15 @@ def test_fast_mode_prints_all_seven_rows_and_verdict_matches_exit_code(
         assert "VERDICT: READY" in result.stdout, result.stdout
         assert "failed:" not in result.stdout.split("VERDICT:", 1)[1], result.stdout
 
-    # The scratch dir is created under TMPDIR and removed by the EXIT trap.
-    leftovers = list(tmp_root.iterdir())
-    assert leftovers == [], f"preflight left scratch files behind: {leftovers}"
+    # This used to assert that tmp_root was empty, but nothing ever wrote there: it could not fail,
+    # and the `pytest-of-yuls` recursion grew underneath it. Watch the repo root instead -- a gate
+    # that leaves scratch next to the checkout is the defect, and it has to be named.
+    strays = sorted(
+        entry.name
+        for entry in ROOT.iterdir()
+        if entry.name.startswith(("pytest-of-", "tmp", "make-figures-mpl-", "preflight."))
+    )
+    assert not strays, f"a gate wrote scratch into the repo root: {strays}"
 
 
 def test_json_output_has_one_entry_per_gate_with_status_and_seconds(tmp_path: Path) -> None:
@@ -234,7 +260,8 @@ def _scratch_repo_from_worktree(tmp_path: Path) -> Path:
     then treats exactly like a teammate's checkout.
     """
     repo = tmp_path / "repo"
-    shutil.copytree(ROOT, repo, ignore=COPY_IGNORE)
+    # symlinks=True: dereferencing `pytest-current` materialised a second full copy of the tree.
+    shutil.copytree(ROOT, repo, ignore=COPY_IGNORE, symlinks=True)
     (repo / ".venv").symlink_to(ROOT / ".venv", target_is_directory=True)
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
@@ -271,8 +298,7 @@ if [[ $G_STATUS == FAIL && -n $G_LOG && -f $G_LOG ]]; then
 fi
 """
     env = dict(os.environ)
-    env["TMPDIR"] = str(tmp_root)
-    env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
+    env["PYTEST_ADDOPTS"] = f"-p no:cacheprovider --basetemp={tmp_root / 'pytest'}"
     env.update(extra_env or {})
     completed = subprocess.run(
         ["bash", "-c", driver, "scripts/preflight.sh"],

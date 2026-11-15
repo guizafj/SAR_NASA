@@ -1355,7 +1355,11 @@ def download_one(
             response.close()
             if not location:
                 raise RuntimeError(f"{dest.name}: HTTP {status} without a Location header")
-            current_url = location
+            # ASF answers with a *relative* Location on its login/canonical-path hop: measured
+            # 2026-11-15 against the live chain, hop 3 is a 301 carrying "/NISAR/..." on the
+            # same host. `requests` raises MissingSchema on a bare path, so resolve against the
+            # URL we just fetched. Every other hop is absolute and urljoin is a no-op there.
+            current_url = urllib.parse.urljoin(current_url, location)
             continue
 
         content_type = (response.headers.get("Content-Type") or "").lower()

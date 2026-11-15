@@ -11,9 +11,11 @@ deterministic: no network, no clock, no global state. The caller passes a local 
 Why this file exists
 --------------------
 `docs/data-contract-v1.md` §6 freezes `context_layers.geojson` and §7.1/§7.4 freeze the
-vocabularies. The mock (`pipeline/mock/`) produces a conformant artefact from invented geography;
-this module produces the *same* artefact from a real OSM/Overture/GHSL-style extract the caller
-supplies. It never invents a class that is not in `contracts.CONTEXT_CLASSES`, never drops a
+vocabularies. The mock (`pipeline/mock/`) *consumes* this module's join to publish its context
+layers from a real OSM/Overture/GHSL-style extract the caller supplies; the invented geography
+survives only as the declared synthetic fallback (`pipeline/context.py::SYNTHETIC`), used when
+neither a pin nor an extract exists.
+It never invents a class that is not in `contracts.CONTEXT_CLASSES`, never drops a
 feature just because its tags are unmapped (it becomes `land_use = "unknown"`), and never guesses a
 risk threshold (it calls `contracts.risk_level_from_velocity`, the only definition).
 
@@ -24,6 +26,10 @@ values); nothing in this file re-declares a field name, enum, unit or threshold 
 
 What this module deliberately does NOT do
 ------------------------------------------
+* The `land_use.csv` sidecar it writes carries the centroid join only: it does NOT apply the sea
+  polygon rule (`pipeline/context.py::label_cells`), because the sea is a property of the AOI and of
+  the case, not of the tag table. A cell over the sea can therefore be `unknown` in the sidecar and
+  `water` in a generated case; the generator is the authority.
 * It does not rewrite `nisar_grid.parquet`. That artefact belongs to the producer that wrote it
   (`pipeline/generate_mock.py`, and later the real ingest pipeline). Enrichment writes a
   `land_use.csv` sidecar keyed by `cell_id`; folding it in is a one-line join owned by whoever
@@ -230,6 +236,11 @@ TAG_RULES: tuple[TagRule, ...] = (
     TagRule("landuse", ("railway", "port", "depot"), "land_use", "infrastructure", "transport/utility land: infrastructure is the frozen class"),
     TagRule("landuse", ("landfill",), "land_use", "industrial", "engineered waste facility"),
     TagRule("landuse", ("quarry", "construction", "brownfield"), "land_use", "bare", "exposed/cleared ground"),
+    # Institutional land: a campus or a church precinct is built land, not open ground. Without
+    # these two rules they fall to `unknown` (measured: 18 `education` + 9 `religious` polygons in a
+    # 3.3 x 3.5 km Malaga box), which is the wrong answer for land that carries buildings.
+    TagRule("landuse", ("education",), "land_use", "urban-dense", "school/university campus: built service land"),
+    TagRule("landuse", ("religious",), "land_use", "urban-dense", "church/monastery precinct: built service land"),
     TagRule(
         "landuse",
         ("forest", "meadow", "farmland", "orchard", "vineyard", "allotments"),
@@ -237,8 +248,31 @@ TAG_RULES: tuple[TagRule, ...] = (
         "vegetation",
         "green/agricultural land; the vocabulary has no separate agricultural class",
     ),
+    # `landuse=grass` is the second most common landuse polygon in a real Malaga extract (measured:
+    # 903 of 2709 features in a 3.3 x 3.5 km box) and mapped to `unknown` before this rule existed,
+    # which is why a real extract used to publish an unmapped area that was mostly grass.
+    TagRule(
+        "landuse",
+        ("grass", "village_green", "greenfield", "recreation_ground", "meadow", "cemetery", "flowerbed"),
+        "land_use",
+        "vegetation",
+        "open green land, including cemeteries and undeveloped (greenfield) plots",
+    ),
     TagRule("natural", ("wood", "scrub", "grassland", "heath"), "land_use", "vegetation", "natural green cover"),
-    TagRule("natural", ("bare_rock", "scree", "sand", "shingle", "beach"), "land_use", "bare", "unvegetated surface"),
+    TagRule("natural", ("tree_row", "tree"), "land_use", "vegetation", "tree cover (usually linear; lines never assign a cell)"),
+    TagRule("natural", ("bare_rock", "scree", "sand", "shingle", "beach", "cliff", "earth_bank"), "land_use", "bare", "unvegetated surface"),
+    # Recreation land is the single largest OSM gap in the two American/Asian AOIs (measured: 903
+    # `leisure` polygons in a 4 x 4 km Mexico City box, 305 in a 4 x 4 km Jakarta box). A park or a
+    # pitch is open ground with low exposure: `vegetation`, never `urban-dense`.
+    TagRule(
+        "leisure",
+        ("park", "garden", "common", "playground", "pitch", "track", "nature_reserve", "golf_course", "recreation_ground"),
+        "land_use",
+        "vegetation",
+        "open recreation land: no buildings to expose",
+    ),
+    TagRule("leisure", ("sports_centre", "stadium", "water_park"), "land_use", "urban-dense", "built sports complex"),
+    TagRule("place", ("square",), "land_use", "urban-dense", "hard-surface public square inside the built fabric"),
     TagRule("amenity", None, "land_use", "urban-dense", "any other amenity is a service in the built-up fabric"),
     # --- admin boundaries: published for the map, never used as a land use ---------------------
     TagRule("place", ("city", "town", "municipality"), "admin_boundary", "municipality", "top-level administered place"),

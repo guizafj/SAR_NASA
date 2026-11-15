@@ -24,12 +24,18 @@ SOFTWARE.
 
 This licence covers the source code, documentation and figures in this
 repository. It does NOT relicense the Earth-observation data the pipeline
-reads or the derived numbers it reports:
+reads, the derived numbers it reports, or the OSM-derived context layers it
+publishes:
 
   * NISAR L2 GUNW products: NASA/JPL-Caltech, distributed by the Alaska
     Satellite Facility DAAC under NASA Earthdata terms of use.
   * Sentinel-1 products (when the C-band path is used): ESA Copernicus,
     free and open under the Copernicus data policy.
-  * Map context / place names: (c) OpenStreetMap contributors, ODbL.
+  * OSM-derived context layers (data/processed/<case>/context_layers.geojson and
+    config/context/<case>.json): a Derivative Database, © OpenStreetMap
+    contributors, offered under the Open Database License (ODbL) 1.0,
+    https://opendatacommons.org/licenses/odbl/1-0/ . The MIT grant above does not
+    apply to these files. A rendered map, screenshot or figure is a Produced
+    Work and needs only the attribution notice.
 
 See "Licence & attribution" in README.md for citation guidance.

@@ -26,6 +26,7 @@ Rerunning from a clean `data/processed/` reproduces byte-identical files.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -35,6 +36,7 @@ if str(ROOT) not in sys.path:  # `python pipeline/generate_mock.py` puts pipelin
 
 import pandas as pd  # noqa: E402
 
+from pipeline import context as G  # noqa: E402
 from pipeline.mock import artifacts as A  # noqa: E402
 from pipeline.mock import checks as K  # noqa: E402
 from pipeline.mock import model as M  # noqa: E402
@@ -111,18 +113,57 @@ def write_timeseries(
     }
 
 
-def generate_case(case, study, out_dir: Path, seed: int, per_cell_series: bool) -> K.CaseReport:
-    model = M.build_case(case, study, seed)
-    # The window is part of the id: a 12-date and a 62-date stack must not share a provenance.
-    provenance = A.provenance_id(case.case_id, seed, model.dates)
+def published_context_is_osm(case_dir: Path) -> bool:
+    """Does this directory currently publish an OpenStreetMap-backed context layer?
+
+    Read from the artefact, not from the tree: the artefact is what a reader has already seen.
+    """
+    path = case_dir / "context_layers.geojson"
+    if not path.is_file():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    for feature in payload.get("features") or []:
+        source = str(((feature or {}).get("properties") or {}).get("source") or "").strip()
+        if source and "synthetic" not in source.lower():
+            return True
+    return False
+
+
+def generate_case(
+    case, study, out_dir: Path, seed: int, per_cell_series: bool, allow_context_downgrade: bool = False
+) -> K.CaseReport:
+    # The window is part of the id: a 12-date and a 62-date stack must not share a provenance. It is
+    # computed BEFORE the model because the context is mapped with it (the gate requires one id
+    # across grid, series and context, so the extract cannot carry an id of its own).
+    provenance = A.provenance_id(case.case_id, seed, study.dates)
+    model = M.build_case(case, study, seed, provenance=provenance)
+
+    # Refuse to overwrite a published OpenStreetMap context with the declared synthetic fallback.
+    # Not hypothetical: a generator run that could not see `config/context/` rewrote
+    # `data/processed` in place, replacing OSM-backed layers (hundreds of features) with 12 invented
+    # ones, and every gate still passed because the fallback is a legal artefact. Losing real
+    # provenance has to be a decision, never a side effect of forgetting a directory.
     case_dir = out_dir / case.case_id
+    if model.context.synthetic and published_context_is_osm(case_dir) and not allow_context_downgrade:
+        raise SystemExit(
+            f"{case.case_id}: refusing to overwrite an OpenStreetMap-backed context with the declared "
+            f"synthetic fallback (pin not found: {G.pin_path(case.case_id)}). Restore the pin, or "
+            "pass --allow-context-downgrade to publish invented geography on purpose."
+        )
     case_dir.mkdir(parents=True, exist_ok=True)
 
     _log(
         f"[{case.case_id}] {model.n_cells} cells, {len(model.dates)} dates "
         f"({model.dates[0]}..{model.dates[-1]}), provenance {provenance}"
     )
+    # `summarise_context` names the branch that produced the labels: pinned context, freshly mapped
+    # extract, or the declared synthetic fallback. Printing "OSM extract" for a pin-only run would be
+    # a claim about provenance the run cannot make.
     _log(f"    land_use: {M.land_use_summary(model)}")
+    _log(f"    context:  {G.summarise_context(model.context)}")
 
     grid = M.grid_frame(model, A.SENSOR, A.PRODUCT, A.MOCK_SOURCE, provenance)
     grid_size = A.write_parquet(grid, case_dir / "nisar_grid.parquet")
@@ -194,6 +235,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="also emit per-cell drill-down rows (capped at 3 MiB per case)",
     )
     parser.add_argument(
+        "--allow-context-downgrade",
+        action="store_true",
+        help=(
+            "allow the declared synthetic fallback to overwrite an artefact directory that currently "
+            "publishes an OpenStreetMap-backed context (refused by default)"
+        ),
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="do not generate: validate the artefacts already on disk (contract + task gates)",
@@ -218,7 +267,10 @@ def main(argv: list[str] | None = None) -> int:
                 f"seed={args.seed}, out={out_dir}"
             )
             reports = [
-                generate_case(case, study, out_dir, args.seed, args.per_cell_series) for case in cases
+                generate_case(
+                    case, study, out_dir, args.seed, args.per_cell_series, args.allow_context_downgrade
+                )
+                for case in cases
             ]
     except AssertionError as exc:
         print(f"FAIL gate:\n{exc}", file=sys.stderr)

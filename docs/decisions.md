@@ -53,7 +53,7 @@ product shipped under a confident badge.
 **Decision.** Cells with padding mask 127, non-finite phase/coherence, coherence below the frozen
 `coherence_min`, or an incomplete series are **dropped**. Water is not written as `0 mm/yr`; it
 survives only as a `layer: "water"` context feature.
-**Why.** Málaga's median is −1.4 mm/yr — a `0` there is indistinguishable from a real measurement.
+**Why.** Málaga's median is −1.3 mm/yr — a `0` there is indistinguishable from a real measurement.
 Absent-versus-zero is the difference between "we have no data" and "we measured no motion", and a
 low-signal negative control is exactly where that distinction gets destroyed.
 **Evidence.** `pipeline/process_case.py` (`keep = valid & (coherence >= PROFILE.coherence_min)`;
@@ -70,8 +70,8 @@ low-signal negative control is exactly where that distinction gets destroyed.
 
 ### D-06 — A detection limit is mandatory once the signal is small
 **Decision.** When `|median velocity| < NULL_RESULT_MM_YR` (5.0 mm/yr), `stats.detection_limit_mm_yr`
-must be present. Málaga ships `1.5` beside its `−1.358` mm/yr median.
-**Why.** Without it, "−1.4 mm/yr" reads as a measured subsidence rate rather than as motion
+must be present. Málaga ships `1.5` beside its `−1.313` mm/yr median.
+**Why.** Without it, "−1.3 mm/yr" reads as a measured subsidence rate rather than as motion
 indistinguishable from noise. The field makes the null result falsifiable instead of merely modest.
 **Evidence.** `src/domain/contracts.py`; `pipeline/science/transforms.py` (`detection_limit_mm_yr`);
 `tests/test_mock_expectations.py`.
@@ -133,7 +133,8 @@ provenance.
 **Reverse if.** GNSS validation is run, or two flight directions are downloaded.
 
 ### D-11 — Model coherence down to 0.35 so the quality filter bites
-**Decision.** The mock's coherence spans 0.35–0.95 (Mexico City 0.44–0.95); `coherence_min = 0.35`
+**Decision.** Published mock coherence spans 0.37–0.95, i.e. the grid after the filter (Mexico City
+0.47–0.95, Jakarta 0.45–0.95, Málaga 0.37–0.94); `coherence_min = 0.35`
 for `nisar-gunw`/`mock`.
 **Why.** Clipping the mock at 0.45 made the quality slider a no-op: every cell passed, so the UI
 control implied a filtering capability the data never exercised. Lowering the floor gives the
@@ -230,7 +231,7 @@ generic "auth failed" wastes the operator's afternoon.
 ### D-19 — Mexico City is primary; Málaga is the declared negative control
 **Decision.** `primary: mexico-city` in `config/study_cases.yaml`; Málaga ships as the explicit
 negative control. One-line flip to `malaga` if CDMX's GUNW coverage fails the ≥ 50 % check.
-**Why.** The strongest signal (median −62.1 vs −1.4 mm/yr) is the clearest demo; a negative control
+**Why.** The strongest signal (median −64.7 vs −1.3 mm/yr) is the clearest demo; a negative control
 is required by the brief, and admitting one is more credible than three cities that all look
 alarming. Keeping the flip as a single line means the decision cannot rot into scattered edits.
 **Evidence.** `config/study_cases.yaml`; `docs/data-source-decision.md`.
@@ -370,7 +371,10 @@ individuals; *docs/ui-data-needs.md* was kept because `src/data/ui_bridge.py` an
 `tests/test_ui_bridge.py` reference it, so deleting it would leave production references dangling.
 **Evidence.** `src/domain/contracts.py` restored from HEAD (fingerprint `049376b0…`) <!-- fingerprint-historical: the v1.0 digest of that 14 Nov merge; superseded by the 2026-11-15 bump -->;
 `pipeline/generate_mock.py --check` passes and a full regeneration is byte-identical to the committed
-artefacts (1.39 MiB / 15 MB); `app.py` is `origin/main`'s 246-line file by hash.
+artefacts (1.39 MiB / 15 MB **as measured at that 14 Nov merge** — the size at the moment of the
+decision, not a live measurement; the tree now measures 4.79 MiB = 5,017,507 B of the same budget,
+3.36 MB of it in the three `context_layers.geojson` after the OSM-context regeneration); `app.py` is
+`origin/main`'s 246-line file by hash.
 **Reverse if.** The team adopts 1.1 or 1.2 (O-05 option B/C), in which case the excluded request docs
 become current again and should be restored from `origin/main` rather than rewritten.
 *(O-05 was reversed on 2026-11-15 in favour of 1.1 with a 2-year window; the exclusion above is

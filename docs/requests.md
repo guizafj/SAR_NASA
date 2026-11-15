@@ -8,10 +8,12 @@
 | Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
 | Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta en `main` (`ui_bridge` y `_stubs` unen el párrafo del caveat y todas las líneas de continuación de `section_13`) |
 | Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | resuelta (2026-11-15): puntos 4 y 5 cerrados en `3d6b858`; puntos 1–3 conectados en `load_documented_limits` y `src/ui/formatters.py` desde `config/study_cases.yaml`, `docs/science-guide.md` §1 y `docs/data-contract-v1.md` §6/§7.4 |
-| Todos (dueño de `docs/verification.md`) | Registrar `tests/test_doc_provenance_ids.py` en la tabla de familias del registro | abierta (Rol 3, re-aplicada al integrar `main`) |
+| Todos (dueño de `docs/verification.md`) | Registrar `tests/test_doc_provenance_ids.py` en la tabla de familias del registro | resuelta: la fila «document provenance ids» está en `docs/verification.md` desde `feat/contract-1.1` y sobrevive a la integración de `main` (lo comprueba `tests/test_verification_register.py`) |
 | Rol 1 (pozo) | `validate_case_bundle`: el contexto no puede nombrar a su propio proveedor | **abierta** — pendiente de Rol 1 |
 | Todos | Estrategia de mejora continua por rama (sección final) | vigente desde 2026-11-15 |
-
+| Rol 1 (pozo) | `.gitignore` ignora `AGENTS.md` rastreado; elegir `git rm --cached` o quitar la línea | resuelta en esta rama: se mantiene la regla y `AGENTS.md` sale del índice; verificado con `tests/test_gitignore_policy.py` |
+| Rol 3 (yuls) | Retirar la metáfora "one pump" de la narrativa y re-scopear la tesis a `docs/science-guide.md` §3.4 | abierta |
+| Rol 3 (yuls) | Manifiesto de contexto sin sello OSM por tile ni rango, `load_extract` leyendo un tile marcado como fallido y sha256 calculado sobre el buffer y no sobre el archivo | resuelta en esta rama: las tres correcciones están en el código |
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
 **De:** Rol 2 (fradiaz)
@@ -255,6 +257,7 @@ Pedimos una fila en la tabla de familias, en la línea de la fila «provenance i
 
 **Impacto en contrato de datos:** ninguno.
 **Aprobación:** quien mantenga `docs/verification.md`.
+**Estado:** RESUELTO — el archivo ya está registrado en la tabla de familias de `docs/verification.md` (fila «document provenance ids», línea 94), con el alcance pedido: los ids citados en prosa siguen vivos, un id retirado exige marca histórica y el guard se prueba sobre una copia mutada de `docs/video-script.md`. `./scripts/python.sh -m pytest tests/test_verification_register.py -q` vuelve a verde con ese archivo registrado.
 
 ## Rol 1 (`src/data/validation.py`) — el contexto no puede nombrar a su propio proveedor
 
@@ -277,6 +280,79 @@ Pedimos una decisión: si el contrato 1.1 debe permitir procedencia por capa (p.
 **Impacto en contrato de datos:** posiblemente §6 (propiedades de contexto) y el gate; no se añade ningún campo al esquema en ningún caso.  
 **Aprobación:** Rol 1 (dueño de `src/data/validation.py`); Rol 3 documenta el resultado.  
 **Estado:** ABIERTA — pendiente de Rol 1.
+`.gitignore` y `AGENTS.md` sale del índice (`git rm --cached AGENTS.md`, sin commit). No se reescribe la regla; el archivo sigue en el árbol de trabajo para quien lo lea en local. `tests/test_gitignore_policy.py` vuelve a verde. Si `main` prefiere el otro camino, basta con revertir la línea del índice y quitar la regla; el resto del cambio no depende de esta decisión.
+
+## Rol 1 (`.gitignore`, CI) — un `AGENTS.md` rastreado también cae en una regla de ignore
+
+**De:** Rol 2 (fradiaz)
+**Para:** Rol 1 (pozo), dueño de CI
+**Contexto:** higiene del repo; deja la suite en rojo.
+
+El árbol de trabajo trae un cambio sin commitear en `.gitignore` que añade la línea `AGENTS.md` (última, después de `*~`), mientras `git ls-files AGENTS.md` informa el archivo como rastreado. Por eso falla `tests/test_gitignore_policy.py::test_no_tracked_file_is_ignored` con "tracked files are also matched by an ignore rule ... AGENTS.md". Verificado en esta sesión corriendo ese archivo: un solo FAIL, `AGENTS.md`.
+
+Pedimos elegir una, no las dos:
+
+- `git rm --cached AGENTS.md`: se mantiene la regla, el archivo sale del repo publicado.
+- Quitar la línea de `.gitignore`: el archivo sigue rastreado.
+
+La decisión no es nuestra: el archivo es el contrato de roles del proyecto y el único sitio donde están escritos los límites entre roles.
+
+**Impacto en contrato de datos:** ninguno.  
+**Aprobación:** Rol 1 (CI) y el dueño del repo.  
+**Estado:** RESUELTA en `feat/contract-1.1` — decisión del dueño del repo: se mantiene la regla de `.gitignore` y `AGENTS.md` sale del índice (`git rm --cached AGENTS.md`, sin commit). No se reescribe la regla; el archivo sigue en el árbol de trabajo para quien lo lea en local. `tests/test_gitignore_policy.py` vuelve a verde. Si `main` prefiere el otro camino, basta con revertir la línea del índice y quitar la regla; el resto del cambio no depende de esta decisión.
+
+## Rol 3 (narrativa) — retirar la metáfora "one pump" y re-scopear la tesis
+
+**De:** Rol 3 (yuls), dueño de la narrativa — anotado a partir del trabajo de presentación y de la decisión del dueño del repo
+**Para:** Rol 1 (pozo), por el literal de guarda en `tests/test_video_script_numbers.py` y el nombre del proyecto en `deploy/Dockerfile`
+**Contexto:** presentación del proyecto (7 diapositivas), decisión del dueño del repo: la metáfora "one pump" no se sostiene y sale del material de presentación. La portada del deck pasa a llevar el nombre del reto, `Dancing with the SARs`, con el subtítulo "See how cities sink, from orbit. A NISAR risk assessment tool for researchers and planners." — el deck ya no depende de la metáfora.
+
+Dos cosas distintas, que conviene decidir por separado:
+
+**1. La tesis del README contradice a la guía científica.** `README.md` (línea 53) dice:
+
+```
+Subsidence is set by **interbed compressibility**, not by how much water is pumped.
+```
+
+`docs/science-guide.md` §3.4 dice algo más ajustado:
+
+> That is the thesis: compressibility helps control the *rate and recoverability*, while pumping-driven head change supplies the forcing.
+
+El README, tal como está, afirma que el bombeo no importa; la guía dice que sí aporta el forzamiento y que la compresibilidad fija la tasa y la recuperabilidad. No es una preferencia de estilo: son dos afirmaciones distintas. Pedimos re-escribir la línea 53 de `README.md` con la versión de la guía (o la que Rol 3 apruebe), porque hoy el README es lo que un juez lee primero.
+
+**2. Dónde vive la metáfora (ninguno de estos archivos es de Rol 2):**
+
+| Archivo | Qué contiene |
+|---|---|
+| `README.md` (línea 1) | `# Three Cities, One Pump` |
+| `README.md` (línea 53) | "not by how much water is pumped" |
+| `docs/video-script.md` (línea 11) | "not by how much water is pumped" |
+| `docs/video-script.md` (línea 12) | "Same pump, different ground." |
+| `docs/demo-fallback.md` (línea 82) | cita literal de "Same pump, different ground." |
+| `tests/test_video_script_numbers.py` (línea 125) | **fija el literal**: `("one", "pump"): "video title ('Three Cities, One Pump')"` |
+| `CONTEXT.md`, `docs/submission-checklist.md`, `scripts/make_figures.py`, `deploy/Dockerfile` | el nombre del proyecto, una ocurrencia cada uno |
+
+El orden importa: el literal de `tests/test_video_script_numbers.py` (línea 125) fija el nombre del proyecto *dentro* del guion de vídeo, así que cambiar el guion sin tocar el literal deja la suite en rojo, y cambiar el literal sin cambiar el guion deja el guard sin sentido. Si el nombre cambia, guion y test se mueven en el mismo commit; si el nombre se queda, basta con retirar "Same pump, different ground." (línea 12 de `docs/video-script.md`, citada en la línea 82 de `docs/demo-fallback.md`) y re-escribir la línea 53 de `README.md`.
+
+**Impacto en contrato de datos:** ninguno. Es prosa narrativa más un literal de test; no hay campo de esquema ni umbral en juego.
+**Aprobación:** Rol 3 (narrativa y nombre del proyecto, es suyo); Rol 1 (pozo) por `tests/test_video_script_numbers.py` y el nombre en `deploy/Dockerfile`.
+**Estado:** ABIERTA solo en la parte de Rol 1 (el literal del nombre); el deck de presentación ya no usa la metáfora y la narrativa la conserva hasta que el dueño del repo decida el nombre.
+
+## Rol 3 (`pipeline/ingest/fetch_context.py`, `pipeline/ingest/osm_context.py`) — manifiesto de contexto: sello por tile, tiles fallidos y sha256 del archivo
+
+**De:** Rol 3 (yuls)
+**Para:** Rol 3 (yuls). Es un defecto interno, y se registra aquí porque el manifiesto es la evidencia de recuperación que `pipeline/context.py` y el pin committed citan como procedencia.
+
+**Contexto:** el fetcher por tiles de esta rama tenía tres agujeros que ningún test veía, porque cada uno deja un artefacto legal: el manifiesto no sellaba el tile, `load_extract` confiaba en el directorio y el hash no era el del archivo. Corregidos en esta rama:
+
+1. **El manifiesto omitía el sello OSM por tile y el rango de la corrida.** Un lote de tiles no es un snapshot y los tiles se piden minutos aparte: ahora `_tile_record` trae `osm_timestamp` (el `osm3s.timestamp_osm_base` con que se respondió ese tile, o `None`) y el manifiesto publica `timestamp_osm_base` como el **más reciente** de los observados, nunca el primero, más `osm_timestamp_base_range` (`[oldest]` cuando los tiles coinciden, `[oldest, newest]` cuando no), calculado por `_stamp_range`. Con más de un sello el CLI avisa; no se declara un snapshot compartido que la corrida no puede sostener.
+2. **`load_extract` podía consumir un tile que el manifiesto marcaba fallido.** Un `--force` que falla conserva el archivo anterior como evidencia, así que el directorio `tiles/` no es la lista de lo recuperado. Ahora `_manifest_tile_states` devuelve el `ok` por tile y `load_extract` salta los stems marcados, deja de leer (no borra) el archivo, falla con `FileNotFoundError` si el manifiesto marca todos como no recuperados, y publica los saltados en `frame.attrs["skipped_tiles"]`. Un manifiesto que no nombra ningún tile (el que usan algunos fixtures) se comporta como antes: la ausencia de registro no es un fallo.
+3. **El `sha256` se calculaba sobre el cuerpo en memoria, no sobre los bytes del disco.** La ruta de descarga hasheaba `outcome.body` mientras la ruta de *skip* hasheaba el archivo, así que dos ejecuciones sobre el mismo tile podían publicar hashes distintos y la auditoría del manifiesto no probaba nada: ahora se escribe con `write_bytes` y se hashea `path.read_bytes()` en ambas rutas, que es el archivo que un lector va a parsear.
+
+**Impacto en contrato de datos:** ninguno. `manifest.json` es el registro de recuperación (conserva su forma, `contract_version: "1.0"`, schema del informe de búsqueda y no `SCHEMA_VERSION`) y no cambia ningún campo de los cuatro artefactos ni la forma de `config/context/<case>.json`, cuyo bloque `record` ya llevaba `timestamp_osm_base` y los conteos de tiles. Lo que cambia es qué bytes entran al join cuando hay un tile fallido; eso se regenera con el escritor del pin, no a mano.
+**Aprobación:** Rol 3, dueño de `pipeline/`. No hay cambio de contrato que aprobar y no toca archivos de Rol 1 ni de Rol 2.
+**Estado:** RESUELTO en `feat/contract-1.1` — las tres correcciones están en el código y las cubren los tests del fetcher y del pin de esta rama.
 
 ## Todos (integración en `main`) — el dueño ordenó integrar sin la firma de O-05
 
@@ -305,7 +381,10 @@ Lo que sí está verificado antes de integrar, para que el acuerdo se pueda dar 
 
 **Pendiente conocido y no resuelto aquí:** la capa de contexto OSM. Los pines (3.464.620 B) están versionados y su
 consumidor no, de modo que la rama integrada los lleva inertes. Debe resolverse en un sentido o en otro antes de
-publicar: o entra la capa completa en un solo commit, o se retiran los pines.
+publicar: o entra la capa completa en un solo commit, o se retiran los pines. **Resuelto en el commit siguiente:**
+entra la capa completa en un único commit — consumidor, cableado (`pipeline/enrich_context.py`,
+`pipeline/generate_mock.py`, `pipeline/mock/*`), los artefactos regenerados, los pines, los seis módulos de prueba
+nuevos y sus filas en `docs/verification.md`; los números de esa entrada están en `docs/context-sources.md`.
 
 **Aprobación:** pendiente de Rol 1 y Rol 2 (a posteriori). Dueño: Rol 3, que asume la decisión.
 **Estado:** INTEGRADO POR DECISIÓN DEL DUEÑO — firma de O-05 pendiente.

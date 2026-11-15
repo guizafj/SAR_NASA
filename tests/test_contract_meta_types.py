@@ -76,17 +76,17 @@ PROVENANCE = C.provenance_id(CASE_ID, "nisar-gunw", "2026-11-14", "abc12345")
 
 #: The three published cases whose `stats.median_ratio_R` must stay accepted, unchanged.
 SHIPPED_MEDIAN_RATIO = {
-    "mexico-city": 41.377,
-    "jakarta": 2.119,
-    "malaga": 0.402,
+    "mexico-city": 43.120,
+    "jakarta": 2.155,
+    "malaga": 0.389,
 }
 
 #: The shipped `(stats.n_cells, stats.n_dates)` pairs, read from `data/processed/*/meta.json`.
 #: `n_dates` is 62 in all three because they share one 6-day cadence stack; `n_cells` differs by AOI.
 SHIPPED_COUNTS = {
-    "mexico-city": (11694, 62),
-    "jakarta": (4811, 62),
-    "malaga": (2645, 62),
+    "mexico-city": (11600, 62),
+    "jakarta": (4936, 62),
+    "malaga": (2758, 62),
 }
 
 
@@ -608,7 +608,7 @@ def test_counts_reject_anything_but_a_positive_integer(key: str, value: Any) -> 
 @pytest.mark.parametrize("key", COUNT_KEYS)
 def test_counts_still_accept_the_shipped_integers(key: str) -> None:
     """No new rejection for a real count: the shipped AoI sizes all pass, alone and in a bundle."""
-    for value in (1, 62, 2645, 11694):
+    for value in (1, 62, 2758, 11600):
         assert _meta_problems(_meta(**{key: value})) == [], f"{key}={value!r} must be accepted"
         assert _problems(meta=_meta(**{key: value})) == []
 

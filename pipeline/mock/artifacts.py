@@ -26,7 +26,7 @@ from shapely.geometry import mapping
 from pipeline.science import transforms as V
 from src.domain import contracts as C
 
-from . import geography as G
+from pipeline import context as G
 from .cases import CaseSpec
 from .model import CaseModel, land_use_geometries
 
@@ -115,7 +115,8 @@ def write_json(payload: dict[str, Any], path: Path) -> int:
 
 
 # ---------------------------------------------------------------------------------------------
-# context_layers.geojson — same land_use array as the grid, plus the invented geography
+# context_layers.geojson — same land_use array as the grid, plus the mapped extract
+# (or, on the fallback path, the declared synthetic geography)
 # ---------------------------------------------------------------------------------------------
 
 
@@ -145,68 +146,177 @@ def _round_ring(ring: Iterable[tuple[float, float]]) -> list[list[float]]:
     return [[round(float(lon), 6), round(float(lat), 6)] for lon, lat in ring]
 
 
-def build_context(model: CaseModel, provenance: str) -> dict[str, Any]:
-    """EPSG:4326 FeatureCollection built from the grid's own `land_use` assignment."""
+#: Tolerance applied to published context geometry (≈22 m at these latitudes). Real OSM polygons
+#: carry far more vertices than a 200 m cell map can show, and the artefact size budget is a hard
+#: gate (`docs/context-sources.md` records the measured sizes), so published context geometry is
+#: always simplified and the tolerance is a declared number, not a hidden default.
+CONTEXT_SIMPLIFY_DEG = 2e-4
+#: Published-feature budget per layer, applied per geometry kind (see
+#: `context.select_for_publication`): the largest polygons, the longest lines and the points, so a
+#: cap can never delete the coastline again.
+FEATURE_CAP_PER_KIND = G.FEATURE_CAP_PER_KIND
+
+
+def _simplified(geometry: Any, tolerance: float = CONTEXT_SIMPLIFY_DEG) -> Any:
+    """Round + simplify a published geometry, keeping the polygon valid."""
+    import shapely  # noqa: PLC0415 - optional dependency, guarded by the caller
+
+    rounded = shapely.set_precision(geometry, 1e-5, mode="valid_output")
+    simplified = rounded.simplify(tolerance, preserve_topology=True)
+    simplified = shapely.set_precision(simplified, 1e-5, mode="valid_output")
+    return simplified if not simplified.is_empty else rounded
+
+
+def _published_context_features(
+    model: CaseModel,
+    layer: str,
+    provenance: str,
+    *,
+    cap: int,
+    rank_by: str,
+    skip_classes: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    """Publish one context layer from `CaseContext.features`, simplified, capped and ordered.
+
+    Attributes of a record are read by column name, not as `row.class_`: `class` is a Python
+    keyword, so attribute access on a namedtuple silently renames it and a mis-typed attribute is a
+    runtime crash rather than a contract failure.
+    """
     case = model.case
-    geo = G.GEOGRAPHY[case.case_id]
+    rows = model.context.features_of(layer)
+    if rows.empty:
+        return []
+    if skip_classes:
+        rows = rows[~rows["class"].isin(skip_classes)]
+        if rows.empty:
+            return []
+    # The pin already holds the selected features in a deterministic order. Re-ranking them here
+    # would rank SIMPLIFIED geometry on the pinned path but raw geometry on the fresh-extract path,
+    # so two machines with the same seed would publish the same features in a different order — and
+    # a byte-comparison of `context_layers.geojson` would fail for no scientific reason.
+    ordered = rows if model.context.pinned else G.select_for_publication(rows, cap=cap)
+    features: list[dict[str, Any]] = []
+    for _, row in ordered.iterrows():
+        geometry = row.geometry
+        # The pin stores its geometry already simplified and rounded; simplifying it again made the
+        # pinned path and the fresh-extract path publish different bytes for the same seed.
+        if not model.context.synthetic and not model.context.pinned:
+            geometry = _simplified(geometry)
+        name = row.get("name")
+        features.append(
+            _feature(
+                _round_geometry(geometry),
+                _props(
+                    case,
+                    provenance,
+                    layer,
+                    str(row["class"]),
+                    str(row.get("source") or model.context.source),
+                    None if _is_blank(name) else str(name),
+                ),
+            )
+        )
+    return features
+
+
+def _water_features(model: CaseModel, provenance: str) -> list[dict[str, Any]]:
+    """The `water` layer: real polygons and lines where the extract has them."""
+    return _published_context_features(
+        model, "water", provenance, cap=FEATURE_CAP_PER_KIND, rank_by="area"
+    )
+
+
+def _infrastructure_features(model: CaseModel, provenance: str) -> list[dict[str, Any]]:
+    """The `infrastructure` layer: real utility assets and transit nodes from the extract."""
+    return _published_context_features(
+        model, "infrastructure", provenance, cap=FEATURE_CAP_PER_KIND, rank_by="length"
+    )
+
+
+def _admin_features(model: CaseModel, provenance: str) -> list[dict[str, Any]]:
+    """The `admin_boundary` layer: any real sub-municipal unit the extract carries."""
+    return _published_context_features(
+        model,
+        "admin_boundary",
+        provenance,
+        cap=G.ADMIN_FEATURE_CAP,
+        rank_by="area",
+        skip_classes=("aoi",),  # the config AOI is published separately, from the authoritative ring
+    )
+
+
+def _aoi_feature(model: CaseModel, provenance: str) -> dict[str, Any]:
+    """The published analysis extent: the real OSM city limit, not the coverage ellipse.
+
+    The ellipse still decides which cells exist (a property of the model), but publishing it as the
+    AOI told the map that the city is an ellipse. `config/aoi/<case>.geojson` is the ring the whole
+    pipeline resolves cells from, so it is the ring the map gets.
+    """
+    case = model.case
+    aoi = _aoi(case)
+    # The source is whatever `load_aoi` actually resolved — `config/aoi/<case>.geojson` (an OSM city
+    # limit) or the configured bbox, which is a rectangle and must never be called a city limit. A
+    # hardcoded "OpenStreetMap city limit" string lied on the fallback path.
+    source = str(aoi.source)
+    if source.endswith(".geojson"):
+        source = f"{source} (OpenStreetMap city limit, ODbL 1.0) — analysis extent, not a legal boundary"
+    else:
+        source = f"{source} — analysis extent, not a legal boundary"
+    return _feature(
+        {
+            "type": "Polygon",
+            "coordinates": [[[round(lon, 6), round(lat, 6)] for lon, lat in aoi.ring]],
+        },
+        _props(case, provenance, "admin_boundary", "aoi", source, f"{case.name} — analysis AOI"),
+    )
+
+
+def _aoi(case: Any) -> Any:
+    from pipeline.aoi import load_aoi  # noqa: PLC0415 - avoids an import cycle at module load
+
+    return load_aoi(case.case_id, {"bbox": list(case.bbox)})
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or (isinstance(value, float) and value != value) or str(value).strip() == ""
+
+
+def _round_geometry(geometry: Any) -> dict[str, Any]:
+    """GeoJSON mapping with coordinates rounded to 6 decimals (≈11 cm)."""
+    import shapely  # noqa: PLC0415
+
+    rounded = shapely.set_precision(geometry, 1e-6, mode="valid_output") if geometry.geom_type in (
+        "Polygon", "MultiPolygon", "LineString", "MultiLineString"
+    ) else geometry
+    return mapping(rounded)
+
+
+def build_context(model: CaseModel, provenance: str) -> dict[str, Any]:
+    """EPSG:4326 FeatureCollection: real geography, labelled by the grid's own assignment.
+
+    One rule decides every land_use: the dissolve below unions the very cells the grid publishes, so
+    the layer and the column cannot disagree (contract §6). The polygons are the H3 cells because
+    that is what the grid is — publishing the raw OSM polygons instead measured 19.55 MB for a
+    29 km² extract, which does not fit the artefact budget and would also let the layer and the
+    column drift apart.
+    """
+    case = model.case
+    context = model.context
     features: list[dict[str, Any]] = []
 
     # 1. land_use: one dissolved geometry per class actually present in the grid.
     for klass, geometry in land_use_geometries(model).items():
         features.append(
-            _feature(mapping(geometry), _props(case, provenance, "land_use", klass, geo.land_use_source))
+            _feature(mapping(geometry), _props(case, provenance, "land_use", klass, context.land_use_source))
         )
 
-    # 2. infrastructure: a handful of POIs, inside the coverage ellipse by construction.
-    for klass, name, lon, lat in geo.points:
-        features.append(
-            _feature(
-                {"type": "Point", "coordinates": [round(lon, 6), round(lat, 6)]},
-                _props(case, provenance, "infrastructure", klass, geo.infrastructure_source, name),
-            )
-        )
+    # 2. infrastructure, 3. water: real features from the extract (or the declared fallback).
+    features.extend(_infrastructure_features(model, provenance))
+    features.extend(_water_features(model, provenance))
 
-    # 3. water: coastline and/or inland body, plus the river/canal through the AOI.
-    if geo.coast is not None:
-        features.append(
-            _feature(
-                {"type": "LineString", "coordinates": _round_ring(geo.coast.verts)},
-                _props(case, provenance, "water", "coastline", geo.water_source, "Línea de costa (sintética)"),
-            )
-        )
-    if geo.lake is not None:
-        lake_lon, lake_lat, lake_a, lake_b, lake_rot = geo.lake
-        ring = G.ellipse_ring(lake_lon, lake_lat, lake_a, lake_b, lake_rot, n=48)
-        features.append(
-            _feature(
-                {"type": "Polygon", "coordinates": [ring]},
-                _props(case, provenance, "water", "reservoir", geo.water_source, geo.lake_name),
-            )
-        )
-    if geo.waterway is not None:
-        klass, name, verts = geo.waterway
-        features.append(
-            _feature(
-                {"type": "LineString", "coordinates": _round_ring(verts)},
-                _props(case, provenance, "water", klass, geo.water_source, name),
-            )
-        )
-
-    # 4. admin_boundary: the coverage ellipse *is* the published AOI (cells outside are absent).
-    ellipse = case.field.coverage_ellipse
-    aoi = G.ellipse_ring(
-        ellipse.center_lon,
-        ellipse.center_lat,
-        ellipse.semi_axes_km[0],
-        ellipse.semi_axes_km[1],
-        ellipse.rotation_deg,
-    )
-    features.append(
-        _feature(
-            {"type": "Polygon", "coordinates": [aoi]},
-            _props(case, provenance, "admin_boundary", "aoi", geo.boundary_source, "AOI de cobertura (sintético)"),
-        )
-    )
+    # 4. admin_boundary: the real AOI ring plus any real district the extract carries.
+    features.append(_aoi_feature(model, provenance))
+    features.extend(_admin_features(model, provenance))
     return {"type": "FeatureCollection", "features": features}
 
 
@@ -245,6 +355,39 @@ def _not_fitted_limitation(model: CaseModel) -> str:
         "(|trend| / 0 is undefined, so neither inf nor a sentinel is published) and regime as "
         "'transitional' (no regime information); velocity_mm_yr is identified by the span and is "
         f"unaffected. {instead}."
+    )
+
+
+def _geography_limitation(model: CaseModel) -> str:
+    """The disclosure that matches the geography actually published.
+
+    Two states, two sentences, because only one of them can be true per artefact. The synthetic
+    fallback is invented and must say so; the OpenStreetMap path is mapped and must instead disclose
+    its *own* limit — the share of published cells that ended up `unknown`. That share has two
+    causes and the extract alone cannot attribute them per artefact: no mapped polygon contains the
+    centroid, or the containing polygon's OSM tags map to no class of the frozen vocabulary. Both
+    causes are `unknown` and neither is filled in by neighbourhood or interpolation, so the sentence
+    names both rather than picking one and overstating it.
+    """
+    context = model.context
+    if context.synthetic:
+        return (
+            "Mock geography (coastline, lake, river, POIs) is invented by the synthetic fallback in "
+            "pipeline/context.py and says so in the `source` of every synthetic context feature; the "
+            "land_use classes come from an invented ring/corridor rule that is not published as "
+            "geometry, and the only real feature in the file is the AOI polygon from config/aoi."
+        )
+    unknown = int((model.land_use == "unknown").sum())
+    total = int(model.n_cells)
+    share = 100.0 * unknown / total if total else 0.0
+    osm_stamp = context.osm_timestamp or "timestamp not recorded in the extract manifest"
+    return (
+        "Context geography (land use, water, infrastructure) is derived from an OpenStreetMap "
+        f"extract (data through {osm_stamp}) under the ODbL 1.0: OSM land use is de facto and "
+        f"incomplete, so {unknown} of {total} published cells ({share:.1f} %) are `unknown` — "
+        "either no mapped polygon contains their centroid, or the containing polygon's tags map to "
+        "no class of the frozen land-use vocabulary. Both causes stay `unknown` and neither is "
+        "extrapolated from a neighbouring cell."
     )
 
 
@@ -345,15 +488,29 @@ def build_meta(
             + (
                 "cells below the frozen "
                 "coherence_min are dropped, so water and other decorrelating surfaces are absent "
-                "rather than zero; coherence, land use, risk bands and context layers are "
-                "deterministic spatial rules; land use and its polygons share one assignment."
+                "rather than zero; coherence and risk bands are deterministic spatial rules; "
+                + (
+                    "land use is joined from the OpenStreetMap extract (water, infrastructure and "
+                    "admin layers come from the same extract) and the published land_use polygons "
+                    "are the dissolved H3 cells of this grid, one per class, so the layer and the "
+                    "column share one assignment."
+                    if not model.context.synthetic
+                    else "land use is a deterministic spatial rule and the published land_use "
+                    "polygons are the dissolved H3 cells of this grid, one per class, so the layer "
+                    "and the column share one assignment."
+                )
             ),
             "retrieved_utc": RETRIEVED_UTC,
             "reference": (
                 "Synthetic; peak rates parameterised from config/study_cases.yaml published_rate_mm_yr "
                 "and docs/data-contract-v1.md v1.1. Not a measurement."
             ),
-            "license": "Synthetic mock — no third-party data (repo-internal artefact)",
+            "license": (
+                "Synthetic displacement field (mock) — no third-party data for the SAR values; "
+                "context layers © OpenStreetMap contributors, ODbL 1.0"
+                if not model.context.synthetic
+                else "Synthetic mock — no third-party data (repo-internal artefact)"
+            ),
             "provenance_id": provenance,
             # Publish the seed so the published cell set is auditable: the post-write gate rebuilds
             # the model from it and must reproduce the grid cell-for-cell (see checks.assert_case).
@@ -365,8 +522,7 @@ def build_meta(
         + [
             "MOCK: every number is synthesised by pipeline/generate_mock.py; validate the map and the "
             "schema, never the science.",
-            "Mock geography (coastline, lake, river, corridor, POIs) is invented in "
-            "pipeline/mock/geography.py and labelled as mock in every context feature.",
+            _geography_limitation(model),
         ],
         "null_policy": (
             "A cell is absent from nisar_grid.parquet in exactly two cases: (a) its centroid falls "

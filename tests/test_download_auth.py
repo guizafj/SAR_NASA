@@ -532,3 +532,46 @@ def test_earthaccess_session_credentials_are_not_baked_in(monkeypatch) -> None:
     assert session.auth is None
     assert session.cookies  # the EDL cookies are the reason to keep earthaccess's session
     assert session.headers["User-Agent"].startswith("SAR_NASA/")
+
+
+# ---------------------------------------------------------------------------------------------
+# The live chain carries a *relative* Location (measured against ASF, 2026-11-15):
+#   hop 1 GRANULE_URL → 302 EDL
+#   hop 2 EDL        → 302 https://nisar.asf.earthdatacloud.nasa.gov/login
+#   hop 3 ASF /login → 301 "/NISAR/..."            ← relative, same host
+#   hop 4 ASF        → 303 → presigned 206
+# `requests` raises MissingSchema on a bare path, so `download_one` must resolve it against the
+# URL that served it. Every other hop is absolute, where urljoin is a no-op.
+# ---------------------------------------------------------------------------------------------
+
+ASF_LOGIN_URL = "https://nisar.asf.earthdatacloud.nasa.gov/login"
+ASF_RELATIVE_PATH = "/NISAR/NISAR_L2_GUNW_BETA_V1/rel/granule.h5"
+ASF_ABSOLUTE_URL = "https://nisar.asf.earthdatacloud.nasa.gov" + ASF_RELATIVE_PATH
+
+
+def test_relative_location_on_the_asf_hop_is_resolved(
+    tmp_path: pathlib.Path, monkeypatch, capsys
+) -> None:
+    _creds(monkeypatch)
+    availability = _aoi_availability(tmp_path, monkeypatch, size_mb=1)
+    raw = tmp_path / "raw"
+    body = b"relative-hop-bytes"
+    session = FakeSession(
+        [
+            FakeResponse(302, {"Location": EDL_URL}),
+            FakeResponse(302, {"Location": ASF_LOGIN_URL}),
+            FakeResponse(301, {"Location": ASF_RELATIVE_PATH}),
+            FakeResponse(200, {"Content-Type": "application/octet-stream"}, body=body),
+        ]
+    )
+    _install_session(monkeypatch, session)
+
+    rc = M.main(_argv(availability, raw))
+
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    # The bare path was absolutised against the host that served it, not passed through.
+    assert session.urls == [GRANULE_URL, EDL_URL, ASF_LOGIN_URL, ASF_ABSOLUTE_URL]
+    dest = raw / "test-city" / "nisar_gunw" / f"{GUNW_ID}.h5"
+    assert dest.read_bytes() == body
+    assert not dest.with_suffix(dest.suffix + ".part").exists()
