@@ -445,8 +445,15 @@ def test_case_stat_cards_echo_the_published_stats(rendered: dict[str, Any]) -> N
                 f"{artefact!r}"
             )
         else:
-            _assert_shows_significant(
-                card["value"], artefact, what=f"{case_id}: {label} stat card"
+            # The card routes every value through `formatters.format_number` (2 dp, half-up) via
+            # `_shown` in `src/ui/educational.py`. Compare against that same documented rule
+            # exactly rather than assuming a 6-significant-digit display: a wrong number still
+            # fails, and so does a silent change of the rounding rule.
+            expected = formatters.format_number(artefact)
+            match = _NUMBER_RE.match(card["value"])
+            assert match and match["num"] == expected, (
+                f"{case_id}: the {label} stat card shows {card['value']!r} but the artefact "
+                f"publishes {artefact!r}, which `format_number` displays as {expected!r}"
             )
         # The unit follows from the published key, not from the card's copy.
         if label.endswith("_mm_yr"):
