@@ -190,16 +190,17 @@ Protocolo común para los tres roles:
 
 | Qué | Por qué | Cómo se valida | Estado |
 |---|---|---|---|
-| Exponer `provenance.method`, `license`, `reference` y `processing_date` por `load_meta` (aditivo, sin contrato) | La pestaña 4 los ignora hoy porque viajan dentro de `meta` pero la UI solo pinta lo declarado por hooks (registro en `presentation-integration.md`) | `test_ui_bridge.py` + pestaña 4 renderiza el bloque | abierto |
-| Decidir O-07 final: variante firmada de `origin/pozo` (`extrude_m`, `motion_direction`, `test_height_sign_parity.py`) contra `COLUMN_BASELINE_M` vigente en `main` | Dos soluciones conviven en ramas; una debe morir. Rol 2 verifica el mapa tras la decisión | `./scripts/preflight.sh` + captura de mapa en 3D | abierto |
-| Job CI con paridad 3.12 usando `SAR_PYTHON` (`aeabcf8`) | La receta existe (`docs/handoff-pozo.md` §6) pero `ci.yml` no la ejecuta | run verde en GitHub Actions | abierto |
-| URL pública de demo | Checklist §1 pide URL; el Docker local ya sirve | `curl -fsS <url>/_stcore/health` → 200 | abierto |
-| `mixed_sensors` explícito en `get_scale_comparison` (hoy `mixed_units` es siempre `false`) | Si algún caso cambia de sensor, la UI necesita declararlo, no deducirlo | fila nueva del payload + test de bridge | abierto (post-MVP ok) |
+| Exponer `provenance.method`, `license`, `reference` y `processing_date` por `load_meta` (aditivo, sin contrato) | La pestaña 4 los ignora hoy porque viajan dentro de `meta` pero la UI solo pinta lo declarado por hooks (registro en `presentation-integration.md`) | `test_ui_bridge.py` (`meta["provenance_fields"]` + claves top-level); listo para que Rol 2 pinte el bloque en pestaña 4 | en-rama (`pozo`) |
+| Decidir O-07 final: variante firmada de `origin/pozo` (`extrude_m`, `motion_direction`, `test_height_sign_parity.py`) contra `COLUMN_BASELINE_M` vigente en `main` | Dos soluciones conviven en ramas; una debe morir. Rol 2 verifica el mapa tras la decisión | unificado sobre `COLUMN_BASELINE_M = 1500 m` + `signed_delta_mm` + `motion_direction` + `tests/test_height_sign_parity.py` + `./scripts/preflight.sh` | en-rama (`pozo`) |
+| Job CI con paridad 3.12 usando `SAR_PYTHON` (`aeabcf8`) | La receta existe (`docs/handoff-pozo.md` §6) pero `ci.yml` no la ejecuta | `.github/workflows/ci.yml` ejecuta `SAR_PYTHON=.venv312/bin/python` + job `app-runtime-smoke` (`requirements-app.txt` en 3.12) | en-rama (`pozo`) |
+| URL pública de demo | Checklist §1 pide URL; el Docker local ya sirve | `curl -fsS <url>/_stcore/health` → 200 | abierto (requiere despliegue en host con credenciales) |
+| `mixed_sensors` explícito en `get_scale_comparison` (hoy `mixed_units` es siempre `false`) | Si algún caso cambia de sensor, la UI necesita declararlo, no deducirlo | `mixed_sensors`, `mixed_products`, `sensors` y `mixed_units` dinámico en `get_scale_comparison` + `test_ui_bridge.py` | en-rama (`pozo`) |
 
 ### Rol 2 (fradiaz) — cockpit y presentación
 
 | Qué | Por qué | Cómo se valida | Estado |
 |---|---|---|---|
+| Renderizar en pestaña 4 (`src/ui/educational.py`) `meta["provenance_fields"]` (`method`, `license`, `reference`, `processing_date`) y en comparación (`src/ui/map_view.py`) aviso si `mixed_sensors` es `True` | Rol 1 ya expone ambos en `pozo` sin tocar archivos de propiedad de Rol 2 | `test_ui_smoke.py` + bloque visible en pestaña 4 | abierto (hook listo en `pozo`) |
 | Verificación visual con navegador: mapa sobre el fold a 1440×900, clic pydeck → inspector + `?cell=`, contraste en desplegables/tabs/JSON | Sin GPU ni Playwright en esta máquina la validación es estructural, no píxel a píxel | checklist manual en `http://127.0.0.1:8502` con captura | abierto |
 | Conectar el texto aprobado de Rol 3 cuando llegue como párrafo por caso | La UI cita ahora las fuentes canónicas del repo (`science-guide` §1, `study_cases.yaml`); un párrafo aprobado lo sustituye sin inventar | `test_ui_smoke.py` + cita literal visible | en-rama (cableado listo en `educational.py`) |
 | Persistir tema/tamaño de mapa ante recarga fuerte fuera de `?theme=` | `ui_theme_mode` ya viaja por URL; el zoom de cámara no (es presentación pura) | AppTest + manual | abierto (baja prioridad) |

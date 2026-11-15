@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pathlib
+
 from src.data import loaders
 from src.domain import contracts as C
+from tests.conftest import write_synthetic_case
 
 REQUIRED_BY_APP_PY = (
     "load_study_cases",
@@ -120,6 +123,9 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert len(loaders.get_land_use_bars("mexico-city", filters)) == 1
 
     comp = loaders.get_scale_comparison("shared")
+    assert comp["mixed_units"] is False
+    assert comp["mixed_sensors"] is False
+    assert comp["sensors"] == ["nisar"]
     shares = {c["id"]: c["share"] for c in comp["cases"]}
     assert shares["mexico-city"] == 1.0
     assert shares["malaga"] < 0.05
@@ -133,3 +139,15 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert len(limits["section_13"]) == 13
     assert limits["section_13"][4].endswith("detection, not thresholding.")
     assert all(item.count("**") % 2 == 0 for item in limits["section_13"])
+
+
+def test_get_scale_comparison_flags_mixed_sensors_across_cases(tmp_path: pathlib.Path) -> None:
+    write_synthetic_case(tmp_path, "mexico-city", sensor="nisar", product="nisar-gunw")
+    write_synthetic_case(tmp_path, "jakarta", sensor="sentinel-1", product="hyp3-s1")
+
+    comp = loaders.get_scale_comparison("shared", processed_dir=tmp_path)
+    assert comp["mixed_sensors"] is True
+    assert comp["mixed_products"] is True
+    assert comp["sensors"] == ["nisar", "sentinel-1"]
+    assert comp["products"] == ["hyp3-s1", "nisar-gunw"]
+    assert comp["mixed_units"] is False

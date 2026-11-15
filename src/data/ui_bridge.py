@@ -579,28 +579,49 @@ def get_scale_comparison(
     """Compare peak `|velocity_mm_yr|` across all published cases on one shared physical axis."""
     shared = _resolve_scale_mode(scale_mode) == "shared"
     bundles = load_all_available_bundles(processed_dir=processed_dir)
-    peaks: list[tuple[str, float, str]] = []
+    peaks: list[tuple[str, float, str, str, str, str]] = []
+    units: set[str] = set()
+    sensors: set[str] = set()
+    products: set[str] = set()
     for slug in C.CASE_IDS:
         if slug not in bundles:
             continue
         b = bundles[slug]
         peak = float(b.grid["velocity_mm_yr"].abs().max()) if not b.grid.empty else 0.0
-        peaks.append((slug, round(peak, 2), _case_provenance_id(b)))
+        vel_unit = (
+            str(b.grid["velocity_unit"].iloc[0])
+            if not b.grid.empty and "velocity_unit" in b.grid.columns
+            else C.VELOCITY_UNIT
+        )
+        sensor = str(b.meta.get("sensor") or "")
+        product = str(b.meta.get("product") or "")
+        units.add(vel_unit)
+        if sensor:
+            sensors.add(sensor)
+        if product:
+            products.add(product)
+        peaks.append((slug, round(peak, 2), _case_provenance_id(b), vel_unit, sensor, product))
 
-    span = max((p for _, p, _ in peaks), default=0.0)
+    span = max((p for _, p, *_ in peaks), default=0.0)
     cases = [
         {
             "id": slug,
-            "unit": C.VELOCITY_UNIT,
+            "unit": vel_unit,
+            "sensor": sensor,
+            "product": product,
             "peak": peak,
             "share": (0.0 if span == 0.0 else peak / span) if shared else (1.0 if peak > 0 else 0.0),
             "provenance_id": prov_id,
         }
-        for slug, peak, prov_id in peaks
+        for slug, peak, prov_id, vel_unit, sensor, product in peaks
     ]
     return {
-        "reference_unit": C.VELOCITY_UNIT if shared else None,
-        "mixed_units": False,
+        "reference_unit": C.VELOCITY_UNIT if (shared and len(units) <= 1) else None,
+        "mixed_units": len(units) > 1,
+        "mixed_sensors": len(sensors) > 1,
+        "mixed_products": len(products) > 1,
+        "sensors": sorted(sensors),
+        "products": sorted(products),
         "cases": cases,
     }
 
