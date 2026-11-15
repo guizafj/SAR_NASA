@@ -241,6 +241,9 @@ One shared legend across all cities, so Málaga's flatness is visibly flat next 
   "coherence": { "unit": "-", "range": [0, 1],
                  "breaks": [0.2, 0.4, 0.6, 0.8],
                  "colors": ["#0b0b0b", "#3b0f70", "#28738a", "#7ad151"] },
+  // ILLUSTRATIVE PLACEHOLDERS, not measurements: the shipped medians are
+  // −62.07 / −25.41 / −1.36 mm/yr (meta.stats.median_velocity_mm_yr). Build this file from
+  // the artefacts, never from this snippet.
   "cities": {
     "mexico-city": { "median_vel": -128.0, "range": [-450, 50] },
     "jakarta":     { "median_vel": -75.0,  "range": [-320, 40] },

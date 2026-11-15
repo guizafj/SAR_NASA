@@ -583,6 +583,10 @@ horizontals it assigns positive LOS to positive vertical motion, and the worked 
 downward motion to negative LOS. Those definitions cannot all describe one away-positive physical
 LOS coordinate. Existing synthetic round trips prove algebraic consistency of the projection and
 inverse, not the physical label.
+**Naming closed 2026-11-15; validation still open.** The default label is now `toward-sensor` (the
+factor is unchanged at −1.0), which is the direction `u_up = cos θ > 0` actually computes, and the
+worked examples and the provenance string follow it. What the "Close when" below still requires is
+the *external* GNSS/levelling validation, not a renaming.
 **Blocks.** Physical interpretation or publication of any real-path velocity, independently of the
 GNSS-validation requirement in D-10.
 **Close when.** Phase conversion, forward/inverse projection, CLI labels, provenance strings, and
@@ -593,5 +597,6 @@ different label.
 **Deferred 2026-11-14 by owner decision — documented, not fixed, before the freeze.** Real-path only:
 the mock synthesises millimetres and never converts phase, so every published number is unaffected.
 It is named in `README.md` limitation 12, including which way the arithmetic actually points
-(uplift ⇒ positive LOS), so the label cannot be trusted by accident. Renaming the labels and the
-provenance string is the smallest fix and does not touch arithmetic or artefacts.
+(uplift ⇒ positive LOS). **The renaming this paragraph proposed shipped on 2026-11-15**: the default
+label is `toward-sensor`, the provenance string records it, and neither arithmetic nor artefacts
+changed. The remaining gap is validation, not naming.
