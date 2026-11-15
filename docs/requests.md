@@ -180,7 +180,7 @@ fechas ni cambio de métrica del mapa.
 
 Protocolo común para los tres roles:
 
-1. **Una rama por miembro.** Cada rol trabaja en su rama (`pozo`, `yuls`, `fradiaz`). Un objetivo por commit o rama corta derivada; sin acumular objetivos ajenos a la propiedad de archivos (`AGENTS.md` §Propiedad).
+1. **Una rama por miembro.** Cada rol trabaja en su rama (`pozo`, `yuls`, `fradiaz`). Un objetivo por commit o rama corta derivada; sin acumular objetivos ajenos a la propiedad de archivos (el AGENTS.md del rol, §Propiedad).
 2. **Fila por hallazgo.** Todo defecto, deuda u optimización detectada se registra aquí como fila: `Qué / Por qué / Cómo se valida / Estado`. Una fila sin `Cómo se valida` no es accionable.
 3. **Estados.** `abierto` (sin trabajo) → `en-rama` (commit en la rama del rol) → `en-main` (merge con preflight verde) → `publicado` (push). Cambiar de estado exige la validación de su columna.
 4. **Puerta de merge a `main`.** Solo con `./scripts/preflight.sh` completo → `VERDICT: READY` sobre árbol limpio. Rol 2 revisa todo lo que toca presentación; Rol 1 todo lo que toca contrato o bridge; Rol 3 todo texto científico. Un cambio que cruce propiedad se pide aquí antes de escribirlo.
