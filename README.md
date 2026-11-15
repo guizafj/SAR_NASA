@@ -7,7 +7,7 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 
 | | |
 |---|---|
-| Demo | *no public URL yet* — `app.py` boots locally on the committed mock (verified 2026-11-14: Streamlit `/_stcore/health` → 200, root → 200); deployment is the last open deliverable |
+| Demo | *no public URL yet* — run it locally: `./scripts/python.sh -m streamlit run app.py`, then open <http://localhost:8501> (verified 2026-11-14: `/_stcore/health` → 200, root → 200, no credentials needed); deployment is the last open deliverable |
 | Repository | `github.com/neoyuls/SAR_NASA` — the default branch **`main`** carries the artefacts, the pipeline, the tests and **contract v1.1** (62 acquisition dates per case). `yuls` is the older contract-1.0 line (12 dates); `main` already contains it, so nothing is waiting on it |
 | Video | script ready in [`docs/video-script.md`](docs/video-script.md); recording pending |
 | Team | **yuls** SAR science, GIS, product · **pozo** geospatial backend, deployment · **fradiaz** frontend, interaction |
@@ -73,6 +73,9 @@ Mexico City's bowl, Jakarta's coastal edge, and Málaga essentially blank. Gener
 ---
 
 ### Verify in 15 seconds
+
+Both gates need the venv first — the two setup lines are in the setup section below. On a fresh
+clone without it, `check_phase_a.sh` fails with four `.venv/bin/python missing` errors.
 
 ```bash
 ./scripts/check_phase_a.sh     # ~15 s → PHASE A/B: PASS · 3 cases · 0 problems · 1.687 MB / 15 MB
@@ -236,7 +239,9 @@ nothing is a failure. `--allow-empty` exists for pre-mock CI and says so loudly 
 
 ### Availability probe — 2026-11-14 (reproducible, no credentials needed)
 
-`pipeline/ingest/02_search_download.py search` → `data/processed/_availability/{case}.json`
+`pipeline/ingest/02_search_download.py search` → `data/processed/_availability/{case}.json`. Those
+files are **tracked**, so re-running the probe rewrites three committed files and leaves the tree
+dirty; restore them with `git checkout -- data/processed/_availability`.
 
 | Source | Mexico City | Jakarta | Málaga |
 |---|---|---|---|
@@ -524,10 +529,13 @@ python3 -m venv .venv
 
 # 4c. Spend one granule first, not the stack: `--max-granules N` keeps the FIRST N granules in
 #     reference-date order (O-01), which is the cheapest way to prove the HDF5 reader against a
-#     real file before paying for a whole chain. A plan below `MIN_FIT_POINTS` epochs still
-#     proceeds but warns: one granule is for inspecting the file, not for fitting a case.
+#     real file before paying for a whole chain. Note that `--max-granules` does not lift the budget
+#     guard: the default `--max-gb 2.0` is smaller than one GUNW granule (~2.3 GB), so without a
+#     budget the command is REFUSED with exit 5. Once the budget covers the granule, a plan below
+#     `MIN_FIT_POINTS` epochs proceeds and warns: one granule is for inspecting the file, not for
+#     fitting a case.
 ./scripts/python.sh pipeline/ingest/02_search_download.py download \
-    --city mexico-city --source nisar_gunw --stack recommended --max-granules 1 --probe-sizes --dry-run
+    --city mexico-city --source nisar_gunw --stack recommended --max-granules 1 --max-gb 3 --probe-sizes --dry-run
 
 # 5. Download (needs Earthdata credentials AND the one-time ASF application approval;
 #    fails closed, with an actionable message, when either is missing)
@@ -538,10 +546,14 @@ export EARTHDATA_USER=... EARTHDATA_PASS=...
 #    `provenance.json.max_gb`), never blind. A 4-epoch minimum stack (MIN_FIT_POINTS) is already
 #    ~9.4 GB, so the old `--max-gb 6` could never have fetched a fittable stack.
 
-# 6. Never trust a granule you have not looked inside
+# 6. Never trust a granule you have not looked inside. `data/raw/` is gitignored and therefore
+#    absent in a fresh clone: this step only works after step 5 has actually downloaded, and with
+#    no granules it exits 2 with "path does not exist".
 ./scripts/python.sh pipeline/ingest/inspect_hdf5.py data/raw/mexico-city/nisar_gunw/*.h5 --product nisar-gunw
 
-# 7. Granule stack -> the four artefacts, then gate what you produced
+# 7. Granule stack -> the four artefacts, then gate what you produced. `a.h5`/`b.h5` are
+#    placeholders: pass one `--granule` per downloaded epoch, from
+#    `data/raw/mexico-city/nisar_gunw/`.
 ./scripts/python.sh pipeline/process_case.py --case mexico-city \
     --granule a.h5 --granule b.h5 --out data/processed/mexico-city --force
 ./scripts/python.sh pipeline/validate_artifacts.py --processed data/processed
@@ -593,7 +605,10 @@ exists, so what shipped is a merged proposal, kept in `docs/decisions.md` O-05. 
 the default branch" as "the other two roles agreed".
 
 Do not restate the commit or file **distance** here — it rots on the next push (this sentence used to
-quote a commit count and a diffstat, and was stale within a day). Ask git instead:
+quote a commit count and a diffstat, and was stale within a day). Run `git fetch origin` first, then
+ask git: these commands describe the **GitHub** remote, and in a clone whose remote refs are stale
+`origin/HEAD` can still point at a work branch, `origin/main` can be behind, and
+`git show origin/main:data/processed/…` exits 128 — every answer below would then be wrong.
 `git rev-list --count origin/yuls..origin/main` and `git diff --stat origin/yuls..origin/main`. The
 acquisition-date counts are the one exception, and they are safe to print because they are artefact
 data, re-derived by `tests/test_readme_numbers.py` from `data/processed/*/meta.json` on every suite
