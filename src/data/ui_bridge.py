@@ -88,13 +88,40 @@ def load_meta(
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> dict[str, Any]:
-    """Return validated `meta.json` enriched with top-level display telemetry keys."""
+    """Return validated `meta.json` enriched with top-level display & provenance telemetry keys.
+
+    Additive only (no contract change): surfaces `provenance.source`, `method`, `license`,
+    `reference`, `processing_date`, `product_id` and `retrieved_utc` both as a normalised
+    `provenance_fields` mapping and via `setdefault` at top level so Tab 4 and header chrome
+    can render every published provenance field without reading raw `meta.json` directly.
+    """
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     meta = dict(bundle.meta)
     meta.setdefault("unit", C.UNIT)
     prov_id = _case_provenance_id(bundle)
     if prov_id:
         meta.setdefault("provenance_id", prov_id)
+
+    prov_raw = bundle.meta.get("provenance")
+    prov = prov_raw if isinstance(prov_raw, Mapping) else {}
+    prov_fields: dict[str, str | None] = {
+        "provenance_id": prov_id or None,
+    }
+    for key in (
+        "source",
+        "method",
+        "license",
+        "reference",
+        "processing_date",
+        "product_id",
+        "retrieved_utc",
+    ):
+        raw_val = prov.get(key)
+        clean_val = str(raw_val).strip() if raw_val not in (None, "") else None
+        prov_fields[key] = clean_val
+        if clean_val is not None:
+            meta.setdefault(key, clean_val)
+    meta.setdefault("provenance_fields", prov_fields)
     return meta
 
 

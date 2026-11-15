@@ -41,6 +41,9 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     meta_cdmx = loaders.load_meta("mexico-city")
     assert meta_cdmx["product"] == "mock"
     assert meta_cdmx["unit"] == "mm"
+    for prov_key in ("source", "method", "license", "reference", "processing_date"):
+        assert isinstance(meta_cdmx.get(prov_key), str) and meta_cdmx[prov_key]
+        assert meta_cdmx["provenance_fields"][prov_key] == meta_cdmx[prov_key]
 
     lu_opts = loaders.load_land_use_options()
     assert "urban-dense" in lu_opts
