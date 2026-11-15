@@ -135,7 +135,7 @@ _CSS = f"""
 
 :root {{
   --radius: {RADIUS};
-  --card-pad-y: 0.85rem;
+  --card-pad-y: 0.6rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
   --map-height: clamp(420px, calc(100vh - 500px), 640px);

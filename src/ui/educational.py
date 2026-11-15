@@ -148,7 +148,7 @@ def _case_block(
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Case</p>'
-        f"<p>{html.escape(case_note)}</p>"
+        f'<p class="kpi-note">{html.escape(case_note)}</p>'
         f"{role_lines}"
         "</div>",
         unsafe_allow_html=True,
@@ -162,13 +162,8 @@ def _case_block(
         st.caption(f"Provenance ID {source_id}")
     null_policy = meta.get("null_policy")
     if null_policy:
-        st.markdown(
-            '<div class="cockpit-card">'
-            '<p class="kicker">How missing data is recorded</p>'
-            f"<p>{safe_inline(null_policy)}</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        with st.expander("How missing data is recorded", expanded=False):
+            st.markdown(f"<p>{safe_inline(null_policy)}</p>", unsafe_allow_html=True)
     limitations = meta.get("limitations")
     if isinstance(limitations, list) and limitations:
         st.markdown(
