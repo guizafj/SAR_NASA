@@ -157,8 +157,12 @@ def render_filters(
             elif not 0.0 <= coherence_floor <= 1.0:
                 st.caption("Umbral de coherencia fuera de [0, 1]. No se modifica.")
             else:
-                if "filter_coherence_min" not in st.session_state:
+                # Init when the key is missing. Reset only when this case declares
+                # a different floor, so a user value survives an unchanged threshold.
+                applied = st.session_state.get("filter_coherence_floor")
+                if "filter_coherence_min" not in st.session_state or applied != coherence_floor:
                     st.session_state.filter_coherence_min = coherence_floor
+                st.session_state.filter_coherence_floor = coherence_floor
                 st.slider(
                     "Coherencia mínima",
                     min_value=0.0,
@@ -180,7 +184,11 @@ def render_filters(
     return {
         "case_id": st.session_state.get("filter_case_id"),
         "land_use": _blank(st.session_state.get("filter_land_use")),
-        "coherence_min": st.session_state.get("filter_coherence_min", coherence_floor),
+        "coherence_min": (
+            st.session_state.get("filter_coherence_min", coherence_floor)
+            if isinstance(coherence_floor, (int, float)) and 0.0 <= coherence_floor <= 1.0
+            else None
+        ),
         "risk_level": _blank(st.session_state.get("filter_risk_level")),
         "extrude_3d": bool(st.session_state.get("filter_extrude_3d", False)),
     }

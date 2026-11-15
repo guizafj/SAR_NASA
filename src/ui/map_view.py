@@ -153,10 +153,31 @@ def _provenance(meta: dict[str, Any] | None) -> str:
 def _figure_line(label: str, value: Any, unit: str | None, provenance_id: str | None) -> str:
     if value in (None, ""):
         return f"{label}: no declarado"
-    number = f"{value:g}" if isinstance(value, (int, float)) and not isinstance(value, bool) else str(value)
+    number = (
+        f"{round(float(value), 3):g}"
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        else str(value)
+    )
     unit_text = f" {unit}" if unit else " (unidad no declarada)"
     source = provenance_id or "fuente no declarada"
     return f"{label}: {number}{unit_text} · {source}"
+
+
+def _candidate_cells(frame: Any, current: str | None, limit: int = 25) -> list[str]:
+    """Return top cells from the active map frame for the manual backup selector."""
+    if frame is None or not hasattr(frame, "columns") or "cell_id" not in frame.columns or len(frame) == 0:
+        return [current] if current else []
+    metric_col = "velocity_mm_yr" if "velocity_mm_yr" in frame.columns else (
+        "delta_change" if "delta_change" in frame.columns else None
+    )
+    if metric_col is not None:
+        ordered = frame.assign(_mag=frame[metric_col].abs()).sort_values("_mag", ascending=False)
+    else:
+        ordered = frame
+    cells = [str(cid) for cid in ordered["cell_id"].head(limit).tolist() if cid]
+    if current and current not in cells:
+        cells.insert(0, str(current))
+    return cells
 
 
 def _render_inspector(detail: dict[str, Any] | None, case_id: str | None) -> None:
@@ -366,8 +387,26 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                 elevation_scale=1 if extrude else 0,
                 coverage=0.9,
             )
+            layers = [layer]
+            ctx_payload = _call(loaders, "load_context_layers", case_id)
+            ctx_geojson = ctx_payload.get("geojson") if isinstance(ctx_payload, dict) else None
+            if isinstance(ctx_geojson, dict) and ctx_geojson.get("features"):
+                layers.append(
+                    pdk.Layer(
+                        "GeoJsonLayer",
+                        data=ctx_geojson,
+                        id="context-geojson",
+                        pickable=False,
+                        stroked=True,
+                        filled=False,
+                        get_line_color=[6, 182, 212, 160],
+                        get_line_width=20,
+                        line_width_min_pixels=1,
+                        point_radius_min_pixels=4,
+                    )
+                )
             deck = pdk.Deck(
-                layers=[layer],
+                layers=layers,
                 initial_view_state=pdk.ViewState(
                     latitude=view["latitude"],
                     longitude=view["longitude"],
@@ -401,12 +440,15 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                     key=f"h3-map-{case_id}",
                 )
             picked = _selected_cell(event)
+            selector_key = f"inspector_cell_{case_id}"
             if st.session_state.get("_map_case") != case_id:
                 st.session_state.selected_cell_id = None
+                st.session_state[selector_key] = ""
                 picked = None
             st.session_state._map_case = case_id
             if picked:
                 st.session_state.selected_cell_id = picked
+                st.session_state[selector_key] = picked
             scale = _scale(loaders, str(case_id), active)
             with st.container(key="map-meta"):
                 st.markdown(_legend(scale, mode), unsafe_allow_html=True)
@@ -416,6 +458,19 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                 )
     with inspector_col:
         with st.container(key="inspector-slot"):
+            selector_key = f"inspector_cell_{case_id}"
+            current_cell = st.session_state.get("selected_cell_id")
+            candidates = _candidate_cells(frame, str(current_cell) if current_cell else None)
+            if current_cell and not st.session_state.get(selector_key):
+                st.session_state[selector_key] = str(current_cell)
+            if candidates:
+                chosen = st.selectbox(
+                    "Celda H3",
+                    options=["", *candidates],
+                    format_func=lambda cid: SELECT_PROMPT if cid == "" else cid,
+                    key=selector_key,
+                )
+                st.session_state.selected_cell_id = chosen or None
             cell_id = st.session_state.get("selected_cell_id")
             detail = _call(loaders, "get_cell_detail", case_id, cell_id) if cell_id else None
             _render_inspector(detail if isinstance(detail, dict) else None, str(case_id) if case_id else None)

@@ -97,10 +97,11 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
         st.caption("README §13 no disponible.")
 
     shown = _public_meta(meta)
-    real = bool(shown) and shown.get("product") != "mock"
     st.markdown('<p class="kicker">meta.json</p>', unsafe_allow_html=True)
-    if real:
-        st.caption("Contenido devuelto por el loader.")
+    if not shown:
+        st.caption("El loader no devolvió meta.json.")
+    elif shown.get("product") == "mock":
+        st.caption("meta.json en disco. product es mock: DATOS DE DEMOSTRACIÓN, no una observación.")
     else:
-        st.caption("No hay meta.json real. Lo que sigue es el mock del loader, no una verificación.")
+        st.caption("Contenido devuelto por el loader.")
     st.json(shown)

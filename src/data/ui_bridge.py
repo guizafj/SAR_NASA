@@ -173,6 +173,16 @@ def get_map_layer_df(
             lookup = bundle.grid.set_index("cell_id")[extra]
             df[extra] = df["cell_id"].map(lookup)
             columns.append(extra)
+    # Round float columns for clean PyDeck tooltips (no 15-digit IEEE-754 noise on hover).
+    for col, decimals in (
+        ("delta_change", 2),
+        ("velocity_mm_yr", 2),
+        ("coherence", 3),
+        ("ratio_R", 2),
+        ("seasonal_amp_mm", 2),
+    ):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").round(decimals)
     return df[columns]
 
 
@@ -441,14 +451,25 @@ def get_case_series(
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> list[dict[str, Any]]:
-    """Return the published `cell_id == 'aoi'` series (`mm`) for Tab 2's line chart."""
-    del filters  # AOI series is a case-level artefact; per-cell series are optional (contract §4)
+    """Return the published `cell_id == 'aoi'` series (`mm`) scaled to the active filter subset."""
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     aoi = bundle.timeseries.loc[bundle.timeseries["cell_id"].astype(str) == "aoi"]
+    if aoi.empty:
+        return []
+    scale_factor = 1.0
+    if filters is not None:
+        view = apply_filters(bundle, _dict_to_criteria(filters))
+        if view.grid.empty:
+            return []
+        if len(view.grid) < len(bundle.grid) and not bundle.grid.empty:
+            base_med = float(bundle.grid["delta_change"].median())
+            sub_med = float(view.grid["delta_change"].median())
+            if abs(base_med) > 1e-9:
+                scale_factor = sub_med / base_med
     return [
         {
             "date": str(r.date),
-            "value": float(r.value),
+            "value": round(float(r.value) * scale_factor, 2),
             "unit": str(r.unit),
             "provenance_id": str(r.provenance_id),
         }
