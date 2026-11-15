@@ -22,11 +22,11 @@ public demo URL has an immediate fallback.
 
 ## Option 2 — Container Fallback (Hugging Face Spaces / Render / Railway / Local)
 
-If Streamlit Community Cloud sleeps or throttles during judging, deploy `deploy/Dockerfile`:
+If Streamlit Community Cloud sleeps or throttles during judging, deploy the root `Dockerfile`:
 
 ```bash
 # Build from repository root (runs contract + artefact validation during docker build)
-docker build -f deploy/Dockerfile -t sar-nasa:mvp .
+docker build -t sar-nasa:mvp .
 
 # Run locally on http://localhost:8501
 docker run --rm -p 8501:8501 sar-nasa:mvp
@@ -34,7 +34,7 @@ docker run --rm -p 8501:8501 sar-nasa:mvp
 
 - **Hugging Face Spaces (Docker SDK):** set `PORT=7860` in Space variables or Dockerfile env;
   16 GB RAM free tier, no cold-sleep during active hours.
-- **Render / Railway:** point service to `deploy/Dockerfile`; `PORT` is honoured automatically.
+- **Render / Railway:** point the service to `Dockerfile`; `PORT` is honoured automatically.
 
 ---
 

@@ -1,8 +1,8 @@
 # Production container for "Three Cities, One Pump" (NASA Space Apps 2026)
 # Compatible with Hugging Face Spaces (Docker SDK), Render, Railway, Cloud Run & local demo.
 #
-# Build & run from repository root:
-#   docker build -f deploy/Dockerfile -t sar-nasa-app .
+# Build and run from repository root:
+#   docker build -t sar-nasa-app .
 #   docker run --rm -p 8501:8501 sar-nasa-app
 
 FROM python:3.12-slim
@@ -16,13 +16,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install lightweight runtime dependencies first for layer caching
+# Install lightweight runtime dependencies first for layer caching.
 COPY requirements-app.txt ./
 RUN python -m venv /app/.venv \
     && /app/.venv/bin/pip install --upgrade pip \
     && /app/.venv/bin/pip install -r requirements-app.txt
 
-# Copy application code, config and pre-computed <15 MB processed artefacts
+# Copy application code, config and pre-computed processed artefacts.
 COPY .streamlit ./.streamlit
 COPY config ./config
 COPY docs/science-guide.md ./docs/science-guide.md
@@ -33,7 +33,7 @@ COPY data/processed ./data/processed
 COPY README.md ./README.md
 COPY app.py ./app.py
 
-# Validate contract & artefacts at image build time (fail-closed deploy)
+# Validate contract and artefacts at image build time.
 RUN /app/.venv/bin/python -m src.domain.contracts \
     && /app/.venv/bin/python -m src.data.validation --processed data/processed --require-cases
 

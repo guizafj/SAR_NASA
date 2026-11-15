@@ -10,7 +10,7 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
 - [ ] **README** — `README.md` §1 what it is, §2 scope + cut lines, §11 done, §13 limitations. **Rol 3 yuls**.
 - [ ] **Demo (URL or local run)** — `[owner to fill]` for the URL. The local run is **verified**:
       `./scripts/python.sh -m streamlit run app.py` serves the committed mock (`/_stcore/health` → 200,
-      `/` → 200) with no NASA credentials. What is still missing is the deployed URL — `deploy/Dockerfile`
+      `/` → 200) with no NASA credentials. What is still missing is the deployed URL — `Dockerfile`
       is in the tree but no docker daemon is reachable from this account (`docker info` → `permission
       denied` on `/var/run/docker.sock`), so the image build is unverified.
       **Rol 2 fradiaz** for the URL, **Rol 1 pozo** for the deploy.

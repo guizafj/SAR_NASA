@@ -1,10 +1,10 @@
-"""Hermetic guard for container deployment (`deploy/Dockerfile`, `.dockerignore`, `requirements-app.txt`).
+"""Hermetic guard for container deployment (`Dockerfile`, `.dockerignore`, `requirements-app.txt`).
 
 Even on machines without a `docker` daemon, this suite verifies that:
 1. `.dockerignore` never strips files read by the Streamlit app at runtime (`docs/science-guide.md`,
    `examples/reference_loader.py`, `.streamlit/config.toml`, `README.md`, `config/study_cases.yaml`,
    `data/processed/*`), while still excluding secrets, raw granules, tests and heavy doc figures.
-2. Every `COPY <src> <dst>` instruction in `deploy/Dockerfile` resolves to an existing, non-ignored
+2. Every `COPY <src> <dst>` instruction in `Dockerfile` resolves to an existing, non-ignored
    repository path, and `load_documented_limits()` returns non-empty `science_section_1`,
    `section_8_caveat`, `section_13`, and `case_roles` from the materialised container tree.
 3. Both `requirements.txt` and `requirements-app.txt` require `streamlit>=1.67` so `[theme.dark]` /
@@ -90,7 +90,7 @@ def test_dockerignore_preserves_runtime_assets_and_blocks_secrets_and_bloat() ->
 
 def test_dockerfile_copy_tree_supports_runtime_science_and_limits(tmp_path: pathlib.Path) -> None:
     rules = _parse_dockerignore(ROOT / ".dockerignore")
-    dockerfile = (ROOT / "deploy" / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     copy_pairs: list[tuple[str, str]] = []
     for raw in dockerfile.splitlines():
@@ -100,7 +100,7 @@ def test_dockerfile_copy_tree_supports_runtime_science_and_limits(tmp_path: path
             assert len(tokens) == 2, f"unexpected COPY syntax in Dockerfile: {line!r}"
             copy_pairs.append((tokens[0], tokens[1]))
 
-    assert copy_pairs, "deploy/Dockerfile has no COPY instructions"
+    assert copy_pairs, "Dockerfile has no COPY instructions"
     app_root = tmp_path / "app"
     app_root.mkdir()
 

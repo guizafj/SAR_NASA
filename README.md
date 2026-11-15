@@ -18,7 +18,7 @@ NASA Space Apps Challenge 2026 — *Dancing with the SARs*.
 > three contract-conformant **mock** artefact sets · the whole offline pipeline, rehearsed on
 > synthetic granules · a Streamlit shell (`app.py`) that boots on the committed mock with no
 > credentials · loaders, validation, filters and the PyDeck adapter (`src/data/`, `src/domain/`)
-> with their own tests · `deploy/Dockerfile` and `.github/workflows/ci.yml` in the tree ·
+> with their own tests · `Dockerfile` and `.github/workflows/ci.yml` in the tree ·
 > `./scripts/check_phase_a.sh` → PASS, `./scripts/preflight.sh` → `VERDICT: READY` (7/7 gates),
 > and a fresh clone of the default branch, `main`, runs the full suite green.
 >
