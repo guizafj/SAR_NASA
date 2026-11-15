@@ -111,6 +111,70 @@ def _blank(value: str | None) -> str | None:
     return value
 
 
+# URL state: keys are short query params; values map to session_state keys.
+# A shared URL must reopen the cockpit on the same case, filters and camera choice.
+_THEME_MODES = ("system", "light", "dark")
+_SCALE_MODES = ("independent", "shared")
+
+
+def _seed_state_from_query(case_ids: list[str], coherence_floor: float | None) -> None:
+    """Apply query params to session_state on the first run only.
+
+    Unknown or out-of-range values are ignored; stale land/risk values are
+    dropped later by the existing per-case option check. Seeding never
+    overrides a key the current session already holds.
+    """
+    qp = st.query_params
+    if not qp:
+        return
+    if "filter_case_id" not in st.session_state and qp.get("case") in case_ids:
+        st.session_state.filter_case_id = qp["case"]
+    if "filter_land_use" not in st.session_state and "land" in qp:
+        st.session_state.filter_land_use = qp["land"]
+    if "filter_risk_level" not in st.session_state and "risk" in qp:
+        st.session_state.filter_risk_level = qp["risk"]
+    if "filter_extrude_3d" not in st.session_state and qp.get("extrude") in ("0", "1"):
+        st.session_state.filter_extrude_3d = qp["extrude"] == "1"
+    if "ui_theme_mode" not in st.session_state and qp.get("theme") in _THEME_MODES:
+        st.session_state.ui_theme_mode = qp["theme"]
+    if "scale_mode" not in st.session_state and qp.get("scale") in _SCALE_MODES:
+        st.session_state.scale_mode = qp["scale"]
+    if "selected_cell_id" not in st.session_state and qp.get("cell"):
+        st.session_state.selected_cell_id = qp.get("cell")
+    if "filter_coherence_min" not in st.session_state:
+        try:
+            value = float(qp["coh"])
+        except (KeyError, TypeError, ValueError):
+            value = None
+        if value is not None and 0.0 <= value <= 1.0:
+            # Seed the applied floor too, or render_filters would reset the slider
+            # to the declared default on this first run.
+            if isinstance(coherence_floor, (int, float)):
+                st.session_state.filter_coherence_floor = coherence_floor
+            st.session_state.filter_coherence_min = value
+
+
+def _sync_query_params(filters: dict[str, Any]) -> None:
+    """Mirror the live state into the URL so a copied link restores it."""
+    qp = st.query_params
+    qp["case"] = str(filters["case_id"])
+    for key, value in (
+        ("land", filters["land_use"]),
+        ("risk", filters["risk_level"]),
+        ("cell", st.session_state.get("selected_cell_id")),
+    ):
+        if value:
+            qp[key] = str(value)
+        elif key in qp:
+            del qp[key]
+    coherence = filters.get("coherence_min")
+    if isinstance(coherence, (int, float)) and not isinstance(coherence, bool):
+        qp["coh"] = f"{float(coherence):g}"
+    qp["extrude"] = "1" if filters["extrude_3d"] else "0"
+    qp["theme"] = str(st.session_state.get("ui_theme_mode", "system"))
+    qp["scale"] = str(st.session_state.get("scale_mode", "independent"))
+
+
 def _case_options(loaders: Any, name: str, case_id: str) -> tuple[str, ...]:
     """Prefer case-scoped options; fall back for stubs whose hook takes no argument."""
     function = getattr(loaders, name)
@@ -238,11 +302,16 @@ def render_app() -> None:
         return
 
     if "filter_case_id" not in st.session_state:
-        st.session_state.filter_case_id = case_ids[0]
+        url_case = st.query_params.get("case")
+        st.session_state.filter_case_id = url_case if url_case in case_ids else case_ids[0]
     if st.session_state.filter_case_id not in case_ids:
         st.session_state.filter_case_id = case_ids[0]
 
     meta = loaders.load_meta(st.session_state.filter_case_id)
+    _seed_state_from_query(
+        case_ids,
+        coherence_default(meta if isinstance(meta, dict) else None),
+    )
     render_header(meta if isinstance(meta, dict) else None)
     land_uses = _case_options(loaders, "load_land_use_options", st.session_state.filter_case_id)
     risk_levels = _case_options(loaders, "load_risk_levels", st.session_state.filter_case_id)
@@ -270,6 +339,8 @@ def render_app() -> None:
         render_hazard_tab(filters, loaders)
     with physics_tab:
         render_physics_tab(loaders, meta if isinstance(meta, dict) else None)
+    # Written last so a cell picked by the map in this run lands in the URL too.
+    _sync_query_params(filters)
 
 
 st.set_page_config(

@@ -36,6 +36,7 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 | Coherencia | `load_meta` | `thresholds.coherence_min` | No modifica un valor fuera de `[0, 1]`. Correcto. |
 | Riesgo | `load_risk_levels(case_id)` | enum presente | La etiqueta es inglesa; el valor enviado no cambia. Falta decir que la banda sale de la velocidad. |
 | Extrusión / tema / escala | estado de UI | `extrude_3d`, `scale_mode` = `independent` \| `shared` | La escala no es un dato. El bridge acepta también las frases españolas antiguas. |
+| Estado en la URL | `st.query_params` (solo UI) | `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell` | Cumple «URL restores the exact state» del checklist: la primera carga acepta esos parámetros (valores inválidos se ignoran) y cada run reescribe la URL con el estado vivo. `land`/`risk` viajan con el valor del contrato, no con la etiqueta visible. |
 
 ### 1. Map — `src/ui/map_view.py`
 
