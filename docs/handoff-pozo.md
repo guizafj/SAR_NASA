@@ -39,3 +39,12 @@
    leak in as a relative path). Verified on `3.12.16` / `pandas 3.1.1` / `pyarrow 26.0.1`:
    contract self-check, the full `pytest tests -q` suite, the artefact gate, `check_phase_a.sh` and
    `preflight.sh --fast` are all green.
+7. **O-07 3D height sign decision (final, unified on `COLUMN_BASELINE_M`):** The two-branch split
+   (`extrude_m` vs `COLUMN_BASELINE_M`) is retired in favour of `COLUMN_BASELINE_M =
+   MAX_EXTRUDE_METERS / 2 = 1500 m` in `src/domain/map_adapter.py`: when `extrude_3d=True`,
+   `height` (`elevation_m`) maps signed `delta_change` two-sided around `1500 m` (subsidence `<
+   1500 m`, uplift `> 1500 m`, zero `== 1500 m`); in flat mode (`extrude_3d=False`, the default),
+   `height == 0.0` to prevent WebGL z-fighting while `signed_delta_mm` and `motion_direction`
+   preserve exact unrounded displacement sign and direction. Pinned by
+   `tests/test_height_sign_parity.py`.
+

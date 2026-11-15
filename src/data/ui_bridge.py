@@ -89,13 +89,40 @@ def load_meta(
     *,
     processed_dir: pathlib.Path | str = DEFAULT_PROCESSED_DIR,
 ) -> dict[str, Any]:
-    """Return validated `meta.json` enriched with top-level display telemetry keys."""
+    """Return validated `meta.json` enriched with top-level display & provenance telemetry keys.
+
+    Additive only (no contract change): surfaces `provenance.source`, `method`, `license`,
+    `reference`, `processing_date`, `product_id` and `retrieved_utc` both as a normalised
+    `provenance_fields` mapping and via `setdefault` at top level so Tab 4 and header chrome
+    can render every published provenance field without reading raw `meta.json` directly.
+    """
     bundle = load_case_bundle(case_id, processed_dir=processed_dir)
     meta = dict(bundle.meta)
     meta.setdefault("unit", C.UNIT)
     prov_id = _case_provenance_id(bundle)
     if prov_id:
         meta.setdefault("provenance_id", prov_id)
+
+    prov_raw = bundle.meta.get("provenance")
+    prov = prov_raw if isinstance(prov_raw, Mapping) else {}
+    prov_fields: dict[str, str | None] = {
+        "provenance_id": prov_id or None,
+    }
+    for key in (
+        "source",
+        "method",
+        "license",
+        "reference",
+        "processing_date",
+        "product_id",
+        "retrieved_utc",
+    ):
+        raw_val = prov.get(key)
+        clean_val = str(raw_val).strip() if raw_val not in (None, "") else None
+        prov_fields[key] = clean_val
+        if clean_val is not None:
+            meta.setdefault(key, clean_val)
+    meta.setdefault("provenance_fields", prov_fields)
     return meta
 
 
@@ -156,6 +183,8 @@ def get_map_layer_df(
         "lat",
         "lon",
         "delta_change",
+        "signed_delta_mm",
+        "motion_direction",
         "velocity_mm_yr",
         "coherence",
         "land_use",
@@ -170,6 +199,10 @@ def get_map_layer_df(
 
     df = payload.grid_frame.copy()
     df["color"] = df["fill_color"]
+    # Final O-07 decision: `height` binds to `elevation_m` (two-sided signed extrusion around
+    # `COLUMN_BASELINE_M = MAX_EXTRUDE_METERS / 2 = 1500 m` when `extrude_3d=True`, `0.0` in flat
+    # mode), while `signed_delta_mm` keeps exact unrounded `delta_change` [mm].
+    df["signed_delta_mm"] = pd.to_numeric(bundle.grid.set_index("cell_id")["delta_change"], errors="raise").reindex(df["cell_id"]).to_numpy(dtype=np.float64)
     df["height"] = df["elevation_m"]
     # v1.1 thesis metrics for tooltip/inspector parity; additive if absent on legacy fixtures.
     for extra in ("regime", "ratio_R", "seasonal_amp_mm"):
@@ -547,28 +580,49 @@ def get_scale_comparison(
     """Compare peak `|velocity_mm_yr|` across all published cases on one shared physical axis."""
     shared = _resolve_scale_mode(scale_mode) == "shared"
     bundles = load_all_available_bundles(processed_dir=processed_dir)
-    peaks: list[tuple[str, float, str]] = []
+    peaks: list[tuple[str, float, str, str, str, str]] = []
+    units: set[str] = set()
+    sensors: set[str] = set()
+    products: set[str] = set()
     for slug in C.CASE_IDS:
         if slug not in bundles:
             continue
         b = bundles[slug]
         peak = float(b.grid["velocity_mm_yr"].abs().max()) if not b.grid.empty else 0.0
-        peaks.append((slug, round(peak, 2), _case_provenance_id(b)))
+        vel_unit = (
+            str(b.grid["velocity_unit"].iloc[0])
+            if not b.grid.empty and "velocity_unit" in b.grid.columns
+            else C.VELOCITY_UNIT
+        )
+        sensor = str(b.meta.get("sensor") or "")
+        product = str(b.meta.get("product") or "")
+        units.add(vel_unit)
+        if sensor:
+            sensors.add(sensor)
+        if product:
+            products.add(product)
+        peaks.append((slug, round(peak, 2), _case_provenance_id(b), vel_unit, sensor, product))
 
-    span = max((p for _, p, _ in peaks), default=0.0)
+    span = max((p for _, p, *_ in peaks), default=0.0)
     cases = [
         {
             "id": slug,
-            "unit": C.VELOCITY_UNIT,
+            "unit": vel_unit,
+            "sensor": sensor,
+            "product": product,
             "peak": peak,
             "share": (0.0 if span == 0.0 else peak / span) if shared else (1.0 if peak > 0 else 0.0),
             "provenance_id": prov_id,
         }
-        for slug, peak, prov_id in peaks
+        for slug, peak, prov_id, vel_unit, sensor, product in peaks
     ]
     return {
-        "reference_unit": C.VELOCITY_UNIT if shared else None,
-        "mixed_units": False,
+        "reference_unit": C.VELOCITY_UNIT if (shared and len(units) <= 1) else None,
+        "mixed_units": len(units) > 1,
+        "mixed_sensors": len(sensors) > 1,
+        "mixed_products": len(products) > 1,
+        "sensors": sorted(sensors),
+        "products": sorted(products),
         "cases": cases,
     }
 

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pathlib
+
 from src.data import loaders
 from src.domain import contracts as C
+from tests.conftest import write_synthetic_case
 
 REQUIRED_BY_APP_PY = (
     "load_study_cases",
@@ -25,6 +28,8 @@ REQUIRED_BY_APP_PY = (
     "get_scale_comparison",
     "load_context_layers",
     "load_documented_limits",
+    # Additive hooks: bridge-only fields (no contract change) that Tab 4 consumes.
+    "load_availability",
 )
 
 
@@ -41,6 +46,9 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     meta_cdmx = loaders.load_meta("mexico-city")
     assert meta_cdmx["product"] == "mock"
     assert meta_cdmx["unit"] == "mm"
+    for prov_key in ("source", "method", "license", "reference", "processing_date"):
+        assert isinstance(meta_cdmx.get(prov_key), str) and meta_cdmx[prov_key]
+        assert meta_cdmx["provenance_fields"][prov_key] == meta_cdmx[prov_key]
 
     lu_opts = loaders.load_land_use_options()
     assert "urban-dense" in lu_opts
@@ -117,6 +125,9 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert len(loaders.get_land_use_bars("mexico-city", filters)) == 1
 
     comp = loaders.get_scale_comparison("shared")
+    assert comp["mixed_units"] is False
+    assert comp["mixed_sensors"] is False
+    assert comp["sensors"] == ["nisar"]
     shares = {c["id"]: c["share"] for c in comp["cases"]}
     assert shares["mexico-city"] == 1.0
     assert shares["malaga"] < 0.05
@@ -132,9 +143,19 @@ def test_ui_hooks_return_real_artefact_payloads_across_all_tabs():
     assert all(item.count("**") % 2 == 0 for item in limits["section_13"])
 
 
-def test_load_availability_cites_the_asf_record_without_downloading() -> None:
-    from src.data import loaders
+def test_get_scale_comparison_flags_mixed_sensors_across_cases(tmp_path: pathlib.Path) -> None:
+    write_synthetic_case(tmp_path, "mexico-city", sensor="nisar", product="nisar-gunw")
+    write_synthetic_case(tmp_path, "jakarta", sensor="sentinel-1", product="hyp3-s1")
 
+    comp = loaders.get_scale_comparison("shared", processed_dir=tmp_path)
+    assert comp["mixed_sensors"] is True
+    assert comp["mixed_products"] is True
+    assert comp["sensors"] == ["nisar", "sentinel-1"]
+    assert comp["products"] == ["hyp3-s1", "nisar-gunw"]
+    assert comp["mixed_units"] is False
+
+
+def test_load_availability_cites_the_asf_record_without_downloading() -> None:
     info = loaders.load_availability("mexico-city")
     assert info is not None
     assert info["available"] is True
@@ -145,6 +166,8 @@ def test_load_availability_cites_the_asf_record_without_downloading() -> None:
     assert stack["n_granules"] and stack["n_granules"] > 0
     assert isinstance(stack["date_range"], list) and len(stack["date_range"]) == 2
     assert info["coverage_note"]
+    # Catalogue metadata only: nothing was downloaded, so no stack may claim to be measured.
+    assert all("downloaded" not in s for s in info["stacks"])
     assert loaders.load_availability("atlantis") is None
 
 

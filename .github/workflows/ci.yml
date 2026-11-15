@@ -25,6 +25,10 @@ jobs:
       matrix:
         python-version: ["3.12"]
 
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SAR_PYTHON: .venv312/bin/python
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,9 +40,10 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Create project .venv and install runtime/test dependencies
+      - name: Create parity .venv312 (and .venv link) and install dependencies
         run: |
-          python -m venv .venv
+          python -m venv .venv312
+          ln -sfn .venv312 .venv
           ./scripts/python.sh -m pip install --upgrade pip
           ./scripts/python.sh -m pip install -r requirements.txt
 
@@ -65,3 +70,32 @@ jobs:
 
       - name: Run fast pre-submission preflight (scripts/preflight.sh --fast)
         run: ./scripts/preflight.sh --fast
+
+  app-runtime-smoke:
+    name: Lightweight App Runtime Parity (Python 3.12 + requirements-app.txt)
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SAR_PYTHON: .venv-app/bin/python
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-app.txt
+
+      - name: Install lightweight container runtime dependencies + pytest
+        run: |
+          python -m venv .venv-app
+          ./scripts/python.sh -m pip install --upgrade pip
+          ./scripts/python.sh -m pip install -r requirements-app.txt pytest
+
+      - name: Verify contract, artefact gate & Streamlit AppTest smoke via SAR_PYTHON
+        run: |
+          ./scripts/python.sh -m src.domain.contracts
+          ./scripts/python.sh -m src.data.validation --processed data/processed --require-cases
+          ./scripts/python.sh -m pytest tests/test_ui_smoke.py tests/test_ui_bridge.py -q
