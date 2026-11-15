@@ -126,7 +126,7 @@ El parser de `load_documented_limits` une ahora las líneas de continuación de 
 
 - **Punto 4 cerrado por el código:** `mexico-city` publica `seasonal_amp_mm` y `ratio_R` en las 11 694 celdas y su limitación afirma que la ventana de dos años sí identifica el término estacional. No hay campo que suprimir ni marcar: el inspector los muestra con unidad y fuente, como hace hoy.
 - **Punto 5 con corrección de lectura:** positivo no es «hacia arriba» sin más, es **hacia el sensor** (por defecto `toward-sensor`), que coincide con uplift en la geometría del mock. La línea de signo del inspector cita ahora esa formulación y añade que la convención está registrada, no validada contra GNSS. No se da por cerrada.
-- **Puntos 1–3 no declarados:** sigue sin haber párrafo aprobado por caso, módulo educativo ni frases de glosario por `layer`. La UI no inventa: la pestaña 4 no muestra bloque educativo y el aviso de ausencia se mantiene. Los nombres en español del GeoJSON se citan tal cual (Rol 3 los confirma sintéticos y etiquetados como mock).
+- **Puntos 1–3 cubiertos desde las fuentes canónicas del repo:** `load_documented_limits` extrae `case_roles` (`role`, `expected_regime`, `published_rate_mm_yr` de `config/study_cases.yaml`) y `science_section_1` (el párrafo §1 de `docs/science-guide.md`), mientras `src/ui/formatters.py` aporta `CONTEXT_LAYER_GLOSSARY` (`docs/data-contract-v1.md` §6 y §7.4) y `translate_feature_name()` para mostrar en inglés los nombres sintéticos del GeoJSON sin alterar `data/processed/`.
 
 ## Plan
 

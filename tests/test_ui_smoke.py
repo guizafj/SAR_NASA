@@ -35,6 +35,9 @@ def test_shell_starts_with_mock_and_four_tabs() -> None:
     assert "A context class is not the Land use filter." in text
     assert "not a hazard assessment" in text
     assert "Inelastic" in text
+    assert "SAR physics and regime classification" in text
+    assert "Declared role:" in text
+    assert "Zócalo Metro Station (synthetic)" in text
     captions = "\n".join(getattr(node, "value", "") for node in getattr(app, "caption", []))
     assert "Linear trend" in captions
     assert "Provenance ID" in captions

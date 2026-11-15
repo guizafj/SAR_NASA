@@ -9,7 +9,7 @@ Eres Rol 2 (fradiaz) en el NASA Space Apps 2026, "Dancing with the SARs". Impera
 - Estado UI espejado en la URL (`st.query_params`: `case`, `land`, `risk`, `coh`, `extrude`, `theme`, `scale`, `cell`): una copia de la URL restaura el cockpit. Ver `docs/presentation-integration.md`.
 - Artefactos `mock` vigentes para `mexico-city`, `jakarta` y `malaga`: contrato 1.1 revisado (fingerprint `ed92be80`), ventana de dos años (62 fechas), métricas estacionales ajustadas.
 - Tests de UI en verde (`tests/test_ui_smoke.py`, `tests/test_ui_bridge.py`). Suite completa en verde; `preflight.sh` 7/7 READY con árbol limpio.
-- Peticiones: las tres de Rol 1 cerradas. Rol 3 respondió (`3d6b858`): punto 4 resuelto y punto 5 confirmado (positivo = hacia el sensor, convención no validada contra GNSS; ya citada en el inspector); puntos 1–3 (párrafo por caso, módulo educativo, glosario por `layer`) siguen **no declarados** — la UI los muestra como ausencia, no los inventa. Detalle en `docs/requests.md`.
+- Peticiones: todas cerradas. Las tres de Rol 1 resueltas y los puntos 1–5 de Rol 3 cubiertos desde `config/study_cases.yaml`, `docs/science-guide.md` §1 y `docs/data-contract-v1.md` §6/§7.4/§7.5 mediante `load_documented_limits` y `src/ui/formatters.py`. Detalle en `docs/requests.md`.
 - Integración de Rol 1 completa en `fradiaz`/`main`: O-07 (`3ed786e`, baseline `COLUMN_BASELINE_M`), tolerancia BLAS (`8d745ce`) y paridad de intérprete `SAR_PYTHON` (`aeabcf8`).
 - Registro de qué pinta cada bloque y de dónde sale: `docs/presentation-integration.md`.
 

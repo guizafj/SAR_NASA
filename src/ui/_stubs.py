@@ -537,10 +537,33 @@ def load_context_layers() -> dict[str, Any] | None:
     return {"path": str(_CONTEXT), "summary": {"delivered": True}}
 
 
+_SCIENCE_GUIDE = Path(__file__).resolve().parents[2] / "docs" / "science-guide.md"
+
+
 def load_documented_limits() -> dict[str, Any]:
-    """# TODO(rol3): replace with approved educational copy. Quotes README only."""
+    """Quotes README.md, docs/science-guide.md §1 and config/study_cases.yaml verbatim."""
+    science_summary = None
+    if _SCIENCE_GUIDE.is_file():
+        stext = _SCIENCE_GUIDE.read_text(encoding="utf-8")
+        marker = "## 1. The physics in one paragraph"
+        sidx = stext.find(marker)
+        if sidx != -1:
+            body = stext[sidx + len(marker) :]
+            for stop in ("\n![", "\n---", "\n## "):
+                cut = body.find(stop)
+                if cut != -1:
+                    body = body[:cut]
+            slines = [line.strip() for line in body.splitlines() if line.strip()]
+            if slines:
+                science_summary = " ".join(slines)
+
     if not _README.is_file():
-        return {"section_8_caveat": None, "section_13": []}
+        return {
+            "section_8_caveat": None,
+            "section_13": [],
+            "science_section_1": science_summary,
+            "case_roles": {},
+        }
     text = _README.read_text(encoding="utf-8")
     caveat = None
     paragraphs = [
@@ -580,4 +603,9 @@ def load_documented_limits() -> dict[str, Any]:
                     current_parts.append(stripped)
         if current_parts:
             items.append(" ".join(current_parts))
-    return {"section_8_caveat": caveat, "section_13": items}
+    return {
+        "section_8_caveat": caveat,
+        "section_13": items,
+        "science_section_1": science_summary,
+        "case_roles": {},
+    }

@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from src.ui.formatters import humanize
+from src.ui.formatters import CONTEXT_LAYER_GLOSSARY, humanize, translate_feature_name
 
 _TABLE_FIELDS = ("layer", "class", "name", "source", "provenance_id")
 
@@ -135,11 +135,20 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     for column in ("layer", "class"):
         if column in shown.columns:
             shown[column] = shown[column].map(lambda value: humanize(value) if str(value) else value)
+    if "name" in shown.columns:
+        shown["name"] = shown["name"].map(translate_feature_name)
+    glossary_items = "".join(
+        f'<p class="detail-line"><strong>{html.escape(humanize(layer_key))}:</strong> '
+        f"{html.escape(CONTEXT_LAYER_GLOSSARY[layer_key])}</p>"
+        for layer_key in sorted(counts)
+        if layer_key in CONTEXT_LAYER_GLOSSARY
+    )
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Context layers</p>'
         '<p class="kpi-note">Delivered context only, not a hazard assessment. '
         "A context class is not the Land use filter.</p>"
+        f"{glossary_items}"
         f"<p>{len(rows)} features delivered</p>"
         f"{_render_table(shown, single_source)}"
         "</div>",

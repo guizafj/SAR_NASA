@@ -42,7 +42,7 @@ def _stat_card(column: Any, label: str, value: Any, unit: str | None) -> None:
     )
 
 
-def _case_block(meta: dict[str, Any]) -> None:
+def _case_block(meta: dict[str, Any], case_roles: Mapping[str, Any] | None = None) -> None:
     stats = meta.get("stats") if isinstance(meta.get("stats"), Mapping) else {}
     cards: list[tuple[str, Any, str | None]] = []
     if isinstance(stats, dict):
@@ -67,10 +67,27 @@ def _case_block(meta: dict[str, Any]) -> None:
         if meta.get("product") == "mock"
         else "Values come from the delivered artefact."
     )
+    case_id = str(meta.get("case_id") or "")
+    role_info = (case_roles or {}).get(case_id) if isinstance(case_roles, Mapping) else None
+    role_lines = ""
+    if isinstance(role_info, Mapping):
+        role_text = role_info.get("role")
+        exp_regime = role_info.get("expected_regime")
+        pub_rate = role_info.get("published_rate_mm_yr")
+        details: list[str] = []
+        if role_text:
+            details.append(f"Declared role: {role_text}")
+        if exp_regime:
+            details.append(f"Expected regime: {humanize(exp_regime)}")
+        if isinstance(pub_rate, (int, float)) and not isinstance(pub_rate, bool):
+            details.append(f"Literature reference rate: {format_number(pub_rate)} mm/year")
+        if details:
+            role_lines = f'<p class="kpi-note">{" · ".join(html.escape(part) for part in details)}</p>'
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Case</p>'
         f"<p>{html.escape(case_note)}</p>"
+        f"{role_lines}"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -116,12 +133,28 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
         return
 
     if has_meta:
-        _case_block(meta)
+        case_roles = limits.get("case_roles") if isinstance(limits, Mapping) else None
+        _case_block(meta, case_roles if isinstance(case_roles, Mapping) else None)
     else:
         st.markdown(
             '<div class="cockpit-card is-empty">'
             '<p class="kicker">Case</p>'
             '<p class="empty-prompt">The loader did not return case meta.</p>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    science_summary = limits.get("science_section_1") if isinstance(limits, Mapping) else None
+    if science_summary:
+        st.markdown(
+            '<div class="cockpit-card">'
+            '<p class="kicker">SAR physics and regime classification</p>'
+            '<p class="kpi-note">From docs/science-guide.md §1 and docs/data-contract-v1.md §7.5.</p>'
+            f"<p>{safe_inline(science_summary)}</p>"
+            '<p class="detail-line"><strong>Regime index R = |velocity| / seasonal amplitude:</strong> '
+            "R &gt; 2 Inelastic (secular trend dominates, permanent compaction) · "
+            "1 &le; R &le; 2 Transitional (mixed regime) · "
+            "R &lt; 1 Elastic (seasonal cycle dominates, recoverable motion).</p>"
             "</div>",
             unsafe_allow_html=True,
         )

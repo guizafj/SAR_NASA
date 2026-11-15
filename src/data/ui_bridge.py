@@ -604,13 +604,57 @@ def load_context_layers(
     }
 
 
+def _extract_science_section_1(science_path: pathlib.Path) -> str | None:
+    """Extract §1 'The physics in one paragraph' verbatim from `docs/science-guide.md`."""
+    if not science_path.is_file():
+        return None
+    text = science_path.read_text(encoding="utf-8")
+    marker = "## 1. The physics in one paragraph"
+    start = text.find(marker)
+    if start == -1:
+        return None
+    body = text[start + len(marker) :]
+    for stop in ("\n![", "\n---", "\n## "):
+        idx = body.find(stop)
+        if idx != -1:
+            body = body[:idx]
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    return " ".join(lines) if lines else None
+
+
+def _extract_case_roles(config_path: pathlib.Path) -> dict[str, dict[str, Any]]:
+    """Return declared role, expected_regime and published_rate_mm_yr per case from `study_cases.yaml`."""
+    if not config_path.is_file():
+        return {}
+    cfg = load_study_cases_config(config_path)
+    out: dict[str, dict[str, Any]] = {}
+    for slug, sc in cfg.cases.items():
+        out[slug] = {
+            "name": sc.name,
+            "role": sc.role,
+            "expected_regime": sc.expected_regime,
+            "published_rate_mm_yr": sc.published_rate_mm_yr,
+        }
+    return out
+
+
 def load_documented_limits(
     readme_path: pathlib.Path | str = ROOT_DIR / "README.md",
+    *,
+    science_path: pathlib.Path | str = ROOT_DIR / "docs" / "science-guide.md",
+    study_cases_path: pathlib.Path | str = DEFAULT_STUDY_CASES_PATH,
 ) -> dict[str, Any]:
-    """Extract documented GNSS caveat and numbered §13 limitations verbatim from `README.md`."""
+    """Extract documented GNSS caveat, §13 limitations, §1 science summary and case roles."""
     path = pathlib.Path(readme_path)
+    science_summary = _extract_science_section_1(pathlib.Path(science_path))
+    case_roles = _extract_case_roles(pathlib.Path(study_cases_path))
     if not path.is_file():
-        return {"section_8_caveat": None, "section_13": []}
+        return {
+            "section_8_caveat": None,
+            "section_13": [],
+            "science_section_1": science_summary,
+            "case_roles": case_roles,
+        }
     text = path.read_text(encoding="utf-8")
     caveat: str | None = None
     paragraphs = [
@@ -650,7 +694,12 @@ def load_documented_limits(
                     current_parts.append(stripped)
         if current_parts:
             items.append(" ".join(current_parts))
-    return {"section_8_caveat": caveat, "section_13": items}
+    return {
+        "section_8_caveat": caveat,
+        "section_13": items,
+        "science_section_1": science_summary,
+        "case_roles": case_roles,
+    }
 
 
 __all__ = [

@@ -7,7 +7,7 @@
 | Rol 1 (pozo) | `get_map_layer_df`: extrusión por defecto en `False` | resuelta en `main` (`7f0b455`), integrada en `fradiaz` |
 | Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | resuelta en `main` (`7f0b455`); la UI ya consume `scaled` |
 | Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | resuelta en `main` (`ui_bridge` y `_stubs` unen el párrafo del caveat y todas las líneas de continuación de `section_13`) |
-| Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | respondida en parte (2026-11-15): punto 4 resuelto, punto 5 confirmado, puntos 1–3 **no declarados** (ver «Respuesta de Rol 3») |
+| Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | resuelta (2026-11-15): puntos 4 y 5 cerrados en `3d6b858`; puntos 1–3 conectados en `load_documented_limits` y `src/ui/formatters.py` desde `config/study_cases.yaml`, `docs/science-guide.md` §1 y `docs/data-contract-v1.md` §6/§7.4 |
 
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
@@ -173,7 +173,4 @@ publicada prohíbe ya el campo, así que no hace falta suprimirlo ni marcarlo.
 mientras los publicados sigan siendo la fuente. Tampoco volumen `m³/year`, área crítica, slider de
 fechas ni cambio de métrica del mapa.
 
-**Estado:** PARCIALMENTE RESUELTA (2026-11-15) — el punto 4 quedó resuelto por el cambio a la
-ventana de dos años y el 5 está confirmado contra el contrato (con la salvedad del signo no
-validado); los puntos 1, 2 y 3 siguen **no declarados** y no bloquean la UI, que muestra
-`NOT_DECLARED`.
+**Estado:** RESUELTA (2026-11-15) — los puntos 4 y 5 quedaron confirmados en `3d6b858`; los puntos 1, 2 y 3 quedan cubiertos sin tocar artefactos ni añadir llamadas externas mediante `load_documented_limits` (`config/study_cases.yaml` + `docs/science-guide.md` §1) y el glosario/traductor determinista de `src/ui/formatters.py` (`docs/data-contract-v1.md` §6 y §7.4).
