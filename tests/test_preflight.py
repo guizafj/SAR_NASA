@@ -51,7 +51,7 @@ ALL_GATES = [
 #: Files copied into the scratch repo used to prove the clone gate catches a broken committed doc.
 #: `.venv` is symlinked instead (it is 500 MB and only needed for its interpreter).
 COPY_IGNORE = shutil.ignore_patterns(
-    ".git", ".venv", "__pycache__", ".pytest_cache", ".mypy_cache", "node_modules"
+    ".git", ".venv", ".venv*", "__pycache__", ".pytest_cache", ".mypy_cache", "node_modules"
 )
 
 

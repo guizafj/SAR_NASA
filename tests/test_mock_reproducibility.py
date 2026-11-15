@@ -25,7 +25,10 @@ import os
 import pathlib
 import subprocess
 import sys
+import warnings
 
+import numpy as np
+import pandas as pd
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -124,6 +127,45 @@ def test_default_seed_reproduces_committed_artefact(
         "or the artefact set changed and data/processed/ is stale."
     )
     fresh_digest, committed_digest = _digest(fresh), _digest(committed)
+    if fresh_digest == committed_digest:
+        return
+
+    if name.endswith(".parquet"):
+        # Text artefacts (CSV/GeoJSON/JSON) round floats on serialisation and must stay byte-equal.
+        # Binary IEEE-754 float64 Parquet stores raw BLAS `lstsq` outputs from `harmonic_fit`,
+        # which differ by ~1e-13 (SIMD FMA ULP, ~1e-11 after dividing by small amplitudes in
+        # `ratio_R`) across CPU microarchitectures (e.g. Nix AVX-512 vs WSL/CI AVX2).
+        df_fresh = pd.read_parquet(fresh)
+        df_committed = pd.read_parquet(committed)
+        assert list(df_fresh.columns) == list(df_committed.columns), (
+            f"{case}/{name}: column order differs"
+        )
+        assert len(df_fresh) == len(df_committed), f"{case}/{name}: row count differs"
+        for col in df_committed.columns:
+            left = df_committed[col]
+            right = df_fresh[col]
+            if pd.api.types.is_float_dtype(left) and pd.api.types.is_float_dtype(right):
+                assert left.isna().equals(right.isna()), f"{case}/{name}: null mask differs in {col!r}"
+                np.testing.assert_allclose(
+                    right.to_numpy(dtype=np.float64),
+                    left.to_numpy(dtype=np.float64),
+                    rtol=1e-11,
+                    atol=1e-11,
+                    equal_nan=True,
+                    err_msg=f"{case}/{name}: float column {col!r} drifted beyond BLAS ULP tolerance",
+                )
+            else:
+                assert right.astype(str).equals(left.astype(str)), (
+                    f"{case}/{name}: string column {col!r} differs"
+                )
+        warnings.warn(
+            f"{case}/{name} differs byte-wise across CPU BLAS kernels although content matches "
+            f"within 1e-11 (committed {committed_digest[:12]}…, regenerated {fresh_digest[:12]}…); "
+            "quote provenance from provenance_id rather than a file SHA-256.",
+            stacklevel=2,
+        )
+        return
+
     assert fresh_digest == committed_digest, _mismatch_message(
         case, name, committed_digest, fresh_digest
     )
