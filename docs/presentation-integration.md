@@ -72,7 +72,7 @@ Los tres casos publicados hoy son `mock`: `mexico-city` (primario), `jakarta` (e
 
 En los tres artefactos actuales no hay `name`. La columna sale vacía. Las `class` incluyen valores que no están en `LAND_USE` (`metro-station`, `water-well`, `coastline`, `canal`, `reservoir`, `aoi`). Son clases de contexto, no el `land_use` de la grilla. Hay que separar esas dos listas en la lectura, no mezclarlas en un filtro.
 
-### 4. SAR physics and provenance — `src/ui/educational.py`
+### 4. Provenance and limits — `src/ui/educational.py`
 
 | Visible | Origen | Lectura | Hueco |
 |---|---|---|---|

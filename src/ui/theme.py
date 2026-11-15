@@ -123,7 +123,7 @@ _CSS = f"""
   --card-pad-y: 0.85rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
-  --map-height: clamp(380px, calc(100vh - 430px), 640px);
+  --map-height: clamp(380px, calc(100vh - 470px), 640px);
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
@@ -342,6 +342,20 @@ body,
   line-height: 1.4;
   color: var(--muted) !important;
   margin: 0;
+}}
+
+.cockpit-card .detail-head {{
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent) !important;
+  margin: 0.45rem 0 0.1rem !important;
+}}
+
+.cockpit-card .detail-head:first-of-type {{
+  margin-top: 0 !important;
 }}
 
 .cockpit-card .detail-line {{
@@ -653,6 +667,45 @@ ul[data-baseweb="menu"] li {{
 }}
 
 /* Radio, Toggle, Slider, Captions, Markdown */
+/* Toggle: the off track needs to read against the dark surface. */
+[data-testid="stToggle"] [role="switch"],
+[data-testid="stToggle"] [data-baseweb="checkbox"] [role="switch"] {{
+  background-color: var(--border) !important;
+  border: 1px solid var(--border) !important;
+  opacity: 1 !important;
+}}
+
+[data-testid="stToggle"] [role="switch"][aria-checked="true"],
+[data-testid="stToggle"] [data-baseweb="checkbox"] [role="switch"][aria-checked="true"] {{
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}}
+
+[data-testid="stToggle"] [role="switch"] > div {{
+  background-color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}}
+
+/* Compact expander header so the filter strip does not push the map down. */
+[data-testid="stExpander"] details {{
+  border: 0 !important;
+  background: transparent !important;
+}}
+
+[data-testid="stExpander"] summary {{
+  padding: 0.3rem 0.1rem !important;
+  font-family: var(--font-mono) !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted) !important;
+}}
+
+[data-testid="stExpander"] summary p {{
+  color: var(--muted) !important;
+  font-size: 0.72rem !important;
+}}
+
 [data-testid="stRadio"] label,
 [data-testid="stRadio"] label *,
 [data-testid="stCheckbox"] label,
@@ -923,7 +976,7 @@ button[data-baseweb="tab"]:focus-visible {{
 }}
 
 .st-key-inspector-slot .cockpit-card.is-empty {{
-  min-height: calc(var(--map-height) - 5.5rem);
+  min-height: 7rem;
   justify-content: center;
 }}
 

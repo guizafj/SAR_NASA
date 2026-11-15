@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from typing import Any, Sequence
 
 NOT_DECLARED = "not declared"
@@ -30,6 +31,34 @@ _SHARED_SCALE = frozenset(
         "compartida",
     }
 )
+
+
+_INLINE_EMPHASIS = re.compile(r"\*\*(.+?)\*\*|\*(.+?)\*")
+_RISK_WORD = re.compile(r"\b(estable|moderado|critico)\b")
+
+
+def safe_inline(text: Any) -> str:
+    """Escape HTML, then turn `**bold**` and `*italic*` into tags.
+
+    Delivered copy carries markdown emphasis. Wrapping it in a raw <p> without
+    this leaves the asterisks visible.
+    """
+    escaped = html.escape(str(text))
+
+    def _replace(match: re.Match[str]) -> str:
+        if match.group(1) is not None:
+            return f"<strong>{match.group(1)}</strong>"
+        return f"<em>{match.group(2)}</em>"
+
+    return _INLINE_EMPHASIS.sub(_replace, escaped)
+
+
+def format_note(note: Any) -> str:
+    """Display-only translation of contract risk values inside a note.
+
+    The note is backend copy. The enum value stays unchanged in the payload.
+    """
+    return _RISK_WORD.sub(lambda match: RISK_LABELS.get(match.group(0), match.group(0)), str(note))
 
 
 def format_dates_span(dates: Sequence[Any] | None) -> str | None:

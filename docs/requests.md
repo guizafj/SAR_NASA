@@ -1,5 +1,14 @@
 # Peticiones entre roles
 
+Índice:
+
+| Rol | Petición | Estado |
+|---|---|---|
+| Rol 1 (pozo) | `get_map_layer_df`: extrusión por defecto en `False` | abierta |
+| Rol 1 (pozo) | `get_case_series`: `scaled` y `scale_factor`; nota de KPI en inglés | abierta |
+| Rol 1 (pozo) | `load_documented_limits`: párrafo completo del caveat e ítems con sus líneas de continuación | abierta |
+| Rol 3 (yuls) | Texto aprobado por caso, módulo educativo, glosario de contexto, campos contradichos y definiciones | abierta |
+
 ## Rol 1 (`src/data/ui_bridge.py`) — extrusión por defecto
 
 **De:** Rol 2 (fradiaz)
@@ -49,6 +58,8 @@ No pedimos un hook nuevo de procedencia: la UI ya lee `load_meta`.
 
 Pedimos que devuelva el párrafo completo: desde la línea que contiene la frase hasta la primera línea en blanco posterior, uniendo las líneas con un espacio. Sin recortar el sentido ni añadir texto.
 
+El mismo parser corta los ítems numerados de `section_13`: hoy devuelve solo la primera línea de cada ítem, así que el punto 5 termina en "…use coherence-loss change". Pedimos que cada ítem incluya sus líneas de continuación hasta la siguiente entrada numerada o la línea en blanco, unidas con un espacio.
+
 La UI no puede reconstruirlo: solo recibe el string ya extraído y no lee el README.
 
 **Impacto en contrato de datos:** ninguno (solo el valor de un hook de presentación).  
@@ -60,7 +71,7 @@ La UI no puede reconstruirlo: solo recibe el string ya extraído y no lee el REA
 **Para:** Rol 3 (yuls)  
 **Contexto:** el bridge de Rol 1 ya entrega grilla, serie `aoi`, `meta.json`, GeoJSON y límites del README. Lo que falta para leer el cockpit es texto aprobado, no otro cálculo.
 
-Hoy la pestaña 4 separa tres bloques: caso (`meta`), documentación del repo (README §8 y §13) y registro (`meta.json`). No hay módulo educativo. La frase "No scientific text approved by Role 3" solo aparece si el loader no devuelve nada.
+Hoy la pestaña **4. Provenance and limits** separa tres bloques: caso (`meta`), *Known caveat* / *Known limitations* (texto extraído del README por Rol 1) y registro (`meta.json`). No hay módulo educativo. La frase "Educational notes are not available for this case yet." solo aparece si el loader no devuelve nada.
 
 Pedimos, por caso y sin cifras nuevas, lo siguiente. Si un punto no está listo, la respuesta es "no declarado". La UI lo mostrará así.
 
@@ -72,7 +83,7 @@ Confirmar si `meta.limitations` y `meta.null_policy` son el texto público del c
 
 ### 2. Módulo educativo
 
-Texto aprobado, en inglés, para la pestaña 4: qué es la observación SAR que este cockpit enseña, qué hace el producto declarado y qué no hace. Sin estación de ejemplo, sin "deriva cero", sin SHA256/"verified", sin índices estructurales, sin mitigaciones y sin "L-Band & S-Band". Hasta que llegue, no hay bloque de educación.
+Texto aprobado, en inglés, para la pestaña **4. Provenance and limits**: qué es la observación SAR que este cockpit enseña, qué hace el producto declarado y qué no hace. Si el texto incluye física básica (InSAR, LOS frente a vertical, coherencia), la pestaña puede volver a llamarse "SAR physics"; hoy no la contiene y el nombre se ajustó a lo que se muestra. Sin estación de ejemplo, sin "deriva cero", sin SHA256/"verified", sin índices estructurales, sin mitigaciones y sin "L-Band & S-Band". Hasta que llegue, no hay bloque de educación.
 
 ### 3. Glosario de contexto
 

@@ -37,7 +37,11 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         figure,
         height=280,
         x_title="date",
-        y_title=f"value ({unit})" if unit else f"value ({UNIT_NOT_DECLARED})",
+        y_title=(
+            f"Cumulative displacement ({unit})"
+            if unit
+            else f"Cumulative displacement ({UNIT_NOT_DECLARED})"
+        ),
     )
     st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     st.caption(

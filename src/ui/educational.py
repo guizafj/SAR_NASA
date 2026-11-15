@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import streamlit as st
 
-from src.ui.formatters import DEMO_BANNER, NOT_DECLARED, format_json_block
+from src.ui.formatters import DEMO_BANNER, NOT_DECLARED, format_json_block, safe_inline
 
 
 def _public_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
@@ -57,7 +57,7 @@ def _case_block(meta: dict[str, Any]) -> None:
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Case</p>'
-        "<p>Quoted from the loader. Not an observation lecture.</p>"
+        "<p>Values come from the delivered artefact; they are not an observation.</p>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -70,7 +70,7 @@ def _case_block(meta: dict[str, Any]) -> None:
         st.markdown(
             '<div class="cockpit-card">'
             '<p class="kicker">null_policy</p>'
-            f"<p>{html.escape(str(null_policy))}</p>"
+            f"<p>{safe_inline(null_policy)}</p>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -79,7 +79,7 @@ def _case_block(meta: dict[str, Any]) -> None:
         st.markdown(
             '<div class="cockpit-card">'
             '<p class="kicker">case limitations</p>'
-            + "".join(f"<p>- {html.escape(str(item))}</p>" for item in limitations)
+            + "".join(f"<p>- {safe_inline(item)}</p>" for item in limitations)
             + "</div>",
             unsafe_allow_html=True,
         )
@@ -112,13 +112,13 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
 
     caveat = limits.get("section_8_caveat") if isinstance(limits, dict) else None
     caveat_body = (
-        f"<p>{html.escape(str(caveat))}</p>"
+        f"<p>{safe_inline(caveat)}</p>"
         if caveat
         else "<p>No documented caveat for this case.</p>"
     )
     items = limits.get("section_13") if isinstance(limits, dict) else None
     items_body = (
-        "".join(f"<p>- {html.escape(str(item))}</p>" for item in items)
+        "".join(f"<p>- {safe_inline(item)}</p>" for item in items)
         if items
         else "<p>No documented limitations for this case.</p>"
     )

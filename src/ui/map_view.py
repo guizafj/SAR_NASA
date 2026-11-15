@@ -28,6 +28,7 @@ LAYER_ID = "h3-cells"
 MAP_HEIGHT = 560
 ROW_WARN = 50_000
 SELECT_PROMPT = "Select a cell"
+EMPTY_HINT = "Pick a cell on the map or in the list."
 SATURATION_NOTE = "Values outside the range are saturated."
 LIMIT_MISSING = "detection limit not available"
 
@@ -167,7 +168,14 @@ def _provenance(meta: dict[str, Any] | None) -> str:
     return " · ".join(parts)
 
 
-def _figure_line(label: str, value: Any, unit: str | None, provenance_id: str | None) -> str:
+def _figure_line(
+    label: str,
+    value: Any,
+    unit: str | None,
+    provenance_id: str | None,
+    *,
+    dimensionless: bool = False,
+) -> str:
     if value in (None, ""):
         return f"{label}: {NOT_DECLARED}"
     number = (
@@ -175,7 +183,10 @@ def _figure_line(label: str, value: Any, unit: str | None, provenance_id: str | 
         if isinstance(value, (int, float)) and not isinstance(value, bool)
         else str(value)
     )
-    unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
+    if dimensionless:
+        unit_text = ""
+    else:
+        unit_text = f" {unit}" if unit else f" ({UNIT_NOT_DECLARED})"
     source = provenance_id or SOURCE_NOT_DECLARED
     return f"{label}: {number}{unit_text} · {source}"
 
@@ -252,7 +263,7 @@ def _render_inspector(
         st.markdown(
             '<div class="cockpit-card is-empty">'
             '<p class="kicker">Inspector</p>'
-            f'<p class="empty-prompt">{html.escape(SELECT_PROMPT)}</p>'
+            f'<p class="empty-prompt">{html.escape(EMPTY_HINT)}</p>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -263,39 +274,58 @@ def _render_inspector(
     provenance_id = detail.get("provenance_id")
     source_id = provenance_id if isinstance(provenance_id, str) else None
     unit_text = unit if isinstance(unit, str) else None
-    lines = [
-        "sign: positive = up",
-        f"case: {detail.get('case_id') or case_id or NOT_DECLARED}",
-        _coord_line("lat", detail.get("lat")),
-        _coord_line("lon", detail.get("lon")),
-        _figure_line("val_t1", detail.get("val_t1"), unit_text, source_id),
-        _figure_line("val_t2", detail.get("val_t2"), unit_text, source_id),
-        _figure_line("delta_change", detail.get("delta_change"), unit_text, source_id),
-        _figure_line(
-            "velocity_mm_yr",
-            detail.get("velocity_mm_yr"),
-            detail.get("velocity_unit") if isinstance(detail.get("velocity_unit"), str) else None,
-            source_id,
+    groups: list[tuple[str, list[str]]] = [
+        (
+            "Deformation",
+            [
+                "sign: positive = up",
+                _figure_line("val_t1", detail.get("val_t1"), unit_text, source_id),
+                _figure_line("val_t2", detail.get("val_t2"), unit_text, source_id),
+                _figure_line("delta_change", detail.get("delta_change"), unit_text, source_id),
+                _figure_line(
+                    "velocity_mm_yr",
+                    detail.get("velocity_mm_yr"),
+                    detail.get("velocity_unit") if isinstance(detail.get("velocity_unit"), str) else None,
+                    source_id,
+                ),
+            ],
         ),
-        _figure_line("coherence", detail.get("coherence"), None, source_id),
-        "risk_level: derived band from |velocity|, not a separate measurement",
-        f"regime: {detail.get('regime') or NOT_DECLARED} · secular versus seasonal",
-        _figure_line("ratio_R", detail.get("ratio_R"), None, source_id),
-        "ratio_R: abs(trend) / seasonal amplitude",
-        _figure_line(
-            "seasonal_amp_mm",
-            detail.get("seasonal_amp_mm"),
-            unit if isinstance(unit, str) else None,
-            provenance_id if isinstance(provenance_id, str) else None,
+        (
+            "Quality",
+            [
+                _figure_line("coherence", detail.get("coherence"), None, source_id, dimensionless=True),
+                "risk_level: derived band from |velocity|, not a separate measurement",
+                f"regime: {detail.get('regime') or NOT_DECLARED} · secular versus seasonal",
+                _figure_line("ratio_R", detail.get("ratio_R"), None, source_id, dimensionless=True),
+                "ratio_R: abs(trend) / seasonal amplitude",
+                _figure_line(
+                    "seasonal_amp_mm",
+                    detail.get("seasonal_amp_mm"),
+                    unit if isinstance(unit, str) else None,
+                    source_id,
+                ),
+            ],
         ),
-        f"land_use: {detail.get('land_use') or NOT_DECLARED}",
-        f"sensor: {detail.get('sensor') or NOT_DECLARED}",
-        f"product: {detail.get('product') or NOT_DECLARED}",
-        f"source: {detail.get('source') or NOT_DECLARED}",
-        f"provenance_id: {provenance_id or NOT_DECLARED}",
-        f"acquisition_date: {detail.get('acquisition_date') or NOT_DECLARED}",
+        (
+            "Provenance",
+            [
+                f"case: {detail.get('case_id') or case_id or NOT_DECLARED}",
+                _coord_line("lat", detail.get("lat")),
+                _coord_line("lon", detail.get("lon")),
+                f"land_use: {detail.get('land_use') or NOT_DECLARED}",
+                f"sensor: {detail.get('sensor') or NOT_DECLARED}",
+                f"product: {detail.get('product') or NOT_DECLARED}",
+                f"source: {detail.get('source') or NOT_DECLARED}",
+                f"provenance_id: {provenance_id or NOT_DECLARED}",
+                f"acquisition_date: {detail.get('acquisition_date') or NOT_DECLARED}",
+            ],
+        ),
     ]
-    body = "".join(f'<p class="detail-line">{html.escape(line)}</p>' for line in lines)
+    body = "".join(
+        f'<p class="detail-head">{html.escape(heading)}</p>'
+        + "".join(f'<p class="detail-line">{html.escape(line)}</p>' for line in lines)
+        for heading, lines in groups
+    )
     st.markdown(
         '<div class="cockpit-card">'
         '<p class="kicker">Inspector</p>'
@@ -389,27 +419,40 @@ def _render_comparison(
         )
     rows = []
     for item in report["cases"]:
-        width = 4 if shared and float(item.get("share") or 0) < 0.05 else max(4, int(float(item.get("share") or 0) * 100))
-        if not shared:
-            width = 100 if float(item.get("peak") or 0) else 4
         unit = item.get("unit") or UNIT_NOT_DECLARED
         peak = item.get("peak")
         peak_text = f"{peak:g}" if isinstance(peak, (int, float)) else NOT_DECLARED
         source = item.get("provenance_id") or SOURCE_NOT_DECLARED
         case_id = str(item.get("id") or "")
         case_name = (case_labels or {}).get(case_id, case_id)
+        # In per-case mode `share` is 1.0 for every case, so a bar would read as
+        # "same magnitude". Only the shared scale makes the length meaningful.
+        if shared:
+            share = float(item.get("share") or 0)
+            width = 4 if share < 0.05 else max(4, int(share * 100))
+            track = (
+                '<div class="compare-track">'
+                f'<div class="compare-fill" style="width:{width}%"></div></div>'
+            )
+        else:
+            track = ""
         rows.append(
             '<div class="compare-row">'
             f'<span class="compare-case">{html.escape(case_name)}</span>'
-            '<div class="compare-track">'
-            f'<div class="compare-fill" style="width:{width}%"></div></div>'
+            f"{track}"
             f'<span class="compare-meta">{html.escape(peak_text)} {html.escape(str(unit))} · {html.escape(str(source))}</span>'
             "</div>"
         )
+    note = (
+        ""
+        if shared
+        else '<p class="kpi-note">Per-case scale: bars are omitted because each case uses its own range. '
+        "Compare the numbers, not a length.</p>"
+    )
     st.markdown(
         '<div class="cockpit-card compare-card">'
         '<p class="kicker">Relative magnitude across cases</p>'
-        f'{"".join(rows)}'
+        f"{note}{''.join(rows)}"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -513,7 +556,9 @@ def render_map_tab(
                 initial_view_state=pdk.ViewState(
                     latitude=view["latitude"],
                     longitude=view["longitude"],
-                    zoom=view["zoom"],
+                    # Camera only: one step closer than the loader default so the
+                    # published cells fill the viewport. Not a geospatial value.
+                    zoom=float(view["zoom"]) + 1.0 if isinstance(view["zoom"], (int, float)) else view["zoom"],
                     pitch=40 if extrude else 0,
                     bearing=0,
                 ),

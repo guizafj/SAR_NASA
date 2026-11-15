@@ -13,7 +13,7 @@ TAB_LABELS = (
     "1. Map",
     "2. Series and KPIs",
     "3. Hazard and infrastructure",
-    "4. SAR physics and provenance",
+    "4. Provenance and limits",
 )
 FORBIDDEN = ("Guadalquivir", "Doñana", "MALG-01", "B_PERP", "deriva cero", "Sector 4")
 
