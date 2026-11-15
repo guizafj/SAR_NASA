@@ -127,9 +127,11 @@ Freeze **Sunday 16:00**. A tick means a command printed the stated result on the
   view is **not implemented**, so do not claim one; [ ] the app starts with **no NASA credentials**;
   [ ] the URL round-trips the eight filter and selection keys, but **not** the active tab or the
   expander state — do not claim "the exact state"; [ ] every rendered number carries a unit or says it is
-  not declared; keyboard-navigable (the `H3 cell` selectbox is the keyboard path to the map's numbers, and
-  the scrollable tables take focus); phone-ready (`?compact=1` collapses the filter panel and the tab
-  strip wraps below 720 px).
+  not declared; [ ] the keyboard path to the map's numbers is the `H3 cell` selectbox; [ ] phone:
+  `?compact=1` ships the filter panel closed. **Not yet true — do not tick:** the scrollable tables do
+  not take focus and the tab strip does not wrap on a narrow viewport, and no chart carries a text
+  summary; the accessibility patch that adds those (`tabindex`, a 720 px breakpoint, chart captions) is
+  still pending because `main`'s redesign invalidated it.
 - **Rol 3 yuls:** [ ] `meta.json` validates for all published cases; [ ] every artefact < 15 MB and
   carries `provenance` + `revisit_days`; [ ] limitations documented, Málaga with its detection limit;
   [ ] video numbers re-derived from `demo_numbers.py` after the last artefact regeneration.
