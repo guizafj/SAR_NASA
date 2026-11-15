@@ -179,12 +179,71 @@ def test_compact_query_param_closes_the_filter_strip() -> None:
     compact = AppTest.from_file(APP, default_timeout=60)
     compact.query_params["compact"] = "1"
     compact.run()
-    filters = next(e for e in compact.expander if e.label == "Filters")
+    filters = next(e for e in compact.expander if e.label.startswith("Filters"))
     assert filters.proto.expanded is False
 
     normal = AppTest.from_file(APP, default_timeout=60)
     normal.run()
-    assert next(e for e in normal.expander if e.label == "Filters").proto.expanded is True
+    assert next(e for e in normal.expander if e.label.startswith("Filters")).proto.expanded is True
+
+
+def test_filter_counts_presets_and_removable_chips() -> None:
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.run()
+    assert not app.exception
+    assert any("11694 of 11694 cells" in item.label for item in app.expander)
+
+    land = next(item for item in app.selectbox if item.label == "Land use")
+    land.set_value("urban-dense").run()
+    assert app.session_state["filter_land_use"] == "urban-dense"
+    assert any("1357 of 11694 cells" in item.label for item in app.expander)
+    next(item for item in app.button if item.label.startswith("× Land")).click().run()
+    assert app.session_state["filter_land_use"] == ""
+    assert any("11694 of 11694 cells" in item.label for item in app.expander)
+
+    next(item for item in app.button if item.label == "Reliable signal · ≥ 0.5").click().run()
+    assert app.session_state["filter_coherence_min"] >= 0.5
+    next(item for item in app.button if item.label == "High risk only").click().run()
+    assert app.session_state["filter_risk_level"] == "critico"
+    next(item for item in app.button if item.label == "Reset filters").click().run()
+    assert app.session_state["filter_coherence_min"] == 0.35
+    assert app.session_state["filter_risk_level"] == ""
+    assert not app.exception
+
+
+def test_zero_cell_state_offers_filter_recovery() -> None:
+    app = AppTest.from_file(APP, default_timeout=90).run()
+    slider = next(item for item in app.slider if item.label == "Minimum coherence")
+    slider.set_value(1.0).run()
+
+    assert app.session_state["filter_coherence_min"] == 1.0
+    assert any("0 of 11694 cells" in item.label for item in app.expander)
+    assert "No cells match these filters" in "\n".join(item.value for item in app.markdown)
+    next(item for item in app.button if item.label == "Lower minimum coherence").click().run()
+    assert app.session_state["filter_coherence_min"] == 0.35
+    assert not app.exception
+
+
+def test_case_level_null_state_cites_bound_and_explains_filter_scope() -> None:
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["case"] = "malaga"
+    app.run()
+
+    text = "\n".join(item.value for item in app.markdown)
+    captions = "\n".join(getattr(item, "value", "") for item in app.caption)
+    assert "No detectable signal above the detection limit of 1.5 mm/year." in text
+    assert "not an empty filter result" in captions
+    assert sum("DEMONSTRATION DATA" in item.value for item in app.markdown) == 1
+    assert not app.exception
+
+
+def test_colorblind_map_ramp_is_selectable_without_changing_case_state() -> None:
+    app = AppTest.from_file(APP, default_timeout=90).run()
+    ramp = next(item for item in app.radio if item.label == "Ramp")
+    ramp.set_value("colorblind").run()
+    assert app.session_state["map_color_ramp"] == "colorblind"
+    assert app.session_state["filter_case_id"] == CASE_IDS[0]
+    assert not app.exception
 
 
 def test_clear_selection_resets_cell_and_url() -> None:
@@ -339,3 +398,80 @@ def test_map_tab_shows_provenance_and_kpis_exactly_once() -> None:
     assert "Unit mm" not in blob
     assert "Dates 2024-11-10" not in blob
     assert "Source mock" in blob
+
+
+def _render_series_tab_only() -> None:
+    from src.data import loaders
+    from src.ui.charts import render_series_tab
+
+    case_id = "mexico-city"
+    filters = {
+        "case_id": case_id,
+        "land_use": None,
+        "coherence_min": 0.35,
+        "risk_level": None,
+        "extrude_3d": False,
+    }
+    render_series_tab(filters, loaders, loaders.load_meta(case_id))
+
+
+def _render_context_tab_only() -> None:
+    from src.data import loaders
+    from src.ui.context_view import render_hazard_tab
+
+    render_hazard_tab(
+        {
+            "case_id": "mexico-city",
+            "land_use": None,
+            "coherence_min": 0.35,
+            "risk_level": None,
+            "extrude_3d": False,
+        },
+        loaders,
+    )
+
+
+def _render_provenance_tab_only() -> None:
+    from src.data import loaders
+    from src.ui.educational import render_physics_tab
+
+    render_physics_tab(loaders, loaders.load_meta("mexico-city"))
+
+
+def _tab_text(app) -> str:
+    text = "\n".join(node.value for node in app.markdown)
+    captions = "\n".join(getattr(node, "value", "") for node in app.caption)
+    return text + "\n" + captions
+
+
+def test_series_tab_has_one_visible_provenance_and_one_of_each_kpi_label() -> None:
+    from src.data import loaders
+
+    app = AppTest.from_function(_render_series_tab_only, default_timeout=90).run()
+    assert not app.exception
+    blob = _tab_text(app)
+    source_id = loaders.load_meta("mexico-city")["provenance"]["provenance_id"]
+    assert blob.count(source_id) == 1
+    assert blob.count("Provenance ID") == 1
+    for label in (
+        "Median velocity",
+        "Cells above threshold",
+        "Critical cells",
+        "Coherent coverage",
+        "Median seasonal amplitude",
+    ):
+        assert blob.count(label) == 1, (label, blob.count(label))
+
+
+def test_context_and_provenance_tabs_show_one_visible_case_source() -> None:
+    from src.data import loaders
+
+    for render in (_render_context_tab_only, _render_provenance_tab_only):
+        app = AppTest.from_function(render, default_timeout=90).run()
+        assert not app.exception
+        blob = _tab_text(app)
+        source_id = loaders.load_meta("mexico-city")["provenance"]["provenance_id"]
+        assert blob.count(source_id) == 1, (render.__name__, blob.count(source_id))
+        assert blob.count("Provenance ID") == 1, (render.__name__, blob.count("Provenance ID"))
+        if render is _render_provenance_tab_only:
+            assert blob.count("Median velocity") == 1

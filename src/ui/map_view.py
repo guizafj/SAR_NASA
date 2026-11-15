@@ -14,7 +14,8 @@ from typing import Any
 import pydeck as pdk
 import streamlit as st
 
-from src.ui.color_scale import FALLBACK_DOMAIN, STOPS
+from src.ui.color_scale import FALLBACK_DOMAIN, STOPS, color_for
+from src.ui.components import empty_state
 from src.ui.formatters import (
     NOT_DECLARED,
     SCALE_LABELS,
@@ -24,7 +25,7 @@ from src.ui.formatters import (
     is_shared_scale,
     risk_label,
 )
-from src.ui.theme import active_palette, reported_scheme, style_figure
+from src.ui.theme import MAP_RAMPS, MAP_RAMP_LABELS, active_palette, reported_scheme, style_figure
 
 LAYER_ID = "h3-cells"
 MAP_HEIGHT = 560
@@ -58,7 +59,26 @@ def detection_caption(above_limit: bool | None, limit: Any, unit: str | None) ->
         return None
     if isinstance(limit, bool) or not isinstance(limit, (int, float)):
         return LIMIT_MISSING
-    return "No detectable signal above the detection limit (the neutral band above)"
+    unit_text = f" {unit}" if unit else ""
+    return f"No detectable signal above the detection limit of {format_number(limit)}{unit_text}."
+
+
+def _lower_coherence_filter() -> None:
+    """One-click exploration aid; never alters the declared backend threshold."""
+    floor = st.session_state.get("filter_coherence_floor")
+    current = st.session_state.get("filter_coherence_min", floor)
+    floor_value = float(floor) if isinstance(floor, (int, float)) and 0 <= floor <= 1 else 0.0
+    current_value = float(current) if isinstance(current, (int, float)) else floor_value
+    st.session_state.filter_coherence_min = floor_value if current_value > floor_value else 0.0
+
+
+def _reset_map_filters() -> None:
+    st.session_state.filter_land_use = ""
+    st.session_state.filter_risk_level = ""
+    st.session_state.filter_extrude_3d = False
+    floor = st.session_state.get("filter_coherence_floor")
+    if isinstance(floor, (int, float)) and 0.0 <= floor <= 1.0:
+        st.session_state.filter_coherence_min = float(floor)
 
 
 def _limit_from_meta(meta: dict[str, Any] | None) -> tuple[Any, str | None]:
@@ -112,7 +132,7 @@ def _scale(loaders: Any, case_id: str, filters: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _legend_inline(scale: dict[str, Any], mode: str) -> str:
+def _legend_inline(scale: dict[str, Any], mode: str, ramp: str = "classic") -> str:
     """One-row ramp for the reading panel: label+unit, gradient, range.
 
     The scale mode is already visible in the radio above the map, and the adapter
@@ -122,11 +142,14 @@ def _legend_inline(scale: dict[str, Any], mode: str) -> str:
     vmax = scale.get("max")
     unit = scale.get("unit") or UNIT_NOT_DECLARED
     metric = scale.get("metric") or "delta_change"
-    stops = scale.get("stops")
+    stops = scale.get("stops") if ramp == "classic" else None
     if isinstance(stops, (list, tuple)) and stops:
         gradient = ", ".join(html.escape(str(color)) for color in stops)
     else:
-        gradient = ", ".join(f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in STOPS)
+        chosen_stops = MAP_RAMPS.get(ramp, STOPS)
+        gradient = ", ".join(
+            f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in chosen_stops
+        )
     if isinstance(vmin, (int, float)) and isinstance(vmax, (int, float)):
         span = f"{format_number(vmin, 1)} … {format_number(vmax, 1)}"
     else:
@@ -142,14 +165,12 @@ def _legend_inline(scale: dict[str, Any], mode: str) -> str:
     )
 
 
-def _legend_details(scale: dict[str, Any], counts_text: str) -> str:
+def _legend_details(scale: dict[str, Any]) -> str:
     """Scale note for the expander: origin + neutral band, saturation and counts."""
     caption = _scale_caption(scale)
     parts = [f'<p class="legend-meta">{html.escape(caption)}</p>'] if caption else []
     if scale.get("saturated"):
         parts.append(f'<p class="legend-meta">{html.escape(SATURATION_NOTE)}</p>')
-    if counts_text:
-        parts.append(f'<p class="legend-meta">{html.escape(counts_text)}</p>')
     return '<div class="legend-details">' + "".join(parts) + "</div>"
 
 
@@ -547,9 +568,27 @@ def _render_deck(
     view: dict[str, Any],
     context_groups: list[tuple[str, str, dict[str, Any]]],
     case_id: Any,
+    scale: dict[str, Any] | None = None,
+    ramp: str = "classic",
 ) -> None:
     """Draw the H3 deck and sync the picked cell into session state."""
     records = frame.to_dict(orient="records") if frame is not None and hasattr(frame, "to_dict") else []
+    if ramp in MAP_RAMPS and ramp != "classic" and scale:
+        metric = str(scale.get("metric") or "velocity_mm_yr")
+        vmin, vmax = scale.get("min"), scale.get("max")
+        if isinstance(vmin, (int, float)) and isinstance(vmax, (int, float)):
+            records = [
+                {
+                    **row,
+                    "color": color_for(
+                        row.get(metric),
+                        float(vmin),
+                        float(vmax),
+                        MAP_RAMPS[ramp],
+                    ),
+                }
+                for row in records
+            ]
     extrude = bool(active.get("extrude_3d"))
     # Flat mode must not keep loader heights: non-zero elevation still
     # produces z-fighting that reads as overlapping hexes.
@@ -684,6 +723,9 @@ def render_map_tab(
         key="scale_mode",
         label_visibility="collapsed",
     )
+    if st.session_state.get("map_color_ramp") not in MAP_RAMP_LABELS:
+        st.session_state.map_color_ramp = "classic"
+    ramp = st.session_state.map_color_ramp
     active = {**filters, "scale_mode": mode}
     frame = _call(loaders, "get_map_layer_df", case_id, active)
     counts = _call(loaders, "get_layer_counts", case_id, active) or {}
@@ -707,7 +749,28 @@ def render_map_tab(
         map_col, panel_col = st.columns([2, 1], gap="medium", vertical_alignment="top")
 
     with map_col:
-        if "latitude" not in view or "longitude" not in view or "zoom" not in view:
+        no_cells = (isinstance(shown, int) and shown == 0) or (
+            frame is not None and hasattr(frame, "__len__") and len(frame) == 0
+        )
+        if no_cells:
+            empty_state(
+                "No cells match these filters",
+                "The selected land-use, risk, or coherence filters leave no published cells.",
+                icon="0",
+            )
+            action_columns = st.columns(2)
+            action_columns[0].button(
+                "Lower minimum coherence",
+                key=f"lower-coherence-{case_id}",
+                on_click=_lower_coherence_filter,
+                help="Lower the current map filter; this does not change the case's declared threshold.",
+            )
+            action_columns[1].button(
+                "Reset filters",
+                key=f"reset-empty-filters-{case_id}",
+                on_click=_reset_map_filters,
+            )
+        elif "latitude" not in view or "longitude" not in view or "zoom" not in view:
             st.markdown(
                 '<div class="cockpit-card is-empty">'
                 '<p class="kicker">Map</p>'
@@ -716,9 +779,9 @@ def render_map_tab(
                 unsafe_allow_html=True,
             )
         else:
-            _render_deck(frame, active, view, context_groups, case_id)
+            _render_deck(frame, active, view, context_groups, case_id, scale, ramp)
         # The ramp belongs to the canvas: directly under it, before the export.
-        st.markdown(_legend_inline(scale, mode), unsafe_allow_html=True)
+        st.markdown(_legend_inline(scale, mode, ramp), unsafe_allow_html=True)
         export_csv = _call(loaders, "get_filtered_export_csv", case_id, active)
         if isinstance(export_csv, str) and export_csv:
             st.download_button(
@@ -776,12 +839,42 @@ def render_map_tab(
         limit_unit = status.get("detection_limit_unit")
     caption = detection_caption(status.get("above_limit"), limit, limit_unit if isinstance(limit_unit, str) else None)
     if caption:
-        st.markdown(f'<div class="null-note">{html.escape(caption)}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="null-note" role="status">{html.escape(caption)}</div>',
+            unsafe_allow_html=True,
+        )
+        if status.get("above_limit") is False:
+            st.caption(
+                "This is the case-level detection result, not an empty filter result. "
+                "Changing coherence does not change the declared detection limit."
+            )
+            st.button(
+                "Lower minimum coherence",
+                key=f"lower-coherence-null-{case_id}",
+                on_click=_lower_coherence_filter,
+                help="Explore more map cells; the case-level detection status remains unchanged.",
+            )
+            st.button(
+                "Reset filters",
+                key=f"reset-null-filters-{case_id}",
+                on_click=_reset_map_filters,
+            )
 
     with st.expander("Case comparison and context", expanded=False):
+        with st.popover(
+            "Map color ramp",
+            help="Choose the original ramp or a blue–neutral–orange alternative designed to avoid red–green coding.",
+        ):
+            st.radio(
+                "Ramp",
+                options=list(MAP_RAMP_LABELS),
+                format_func=lambda key: MAP_RAMP_LABELS[key],
+                key="map_color_ramp",
+                horizontal=False,
+            )
         st.markdown('<p class="kicker">Scale and provenance</p>', unsafe_allow_html=True)
-        counts_text = f"{shown} of {total} cells" if isinstance(shown, int) and isinstance(total, int) else ""
-        st.markdown(_legend_details(scale, counts_text), unsafe_allow_html=True)
+        # The live filtered count is already in the Filters disclosure title.
+        st.markdown(_legend_details(scale), unsafe_allow_html=True)
         # One provenance line per selected case in this tab; the full per-case IDs
         # (all three cities) live in "Provenance and limits".
         source, provenance_id = _provenance(meta)

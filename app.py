@@ -111,6 +111,44 @@ def _blank(value: str | None) -> str | None:
     return value
 
 
+def _filters_from_state(case_id: str, coherence_floor: float | None) -> dict[str, Any]:
+    """Read current controls before drawing them, so the count is for this rerun."""
+    coherence = st.session_state.get("filter_coherence_min", coherence_floor)
+    if not isinstance(coherence_floor, (int, float)) or not 0.0 <= coherence_floor <= 1.0:
+        coherence = None
+    return {
+        "case_id": case_id,
+        "land_use": _blank(st.session_state.get("filter_land_use")),
+        "coherence_min": float(coherence)
+        if isinstance(coherence, (int, float)) and not isinstance(coherence, bool)
+        else None,
+        "risk_level": _blank(st.session_state.get("filter_risk_level")),
+        "extrude_3d": bool(st.session_state.get("filter_extrude_3d", False)),
+    }
+
+
+def _clear_control(key: str, value: Any) -> None:
+    """Button callback: clear one widget before Streamlit instantiates it again."""
+    st.session_state[key] = value
+
+
+def _reset_filter_controls(coherence_floor: float | None) -> None:
+    st.session_state.filter_land_use = ""
+    st.session_state.filter_risk_level = ""
+    st.session_state.filter_extrude_3d = False
+    if isinstance(coherence_floor, (int, float)) and 0.0 <= coherence_floor <= 1.0:
+        st.session_state.filter_coherence_min = float(coherence_floor)
+
+
+def _apply_reliable_preset(coherence_floor: float | None) -> None:
+    floor = float(coherence_floor) if isinstance(coherence_floor, (int, float)) else 0.0
+    st.session_state.filter_coherence_min = max(floor, 0.5)
+
+
+def _apply_critical_preset() -> None:
+    st.session_state.filter_risk_level = "critico"
+
+
 # URL state: keys are short query params; values map to session_state keys.
 # A shared URL must reopen the cockpit on the same case, filters and camera choice.
 _THEME_MODES = ("system", "light", "dark")
@@ -184,12 +222,20 @@ def _case_options(loaders: Any, name: str, case_id: str) -> tuple[str, ...]:
         return tuple(function())
 
 
-def render_header(meta: dict[str, Any] | None) -> None:
+def render_header(
+    meta: dict[str, Any] | None,
+    case_label: str | None = None,
+) -> None:
     line = telemetry_line(meta)
     telemetry = f'<p class="telemetry">{html.escape(line)}</p>' if line else ""
+    case = (
+        f'<span class="case-pill" aria-label="Active case">{html.escape(case_label)}</span>'
+        if case_label
+        else ""
+    )
     st.markdown(
         '<header class="mission-bar">'
-        f'<p class="mission-title">{html.escape(TITLE)}</p>'
+        f'<p class="mission-title">{html.escape(TITLE)}{case}</p>'
         f"{telemetry}"
         "</header>",
         unsafe_allow_html=True,
@@ -207,6 +253,7 @@ def render_filters(
     land_uses: tuple[str, ...] | list[str],
     risk_levels: tuple[str, ...] | list[str],
     coherence_floor: float | None,
+    counts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Draw the filter strip. Values stay in session_state; nothing is filtered."""
     theme_labels = {"system": "System", "light": "Light", "dark": "Dark"}
@@ -216,7 +263,14 @@ def render_filters(
     # expander is the portable way to keep filters from owning the first screen
     # on a phone while staying open on desktop. `?compact=1` ships it closed.
     compact = st.query_params.get("compact") == "1"
-    with st.expander("Filters", expanded=not compact, key="filters"):
+    shown = counts.get("shown") if isinstance(counts, dict) else None
+    total = counts.get("total") if isinstance(counts, dict) else None
+    filter_title = (
+        f"Filters · {shown} of {total} cells"
+        if isinstance(shown, int) and isinstance(total, int)
+        else "Filters"
+    )
+    with st.expander(filter_title, expanded=not compact, key="filters"):
         case_col, land_col, coherence_col, risk_col, extrude_col, theme_col = st.columns(6)
         with case_col:
             st.selectbox(
@@ -224,6 +278,7 @@ def render_filters(
                 options=case_ids,
                 format_func=lambda case_id: labels.get(case_id, case_id),
                 key="filter_case_id",
+                help="Choose which demonstration case to inspect.",
             )
         with land_col:
             st.selectbox(
@@ -231,6 +286,7 @@ def render_filters(
                 options=["", *land_uses],
                 format_func=choice_label,
                 key="filter_land_use",
+                help="Keep only cells in the selected land-use class.",
             )
         with coherence_col:
             if coherence_floor is None:
@@ -249,6 +305,7 @@ def render_filters(
                     min_value=0.0,
                     max_value=1.0,
                     key="filter_coherence_min",
+                    help="Dimensionless quality value from 0 to 1. Higher values keep more coherent cells.",
                 )
         with risk_col:
             st.selectbox(
@@ -256,30 +313,93 @@ def render_filters(
                 options=["", *risk_levels],
                 format_func=choice_label,
                 key="filter_risk_level",
+                help="Keep cells in the selected velocity-derived risk band.",
             )
         with extrude_col:
             if "filter_extrude_3d" not in st.session_state:
                 st.session_state.filter_extrude_3d = False
-            st.toggle("3D extrusion", key="filter_extrude_3d")
+            st.toggle(
+                "3D extrusion",
+                key="filter_extrude_3d",
+                help="Change map presentation only; cell values are unchanged.",
+            )
         with theme_col:
             st.selectbox(
                 "Theme",
                 options=list(theme_labels),
                 format_func=lambda mode: theme_labels.get(mode, mode),
                 key="ui_theme_mode",
+                help="Use the system preference or select a theme explicitly.",
             )
 
-    return {
-        "case_id": st.session_state.get("filter_case_id"),
-        "land_use": _blank(st.session_state.get("filter_land_use")),
-        "coherence_min": (
-            st.session_state.get("filter_coherence_min", coherence_floor)
-            if isinstance(coherence_floor, (int, float)) and 0.0 <= coherence_floor <= 1.0
-            else None
-        ),
-        "risk_level": _blank(st.session_state.get("filter_risk_level")),
-        "extrude_3d": bool(st.session_state.get("filter_extrude_3d", False)),
-    }
+        result = {
+            "case_id": st.session_state.get("filter_case_id"),
+            "land_use": _blank(st.session_state.get("filter_land_use")),
+            "coherence_min": (
+                st.session_state.get("filter_coherence_min", coherence_floor)
+                if isinstance(coherence_floor, (int, float)) and 0.0 <= coherence_floor <= 1.0
+                else None
+            ),
+            "risk_level": _blank(st.session_state.get("filter_risk_level")),
+            "extrude_3d": bool(st.session_state.get("filter_extrude_3d", False)),
+        }
+
+        # Presets are available without adding another always-open toolbar row.
+        active: list[tuple[str, str, Any]] = []
+        if result["land_use"]:
+            land_label = choice_label(str(result["land_use"]))
+            if len(land_label) > 16:
+                land_label = f"{land_label[:13]}…"
+            active.append((f"Land · {land_label}", "filter_land_use", ""))
+        threshold = result.get("coherence_min")
+        if isinstance(threshold, (int, float)) and threshold != coherence_floor:
+            active.append((f"Coherence ≥ {threshold:g}", "filter_coherence_min", coherence_floor))
+        if result["risk_level"]:
+            active.append(
+                (f"Risk · {choice_label(str(result['risk_level']))}", "filter_risk_level", "")
+            )
+        if result["extrude_3d"]:
+            active.append(("3D · on", "filter_extrude_3d", False))
+
+        widths = [1.25, *([1.0] * len(active)), 1.05]
+        with st.container(key="filter-actions"):
+            action_columns = st.columns(widths, vertical_alignment="center")
+            with action_columns[0]:
+                with st.popover("Quick presets", help="Apply a preset to the current case."):
+                    st.caption("Preset values change filters only; they do not change the data.")
+                    st.button(
+                        "Reliable signal · ≥ 0.5",
+                        key="preset-reliable",
+                        on_click=_apply_reliable_preset,
+                        args=(coherence_floor,),
+                        help="Set minimum coherence to at least 0.5.",
+                    )
+                    if "critico" in risk_levels:
+                        st.button(
+                            "High risk only",
+                            key="preset-critical",
+                            on_click=_apply_critical_preset,
+                            help="Show only the contract's Critical risk band.",
+                        )
+            for column, (label, key, default) in zip(action_columns[1:-1], active):
+                with column:
+                    st.button(
+                        f"× {label}",
+                        key=f"remove-filter-{key}",
+                        on_click=_clear_control,
+                        args=(key, default),
+                        help=f"Remove the active {label} filter.",
+                    )
+            with action_columns[-1]:
+                st.button(
+                    "Reset filters",
+                    key="reset-filters",
+                    disabled=not bool(active),
+                    on_click=_reset_filter_controls,
+                    args=(coherence_floor,),
+                )
+
+    return result
 
 
 def _render_map(
@@ -312,7 +432,6 @@ def render_app() -> None:
         case_ids,
         coherence_default(meta if isinstance(meta, dict) else None),
     )
-    render_header(meta if isinstance(meta, dict) else None)
     land_uses = _case_options(loaders, "load_land_use_options", st.session_state.filter_case_id)
     risk_levels = _case_options(loaders, "load_risk_levels", st.session_state.filter_case_id)
     # Drop stale filter values when options shrink (stub no longer lists absent classes).
@@ -320,12 +439,38 @@ def render_app() -> None:
         st.session_state.filter_land_use = ""
     if st.session_state.get("filter_risk_level") not in ("", *risk_levels):
         st.session_state.filter_risk_level = ""
+    coherence_floor = coherence_default(meta if isinstance(meta, dict) else None)
+    applied_floor = st.session_state.get("filter_coherence_floor")
+    if (
+        isinstance(coherence_floor, (int, float))
+        and 0.0 <= coherence_floor <= 1.0
+        and (
+            "filter_coherence_min" not in st.session_state
+            or applied_floor != coherence_floor
+        )
+    ):
+        st.session_state.filter_coherence_min = float(coherence_floor)
+        st.session_state.filter_coherence_floor = float(coherence_floor)
+    current_filters = _filters_from_state(
+        st.session_state.filter_case_id,
+        coherence_floor,
+    )
+    count_loader = getattr(loaders, "get_layer_counts", None)
+    try:
+        counts = count_loader(current_filters["case_id"], current_filters) if count_loader else None
+    except TypeError:
+        counts = None
+    render_header(
+        meta if isinstance(meta, dict) else None,
+        labels.get(st.session_state.filter_case_id),
+    )
     filters = render_filters(
         case_ids,
         labels,
         land_uses,
         risk_levels,
-        coherence_default(meta if isinstance(meta, dict) else None),
+        coherence_floor,
+        counts if isinstance(counts, dict) else None,
     )
 
     map_tab, series_tab, hazard_tab, physics_tab = st.tabs(

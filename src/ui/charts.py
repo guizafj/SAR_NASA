@@ -203,7 +203,6 @@ def _line(series: list[dict[str, Any]] | None) -> None:
         st.caption("Series not declared by the backend.")
         return
     unit = _unit_of(series) or UNIT_NOT_DECLARED
-    provenance = _prov_of(series) or SOURCE_NOT_DECLARED
     st.plotly_chart(line_figure(series), width="stretch", theme=None, config={"displayModeBar": False})
     trend = next(
         (
@@ -220,10 +219,7 @@ def _line(series: list[dict[str, Any]] | None) -> None:
     if scaled:
         factor_text = f" ×{factor:g}" if isinstance(factor, (int, float)) else ""
         scale_text = f" · scaled{factor_text} to the filtered subset"
-    st.caption(
-        f"Cumulative displacement · {unit}{trend_text} · "
-        f"Provenance ID {provenance}{scale_text}"
-    )
+    st.caption(f"Cumulative displacement · {unit}{trend_text}{scale_text}")
 
 
 def _three_cities(loaders: Any) -> None:
@@ -231,7 +227,6 @@ def _three_cities(loaders: Any) -> None:
     cases = _call(loaders, "load_study_cases") or []
     labels = {str(item.get("id")): str(item.get("label") or item.get("id")) for item in cases}
     series_by_case: dict[str, list[dict[str, Any]]] = {}
-    provenance: list[str] = []
     for case in cases:
         case_id = str(case.get("id") or "")
         if not case_id:
@@ -241,7 +236,6 @@ def _three_cities(loaders: Any) -> None:
         rows = [row for row in rows if row.get("date")]
         if rows:
             series_by_case[case_id] = rows
-            provenance.append(str(_prov_of(rows) or SOURCE_NOT_DECLARED))
     if not series_by_case:
         st.caption("No case series declared by the backend.")
         return
@@ -253,7 +247,7 @@ def _three_cities(loaders: Any) -> None:
     )
     st.caption(
         "Three cities, shared axis · Cumulative displacement (mm) · "
-        f"Provenance ID {' · '.join(dict.fromkeys(provenance))}"
+        "case provenance is listed in Provenance and limits."
     )
 
 
@@ -262,16 +256,13 @@ def _bars(rows: list[dict[str, Any]] | None, meta: Mapping[str, Any] | None = No
         st.caption("Land-use bars not declared by the backend.")
         return
     unit = _unit_of(rows) or UNIT_NOT_DECLARED
-    provenance = _prov_of(rows) or SOURCE_NOT_DECLARED
     st.plotly_chart(
         bars_figure(rows, meta),
         width="stretch",
         theme=None,
         config={"displayModeBar": False},
     )
-    st.caption(
-        f"Median velocity by land use · {unit} · Provenance ID {provenance}"
-    )
+    st.caption(f"Velocity by land use · {unit}")
 
 
 def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] | None) -> None:
