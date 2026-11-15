@@ -69,6 +69,13 @@ error: the slider is built from `meta.dates`, so it cannot request one.
 
 ## 2. `meta.json` (route 1)
 
+> **Target layout, not the artefact schema.** The normative `meta.json` is
+> [`data-contract-v1.md`](data-contract-v1.md) §5, whose keys are `bbox`, `case_id`, `crs`, `dates`,
+> `limitations`, `name`, `null_policy`, `product`, `provenance`, `reference_point`, `revisit_days`,
+> `schema_version`, `sensor`, `stats`, `thresholds`. The snippet below is a **route design** for a
+> served API: `layers`, `series`, `cell`, `compaction_m3_yr` and `n_events` exist in **no** shipped
+> artefact. Do not build a file from this page and expect `validate_meta` to accept it.
+
 ```jsonc
 {
   "contract_version": "1.1",
