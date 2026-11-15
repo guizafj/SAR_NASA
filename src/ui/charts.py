@@ -8,14 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.ui.kpi_cards import render_kpi_cards
-
-_LAYOUT = {
-    "height": 280,
-    "margin": {"l": 8, "r": 8, "t": 28, "b": 8},
-    "paper_bgcolor": "#0F172A",
-    "plot_bgcolor": "#0B0F19",
-    "font": {"color": "#94A3B8", "family": "JetBrains Mono, ui-monospace, monospace", "size": 11},
-}
+from src.ui.theme import active_palette, style_figure
 
 
 def _call(loaders: Any, name: str, *args: Any) -> Any:
@@ -36,15 +29,16 @@ def _line(series: list[dict[str, Any]] | None) -> None:
             x=[row.get("date") for row in series],
             y=[row.get("value") for row in series],
             mode="lines+markers",
-            line={"color": "#06B6D4", "width": 2},
+            line={"color": active_palette()["accent"], "width": 2},
         )
     )
-    figure.update_layout(
-        **_LAYOUT,
-        xaxis={"title": "date"},
-        yaxis={"title": f"value ({unit})" if unit else "value (unidad no declarada)"},
+    style_figure(
+        figure,
+        height=280,
+        x_title="date",
+        y_title=f"value ({unit})" if unit else "value (unidad no declarada)",
     )
-    st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     st.caption(f"serie · {unit or 'unidad no declarada'} · {source or 'fuente no declarada'}")
 
 
@@ -58,15 +52,16 @@ def _bars(rows: list[dict[str, Any]] | None) -> None:
         go.Bar(
             x=[row.get("land_use") for row in rows],
             y=[row.get("value") for row in rows],
-            marker={"color": "#06B6D4"},
+            marker={"color": active_palette()["accent"]},
         )
     )
-    figure.update_layout(
-        **_LAYOUT,
-        xaxis={"title": "land_use"},
-        yaxis={"title": f"value ({unit})" if unit else "value (unidad no declarada)"},
+    style_figure(
+        figure,
+        height=280,
+        x_title="land_use",
+        y_title=f"value ({unit})" if unit else "value (unidad no declarada)",
     )
-    st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     st.caption(f"land_use · {unit or 'unidad no declarada'} · {source or 'fuente no declarada'}")
 
 

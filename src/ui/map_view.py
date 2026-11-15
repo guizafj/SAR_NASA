@@ -14,9 +14,10 @@ import streamlit as st
 
 from src.ui.color_scale import FALLBACK_DOMAIN, STOPS
 from src.ui.formatters import format_dates_span
+from src.ui.theme import active_palette, reported_scheme, style_figure
 
 LAYER_ID = "h3-cells"
-MAP_HEIGHT = 400
+MAP_HEIGHT = 560
 ROW_WARN = 50_000
 SELECT_PROMPT = "Selecciona una celda"
 SATURATION_NOTE = "Valores fuera de rango se saturan."
@@ -103,24 +104,25 @@ def _legend(scale: dict[str, Any], mode: str) -> str:
         gradient = ", ".join(f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in STOPS)
     ticks = ""
     if isinstance(vmin, (int, float)) and isinstance(vmax, (int, float)):
-        mid = vmin + (vmax - vmin) / 2
+        mid = round(vmin + (vmax - vmin) / 2, 2)
         ticks = (
             f"<span>{vmin:g} {html.escape(str(unit))}</span>"
-            f"<span>{mid:g}</span>"
+            f"<span>{mid:g} {html.escape(str(unit))}</span>"
             f"<span>{vmax:g} {html.escape(str(unit))}</span>"
         )
     note = SATURATION_NOTE if scale.get("saturated") else ""
     fallback = " Dominio provisional." if scale.get("fallback") else ""
     caption = scale.get("caption")
     caption_html = f"<p>{html.escape(str(caption))}</p>" if caption else ""
+    note_html = f"<p>{html.escape(note)}</p>" if note else ""
     return (
-        '<div class="legend">'
+        '<div class="cockpit-card legend">'
         f'<p class="kicker">{html.escape(str(metric))} · {html.escape(str(unit))}</p>'
         f'<div class="legend-bar" style="background: linear-gradient(90deg, {gradient})"></div>'
         f'<div class="legend-ticks">{ticks}</div>'
         f"<p>{html.escape(mode)} · rango {html.escape(str(vmin))} – {html.escape(str(vmax))} {html.escape(str(unit))}{html.escape(fallback)}</p>"
         f"{caption_html}"
-        f"<p>{html.escape(note)}</p>"
+        f"{note_html}"
         "</div>"
     )
 
@@ -246,20 +248,18 @@ def _render_series(series: list[dict[str, Any]], scope: str = "cell") -> None:
             x=dates,
             y=values,
             mode="lines+markers",
-            line={"color": "#06B6D4", "width": 2},
+            line={"color": active_palette()["accent"], "width": 2},
             marker={"size": 6},
         )
     )
-    figure.update_layout(
+    style_figure(
+        figure,
         height=160,
+        x_title="date",
+        y_title=f"value ({unit})" if unit else "value (unidad no declarada)",
         margin={"l": 8, "r": 8, "t": 8, "b": 8},
-        paper_bgcolor="#0F172A",
-        plot_bgcolor="#0B0F19",
-        font={"color": "#94A3B8", "family": "JetBrains Mono, ui-monospace, monospace", "size": 11},
-        xaxis={"title": "date"},
-        yaxis={"title": f"value ({unit})" if unit else "value (unidad no declarada)"},
     )
-    st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(figure, width="stretch", theme=None, config={"displayModeBar": False})
     source = provenance_id or "fuente no declarada"
     if scope == "aoi":
         st.caption("Serie agregada del AOI (serie por celda no emitida)")
@@ -313,14 +313,17 @@ def _render_comparison(report: dict[str, Any] | None, mode: str) -> None:
         source = item.get("provenance_id") or "fuente no declarada"
         rows.append(
             '<div class="compare-row">'
-            f'<span>{html.escape(str(item.get("id")))}</span>'
+            f'<span class="compare-case">{html.escape(str(item.get("id")))}</span>'
             '<div class="compare-track">'
             f'<div class="compare-fill" style="width:{width}%"></div></div>'
-            f"<span>{html.escape(peak_text)} {html.escape(str(unit))} · {html.escape(str(source))}</span>"
+            f'<span class="compare-meta">{html.escape(peak_text)} {html.escape(str(unit))} · {html.escape(str(source))}</span>'
             "</div>"
         )
     st.markdown(
-        f'<div class="st-key-map-meta">{"".join(rows)}</div>',
+        '<div class="cockpit-card compare-card">'
+        '<p class="kicker">Magnitud relativa entre casos</p>'
+        f'{"".join(rows)}'
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -415,7 +418,7 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                     bearing=0,
                 ),
                 map_provider="carto",
-                map_style="dark",
+                map_style="light" if reported_scheme() == "light" else "dark",
                 tooltip={
                     "text": (
                         "cell_id: {cell_id}\n"
@@ -428,7 +431,7 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
                     )
                 },
             )
-            with st.container(key="map-slot", height=MAP_HEIGHT, border=False):
+            with st.container(key="map-slot", border=False):
                 event = st.pydeck_chart(
                     deck,
                     height=MAP_HEIGHT,
@@ -453,7 +456,10 @@ def render_map_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any] |
             with st.container(key="map-meta"):
                 st.markdown(_legend(scale, mode), unsafe_allow_html=True)
                 st.markdown(
-                    f'<p class="telemetry">{html.escape(_provenance(meta))}</p>',
+                    '<div class="cockpit-card provenance-card">'
+                    '<p class="kicker">Procedencia</p>'
+                    f'<p class="telemetry">{html.escape(_provenance(meta))}</p>'
+                    "</div>",
                     unsafe_allow_html=True,
                 )
     with inspector_col:

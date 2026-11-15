@@ -61,12 +61,11 @@ Fuente de verdad: `src/domain/contracts.py` (`SCHEMA_VERSION` **1.1**, revisión
 
 `docs/desing/DESIGN.md` y `docs/desing/stitch/` no están en el árbol (ausente). Los tokens vigentes están aquí y en `.streamlit/config.toml`.
 
-- Fondo `#0B0F19`. Superficies `#0F172A`, borde 1px `#1E293B`.
-- Acento `#06B6D4`. Coherencia `#10B981`. Alerta `#F59E0B`. Coral `#F43F5E` solo para alertas graves o interferogramas inválidos.
-- Texto `#F8FAFC` y `#94A3B8`. Radio 4px. Sin sombras difusas.
-- Botones con fondo oscuro y borde cian. Nunca relleno sólido a ancho completo.
+- Oscuro, fijado: fondo `#0B0F19`, superficie `#0F172A`, borde 1px `#1E293B`, acento `#06B6D4`, coherencia `#10B981`, alerta `#F59E0B`, coral `#F43F5E` solo para alertas graves o interferogramas inválidos, texto `#F8FAFC` / `#94A3B8`.
+- Claro, papel de instrumento: fondo `#F4F7FB`, superficie `#FFFFFF`, borde `#C5D0DC`, acento `#0E7490`, coherencia `#047857`, alerta `#9A3412`, coral `#BE123C`, texto `#0B1220` / `#526070`. No copies los hex oscuros sobre papel.
+- Radio 4px. Sin sombras difusas. Botones con borde de acento, nunca relleno sólido a ancho completo.
 - Space Grotesk (títulos), Inter (texto), JetBrains Mono (cifras, coordenadas, IDs), con fallback a fuentes del sistema.
-- `.streamlit/config.toml` ya fija tema oscuro, `#06B6D4`, `#0B0F19` y `#F8FAFC`. No lo contradigas.
+- `.streamlit/config.toml` declara `[theme.dark]` y `[theme.light]`. Streamlit 1.67 sigue `prefers-color-scheme`. No vuelvas a fijar un solo tema.
 
 ## Referencia Stitch
 

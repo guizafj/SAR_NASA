@@ -7,6 +7,8 @@ from typing import Any, Mapping
 
 import streamlit as st
 
+from src.ui.formatters import format_json_block
+
 
 def _public_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(meta, dict):
@@ -41,7 +43,7 @@ def _regime_cards(meta: dict[str, Any] | None) -> None:
         column.markdown(
             '<div class="cockpit-card">'
             f'<p class="kicker">{html.escape(label)}</p>'
-            f"<p>{html.escape(_shown(value))}{html.escape(unit_text)}</p>"
+            f'<p class="kpi-value">{html.escape(_shown(value))}{html.escape(unit_text)}</p>'
             "</div>",
             unsafe_allow_html=True,
         )
@@ -79,29 +81,45 @@ def render_physics_tab(loaders: Any, meta: dict[str, Any] | None) -> None:
     _regime_cards(meta)
 
     caveat = limits.get("section_8_caveat") if isinstance(limits, dict) else None
-    st.markdown('<p class="kicker">README §8</p>', unsafe_allow_html=True)
-    if caveat:
-        st.markdown(f"<p>{html.escape(str(caveat))}</p>", unsafe_allow_html=True)
-    else:
-        st.caption("README §8 no aporta una limitación citable.")
-    items = limits.get("section_13") if isinstance(limits, dict) else None
+    caveat_body = (
+        f"<p>{html.escape(str(caveat))}</p>"
+        if caveat
+        else "<p>README §8 no aporta una limitación citable.</p>"
+    )
     st.markdown(
-        '<p class="kicker">Limitaciones README §13</p>',
+        '<div class="cockpit-card">'
+        '<p class="kicker">README §8</p>'
+        f"{caveat_body}"
+        "</div>",
         unsafe_allow_html=True,
     )
-    st.caption("La lista numerada de limitaciones está en el README §13, no en el §8.")
-    if items:
-        for item in items:
-            st.markdown(f"- {html.escape(str(item))}")
-    else:
-        st.caption("README §13 no disponible.")
+    items = limits.get("section_13") if isinstance(limits, dict) else None
+    items_body = (
+        "".join(f"<p>- {html.escape(str(item))}</p>" for item in items)
+        if items
+        else "<p>README §13 no disponible.</p>"
+    )
+    st.markdown(
+        '<div class="cockpit-card">'
+        '<p class="kicker">Limitaciones README §13</p>'
+        '<p class="kpi-note">La lista numerada de limitaciones está en el README §13, no en el §8.</p>'
+        f"{items_body}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     shown = _public_meta(meta)
-    st.markdown('<p class="kicker">meta.json</p>', unsafe_allow_html=True)
     if not shown:
-        st.caption("El loader no devolvió meta.json.")
+        meta_note = "El loader no devolvió meta.json."
     elif shown.get("product") == "mock":
-        st.caption("meta.json en disco. product es mock: DATOS DE DEMOSTRACIÓN, no una observación.")
+        meta_note = "meta.json en disco. product es mock: DATOS DE DEMOSTRACIÓN, no una observación."
     else:
-        st.caption("Contenido devuelto por el loader.")
-    st.json(shown)
+        meta_note = "Contenido devuelto por el loader."
+    st.markdown(
+        '<div class="cockpit-card">'
+        '<p class="kicker">meta.json</p>'
+        f"<p>{html.escape(meta_note)}</p>"
+        f'{format_json_block(shown, "Contenido de meta.json")}'
+        "</div>",
+        unsafe_allow_html=True,
+    )

@@ -135,8 +135,11 @@ def render_filters(
     coherence_floor: float | None,
 ) -> dict[str, Any]:
     """Draw the filter strip. Values stay in session_state; nothing is filtered."""
+    theme_labels = {"system": "Sistema", "light": "Claro", "dark": "Oscuro"}
+    if st.session_state.get("ui_theme_mode") not in theme_labels:
+        st.session_state.ui_theme_mode = "system"
     with st.container(border=True, key="filter-strip"):
-        case_col, land_col, coherence_col, risk_col, extrude_col = st.columns(5)
+        case_col, land_col, coherence_col, risk_col, extrude_col, theme_col = st.columns(6)
         with case_col:
             st.selectbox(
                 "Caso",
@@ -180,6 +183,13 @@ def render_filters(
             if "filter_extrude_3d" not in st.session_state:
                 st.session_state.filter_extrude_3d = False
             st.toggle("Extrusión 3D", key="filter_extrude_3d")
+        with theme_col:
+            st.selectbox(
+                "Tema",
+                options=list(theme_labels),
+                format_func=lambda mode: theme_labels.get(mode, mode),
+                key="ui_theme_mode",
+            )
 
     return {
         "case_id": st.session_state.get("filter_case_id"),
