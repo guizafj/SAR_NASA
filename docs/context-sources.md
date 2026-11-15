@@ -263,6 +263,12 @@ no relicencia los datos (decisión D-26 en `docs/decisions.md`, `README.md` §17
   resto. Consecuencia práctica: el *proveedor* viaja en el `source` de cada feature
   (`osm_context.SOURCE`), y el *registro de recuperación* en el manifest y en el `record` del pin
   (§7). Un polígono publicado sigue siendo atribuible aunque los tiles se hayan borrado.
+  **El token `mock` del id nombra el producto SAR publicado, no la geometría de contexto.** Un polígono de OSM lleva
+  el `provenance_id` del caso (`<caso>+mock+<fecha>+<sha>`) y un `source` que dice OpenStreetMap, y las dos cosas
+  responden a preguntas distintas: el id identifica *qué producto se publicó* — su desplazamiento es sintético — y el
+  `source` identifica *de quién es el polígono*. `meta.provenance.license` lo dice en una sola frase para quien no lea
+  este documento. No es una licencia mixta ni una atribución prestada: es un id de caso que no puede separarse por
+  contrato, y por eso la procedencia real del polígono viaja campo a campo.
 - **Sin extracto, el orden es pin → extracto → fallback declarado.** `load_context` consulta
   `config/context/<case>.json` antes que el extracto, para que un clon reproduzca el artefacto byte a
   byte sin haber descargado nada (§7); si no hay pin, lee el extracto; y si tampoco hay extracto, cae
