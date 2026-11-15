@@ -15,6 +15,12 @@ Hard rules
    share this module (§3.2 modularity rules). `pandas` is used only if the caller passes a frame.
 2. Field names, dtypes, enums, units and thresholds live *only* here. Never re-declare them in a
    component.
+   Not yet true, and the exceptions are named rather than hidden: the risk-band labels in
+   `map_adapter.build_legend_spec` (`'< 5' / '5–25' / '≥ 25'`), the `>= 25 mm/year` note in
+   `ui_bridge.get_series_kpis`, and the regime cuts `R>2 / 1≤R≤2 / R<1` in
+   `educational.render_physics_tab` are still typed in their components instead of derived from
+   `RISK_THRESHOLDS_MM_YR` and `transforms.REGIME_*_RATIO`. Deriving them is pending; until then
+   this rule is a direction, not a fact, and a change to a threshold here does not move those three.
 3. Any change needs `SCHEMA_VERSION` bumped, a line in `CHANGELOG` and review by all three roles
    (§5.4, §8). Additive optional fields still bump the revision.
 4. Thresholds are per `(sensor, product)` and never pooled. NISAR's 12-day revisit is not

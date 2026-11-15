@@ -5,8 +5,9 @@ Responsibilities (flujo §3.1, §4):
   JSON-serialisable records with pre-computed RGBA colours, 3D column heights (`elevation_m`),
   H3 polygon boundaries (`[lon, lat]`), formatted tooltip strings and camera `MapViewState`.
 - Implement the **shared vs independent scale toggle** (README §1):
-  - `scale_mode="shared"` pins all cities to `[-450, +50] mm/year` with a neutral grey band
-    across `[-5, +5] mm/year`, making Málaga's stability visibly flat next to Mexico City.
+  - `scale_mode="shared"` pins all cities to a symmetric `[-425, +425] mm/year`
+    (`GLOBAL_VELOCITY_RANGE_MM_YR`) with a neutral grey band across `[-5, +5] mm/year`, making
+    Málaga's stability visibly flat next to Mexico City.
   - `scale_mode="independent"` scales to each city's own distribution while keeping values
     within `±detection_limit_mm_yr` inside the neutral detection-floor band.
 - Never import `streamlit` or `pydeck` so every colour, height and layer spec is unit-tested
