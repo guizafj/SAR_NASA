@@ -64,8 +64,8 @@ La antigua cascada de anillos concéntricos sobrevive sólo dentro del fallback 
   extrapola: una celda cuyo centroide no cae en ningún polígono mapeado se publica `unknown`, y ese
   recuento y su proporción viajan en `meta.limitations`. `urban-dense` no es un umbral de densidad
   sino el tejido de servicio, comercial e institucional según la semántica del tag de OSM: se midió
-  un corte por fracción construida y se descartó porque la distribución es un continuo
-  (`docs/context-sources.md` §4). Los polígonos `land_use` del artefacto son la unión de las mismas
+  un corte por fracción construida y se descartó porque la distribución es un continuo. Los
+  polígonos `land_use` del artefacto son la unión de las mismas
   celdas que publica el grid (`pipeline/mock/artifacts.py::build_context`), así que la capa y la
   columna no pueden discrepar; los polígonos crudos de OSM no se publican porque no caben en el
   presupuesto de tamaño del artefacto (los tamaños medidos están en el docstring de esa función).
@@ -77,11 +77,11 @@ La antigua cascada de anillos concéntricos sobrevive sólo dentro del fallback 
   `config/aoi/<case>.geojson`, no la elipse de cobertura. La elipse sigue decidiendo qué celdas
   existen; ya no se publica como extensión del análisis.
 - **geografía sintética (fallback)**: sin extracto, la geografía vuelve a ser la inventada (lago
-  elíptico, costa en zigzag, río y corredor industrial, definidos en `pipeline/context.py`;
+  elíptico, costa en zigzag, río y corredor industrial, definidos por la capa de contexto;
   `pipeline/mock/geography.py` sólo reexporta esa API). Mientras esta rama está activa, *todas* las
   features de contexto dicen `mock (synthetic …)` en su `source` y `meta.limitations` declara que la
-  geografía es inventada. Las dos ramas son mutuamente excluyentes — un único booleano en
-  `pipeline/context.py` elige una, y `meta.limitations` publica una sola de las dos frases — y la
+  geografía es inventada. Las dos ramas son mutuamente excluyentes — un único booleano en la capa de
+  contexto elige una, y `meta.limitations` publica una sola de las dos frases — y la
   compuerta de artefactos reconstruye el caso desde `meta.provenance.mock_seed`, así que una
   geografía y un `meta.json` de ramas distintas no pasan juntos. Su único motivo de existir es que un
   clon sin `data/raw/` pueda regenerar.
