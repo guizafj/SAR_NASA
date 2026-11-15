@@ -123,7 +123,7 @@ _CSS = f"""
   --card-pad-y: 0.85rem;
   --card-pad-x: 1.05rem;
   --gap: 0.75rem;
-  --map-height: clamp(360px, calc(100vh - 540px), 640px);
+  --map-height: clamp(420px, calc(100vh - 500px), 640px);
   --font-display: {FONT_DISPLAY};
   --font-body: {FONT_BODY};
   --font-mono: {FONT_MONO};
@@ -188,11 +188,11 @@ body,
 .mission-bar {{
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.85rem 1.1rem;
+  padding: 0.55rem 1.1rem;
   margin: 0;
   box-sizing: border-box;
 }}
@@ -233,7 +233,7 @@ body,
 
 .demo-banner {{
   margin: 0;
-  padding: 0.55rem 1.1rem;
+  padding: 0.4rem 1.1rem;
   border: 1px solid var(--alert);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--alert) 12%, var(--surface));
@@ -539,6 +539,89 @@ body,
 
 .legend {{
   gap: 0.5rem;
+}}
+
+/* Compact strip under the map (plan Fase 1): ramp + ticks + mode + provenance. */
+.legend-strip {{
+  gap: 0.45rem;
+  padding: 0.6rem var(--card-pad-x);
+}}
+
+.legend-head {{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}}
+
+.legend-mode {{
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--muted) !important;
+}}
+
+.legend-strip .legend-bar {{
+  height: 8px;
+}}
+
+.legend-meta {{
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  color: var(--muted) !important;
+  line-height: 1.45;
+}}
+
+/* Reading panel (right column). */
+.reading-head .reading-title {{
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text) !important;
+  word-break: break-all;
+}}
+
+.reading-stats {{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  padding: 0.6rem var(--card-pad-x);
+}}
+
+.reading-stat {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}}
+
+.reading-stat .stat-value {{
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text) !important;
+  white-space: nowrap;
+}}
+
+.reading-stat .stat-unit {{
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted) !important;
+}}
+
+.reading-stat .stat-label {{
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--muted) !important;
+  text-transform: none;
 }}
 
 .legend-bar {{
@@ -921,6 +1004,19 @@ button[data-baseweb="tab"]:focus-visible {{
   flex: 1 1 10.5rem !important;
 }}
 
+/* Plan Fase 1: the map row is 2:1, not the flat equal split of the global rule. */
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child {{
+  flex: 2 1 0 !important;
+  min-width: 0 !important;
+}}
+
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+.st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+}}
+
 .st-key-map-slot {{
   position: relative;
   z-index: 0;
@@ -1087,6 +1183,16 @@ button[data-baseweb="tab"]:focus-visible {{
   }}
   [data-testid="stHorizontalBlock"]:has(.st-key-map-slot) > [data-testid="stColumn"],
   [data-testid="stHorizontalBlock"]:has(.st-key-map-slot) > [data-testid="column"] {{
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    width: 100% !important;
+  }}
+  /* The 2:1 map row must stack too. The 2:1 rule wins on specificity because of
+     :first-child, so the stacking override needs the same pseudo-classes. */
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:first-child,
+  .st-key-map-grid [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {{
     flex: 1 1 100% !important;
     min-width: 100% !important;
     width: 100% !important;
