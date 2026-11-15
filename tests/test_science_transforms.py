@@ -381,6 +381,50 @@ def test_coverage_thresholds_are_exact_and_documented() -> None:
     assert short_linear.seasonal_amp_mm == 0.0
 
 
+@pytest.mark.parametrize(
+    ("n_epochs", "span_years", "expected"),
+    [
+        # 4 epochs are enough for one harmonic (2 + 2*1), so the span gate is the one that binds.
+        (4, 0.749, 0),
+        (4, 0.750, 1),
+        # 1.50 yr with 6 epochs carries two harmonics; at 1.49 yr only one is publishable.
+        (6, 1.490, 1),
+        (6, 1.500, 2),
+        # ... and 1.50 yr with 5 epochs is one harmonic: the epoch floor 2 + 2*2 = 6 binds first.
+        (5, 1.500, 1),
+        # 3 epochs are below even the one-harmonic floor of 4, however long the span claims to be.
+        (3, 0.750, 0),
+        (12, 2.000, 2),
+    ],
+)
+def test_harmonic_order_is_exact_at_both_gates(
+    n_epochs: int, span_years: float, expected: int
+) -> None:
+    """The order ladder is ``span >= 0.75·k yr AND n_epochs >= 2 + 2k``, with no slack either way.
+
+    ``harmonic_order`` decides whether the published ``seasonal_amp_mm`` is a *fit* or a typed
+    ``0.0``, and ``contracts`` 1.1 makes that column required, so a boundary that drifts by one
+    day or one epoch silently converts a not-fitted stack into a claimed amplitude (or withholds
+    one the span supports). Both gates are therefore pinned *at* the threshold: the cases below
+    bracket 0.75 yr and 1.50 yr by 1 day-ish, and each span is paired with an epoch count that
+    makes one of the two gates the binding one.
+    """
+    # The ladder is written in units of the coverage constant, not in magic years, so restate the
+    # constant here: if MIN_SEASONAL_COVERAGE_PER_HARMONIC moves, these pins must move with it
+    # instead of quietly testing a ladder the module no longer has.
+    assert T.MIN_SEASONAL_COVERAGE_PER_HARMONIC == 0.75
+    assert T.harmonic_order(4, T.MIN_SEASONAL_COVERAGE_PER_HARMONIC) == 1
+    assert T.harmonic_order(6, 2.0 * T.MIN_SEASONAL_COVERAGE_PER_HARMONIC) == 2
+
+    got = T.harmonic_order(n_epochs, span_years)
+    assert got == expected, (
+        f"harmonic_order(n_epochs={n_epochs}, span_years={span_years:g}) = {got}, expected "
+        f"{expected}: 2 harmonics need span >= "
+        f"{2 * T.MIN_SEASONAL_COVERAGE_PER_HARMONIC:g} yr AND n_epochs >= 6, 1 harmonic needs "
+        f"span >= {T.MIN_SEASONAL_COVERAGE_PER_HARMONIC:g} yr AND n_epochs >= 4, otherwise 0."
+    )
+
+
 def test_guard_also_catches_dates_clustered_inside_a_long_span() -> None:
     """Coverage alone is not enough: a 2-year span sampled in five weeks is still degenerate."""
     t = np.concatenate([np.linspace(0.0, 0.08, 11), [2.0]])

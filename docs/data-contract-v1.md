@@ -395,7 +395,12 @@ mensaje científico).
 
 **Trazabilidad.** `provenance_id = {case_id}+{product}+{YYYYMMDD}+{sha256_8}`, construido con
 `provenance_id()`; el mismo identificador aparece en el grid, en la serie, en el contexto y en
-`meta.provenance`. El pipeline lo deriva del hash del artefacto de entrada, no de un contador.
+`meta.provenance`. **Qué entra en el hash depende del productor**, y conviene no confundirlo: la ruta
+real hashea los tallos ordenados de los gránulos de entrada (más el token de convención cuando no es
+el de defecto) y usa la fecha de adquisición más reciente; el mock hashea
+`case_id|product|seed` con una fecha de procesamiento fija. Por tanto el id del mock identifica
+caso, producto y semilla — **no** los bytes producidos ni la ventana de fechas: dos ventanas
+distintas con la misma semilla comparten id.
 
 **Unidades.** Siempre declaradas en el propio fichero. Prohibido deducirlas del nombre de columna.
 
