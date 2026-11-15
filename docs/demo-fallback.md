@@ -5,12 +5,12 @@ Use only if the Streamlit app is not runnable at recording time: everything belo
 ## 1. Three assets that already exist
 
 - `docs/figures/velocity_shared_scale.png` — regenerate with `./scripts/python.sh scripts/make_figures.py`; three panels on one symmetric ±425 mm/yr legend, Málaga almost blank beside Mexico City (README §1).
-- `docs/figures/timeseries_three_cities.png` — same command; the 12 acquisitions (2026-07-02 → 2026-11-11, AOI aggregate) with Málaga's ±1.5 mm/yr detection floor (±0.54 mm) as the green band.
+- `docs/figures/timeseries_three_cities.png` — same command; the 62 acquisitions (2024-11-10 → 2026-11-12, AOI aggregate) with Málaga's ±1.5 mm/yr detection floor (±3.0 mm over this 2-year window) as the green band.
 - `scripts/demo_numbers.py` — `./scripts/python.sh scripts/demo_numbers.py`; the card with every spoken number, `provenance_id`, limitations, DO NOT CLAIM and the 90-second skeleton.
 
 ## 2. Interactive alternative: the GeoJSON, no app
 
-One Point per H3 cell, EPSG:4326, properties `velocity_mm_yr`, `coherence`, `land_use`, `risk_level`:
+One H3 cell polygon per row, EPSG:4326, properties `velocity_mm_yr`, `coherence`, `land_use`, `risk_level`:
 
 ```
 ./scripts/python.sh scripts/export_grid_geojson.py --out data/staging/demo
