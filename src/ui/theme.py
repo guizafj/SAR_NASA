@@ -361,6 +361,27 @@ body,
   color: var(--accent) !important;
 }}
 
+/* Mobile telemetry: the full line is hidden on small screens (media query below),
+   so a compact chip carries the same artefact-sourced values one tap away. */
+.telemetry-disclosure {{
+  display: none;
+}}
+
+.telemetry-chip {{
+  cursor: pointer;
+  list-style: none;
+}}
+.telemetry-chip::-webkit-details-marker {{
+  display: none;
+}}
+.telemetry-chip:focus-visible {{
+  outline: 2px solid var(--focus) !important;
+  outline-offset: 2px !important;
+}}
+.telemetry-disclosure .telemetry-detail {{
+  margin-top: var(--space-1);
+}}
+
 /* Streamlit's element container carries margin-bottom: -1rem; with that native
    pull the banner started 4 px inside the header box. Neutralise it for the two
    chrome blocks and keep a clean 7 px separation. */
@@ -1279,26 +1300,31 @@ ul[data-baseweb="menu"] li {{
   opacity: 1 !important;
 }}
 
-/* Segmented scale control: outlined segments, never a full-width solid fill. */
-[data-testid="stSegmentedControl"] button,
-[data-testid="stSegmentedControl"] [role="radio"],
-[data-testid="stSegmentedControl"] label {{
+/* Segmented scale control: outlined segments, never a full-width solid fill.
+   Streamlit 1.67 renders each segment as <button role="radio" data-variant="segmented_control">.
+   The unselected native background is the light theme's #F1F5F9 even when our CSS tokens follow
+   ?theme=dark, so it must be overridden explicitly to keep the label at >= 4.5:1 in both themes. */
+[data-variant="segmented_control"] {{
   min-height: 24px !important;
   min-width: 24px !important;
-  color: var(--text) !important;
   background: var(--bg) !important;
   border: var(--border-width) solid var(--border-strong) !important;
   border-radius: var(--radius-sm) !important;
   font-family: var(--font-body) !important;
   font-size: var(--type-sm) !important;
 }}
-[data-testid="stSegmentedControl"] [aria-checked="true"],
-[data-testid="stSegmentedControl"] [data-selected] {{
+[data-variant="segmented_control"] p,
+[data-variant="segmented_control"] [data-testid="stMarkdownContainer"] {{
+  color: var(--text) !important;
+}}
+[data-variant="segmented_control"][aria-checked="true"] {{
   border-color: var(--accent) !important;
+}}
+[data-variant="segmented_control"][aria-checked="true"] p,
+[data-variant="segmented_control"][aria-checked="true"] [data-testid="stMarkdownContainer"] {{
   color: var(--accent) !important;
 }}
-[data-testid="stSegmentedControl"] button:focus-visible,
-[data-testid="stSegmentedControl"] [role="radio"]:focus-visible {{
+[data-variant="segmented_control"]:focus-visible {{
   outline: 2px solid var(--focus) !important;
   outline-offset: 2px !important;
 }}
@@ -1821,8 +1847,12 @@ button[aria-label^="Help for"],
     font-size: var(--type-xs);
     line-height: var(--leading-normal);
   }}
-  .mission-bar .telemetry {{
+  .mission-bar .telemetry:not(.telemetry-detail) {{
     display: none;
+  }}
+  .telemetry-disclosure {{
+    display: block;
+    margin-top: var(--space-1);
   }}
   [data-testid="stTabs"] [role="tab"] {{
     min-height: 2.25rem !important;

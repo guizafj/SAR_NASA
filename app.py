@@ -328,6 +328,16 @@ def render_header(
 ) -> None:
     line = telemetry_line(meta)
     telemetry = f'<p class="telemetry">{html.escape(line)}</p>' if line else ""
+    # On a phone the full telemetry line is hidden by theme.py. A compact chip keeps the
+    # same artefact-sourced values one tap away instead of dropping them from the view.
+    telemetry_details = ""
+    if line:
+        telemetry_details = (
+            '<details class="telemetry-disclosure">'
+            '<summary class="mission-chip telemetry-chip">Telemetry</summary>'
+            f'<p class="telemetry telemetry-detail">{html.escape(line)}</p>'
+            "</details>"
+        )
     case = (
         f'<span class="case-pill" aria-label="Active case">{html.escape(case_label)}</span>'
         if case_label
@@ -342,6 +352,7 @@ def render_header(
         f"{facts}"
         "</div>"
         f"{telemetry}"
+        f"{telemetry_details}"
         "</header>",
         unsafe_allow_html=True,
     )

@@ -15,6 +15,7 @@ import streamlit as st
 
 from src.ui.formatters import (
     CONTEXT_LAYER_GLOSSARY,
+    NOT_DECLARED,
     choice_label,
     humanize,
     risk_label,
@@ -117,6 +118,41 @@ def _stat_card(column: Any, label: str, value: str, note: str | None = None) -> 
         f'<p class="kpi-value">{html.escape(value)}</p>'
         f"{note_html}</div>",
         unsafe_allow_html=True,
+    )
+
+
+def _render_distance_summary(loaders: Any, case_id: Any, filters: dict[str, Any]) -> None:
+    """Delivered nearest-cell distances as descriptive values; no near/far class exists.
+
+    The domain computes the summary from `distance_m`. Neither the artefact, the contract
+    nor the config declares a "far" threshold, so this view never labels a distance. The
+    existing envelope caveat above already explains why a representative point can be far.
+    """
+    function = getattr(loaders, "get_distance_summary", None)
+    if function is None:
+        return
+    try:
+        summary = function(case_id, filters)
+    except TypeError:
+        return
+    if not isinstance(summary, dict) or not summary.get("n_features"):
+        return
+    unit = str(summary.get("unit") or "m")
+
+    def value(key: str) -> str:
+        number = summary.get(key)
+        if isinstance(number, (int, float)) and not isinstance(number, bool):
+            return f"{number:g} {unit}"
+        return NOT_DECLARED
+
+    cards = st.columns(3)
+    _stat_card(cards[0], "Minimum distance", value("min_m"), "nearest filtered cell")
+    _stat_card(cards[1], "Median distance", value("median_m"), "nearest filtered cell")
+    _stat_card(cards[2], "Maximum distance", value("max_m"), "nearest filtered cell")
+    st.caption(
+        "Delivered nearest-cell distances, descriptive only. No distance band is declared in "
+        "the artefact or the contract, so these values are not classified. Source: the case "
+        "artefact credited with the context table below."
     )
 
 
@@ -328,6 +364,8 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
     )
     if exposure_note:
         st.markdown(exposure_note, unsafe_allow_html=True)
+    if has_exposure:
+        _render_distance_summary(loaders, case_id, filters)
     st.caption(context_caption(shown))
     st.markdown(
         f"<p>{len(shown)} features shown of {len(frame)}</p>",

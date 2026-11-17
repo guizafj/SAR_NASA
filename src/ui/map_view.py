@@ -942,6 +942,19 @@ def render_map_tab(
                 "Shared scale: one colour domain is used for every published case. "
                 "Bars in the comparison card are comparable only in this mode."
             )
+        if active.get("extrude_3d"):
+            # Column height comes from the map adapter's presentation constants; it is a camera
+            # choice, never a geophysical measurement. The values are unchanged.
+            presentation = _call(loaders, "get_extrusion_presentation")
+            if isinstance(presentation, dict):
+                baseline = presentation.get("baseline_m")
+                amplitude = presentation.get("amplitude_m")
+                unit = str(presentation.get("unit") or "m")
+                if isinstance(baseline, (int, float)) and isinstance(amplitude, (int, float)):
+                    st.caption(
+                        f"3D column height is presentation only: baseline {baseline:g} {unit} "
+                        f"plus amplitude {amplitude:g} {unit}. Cell values and units are unchanged."
+                    )
         export_csv = _call(loaders, "get_filtered_export_csv", case_id, active)
         if isinstance(export_csv, str) and export_csv:
             st.download_button(

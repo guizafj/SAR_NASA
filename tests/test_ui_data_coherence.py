@@ -8,6 +8,7 @@ uses the frozen artefacts through the loaders; nothing writes into `data/process
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -257,7 +258,75 @@ def test_shared_scale_caption_appears_only_in_shared_mode() -> None:
     assert any("Shared scale" in text for text in captions)
 
 
+def test_segmented_control_css_targets_the_real_streamlit_dom() -> None:
+    theme = (ROOT / "src" / "ui" / "theme.py").read_text(encoding="utf-8")
+    assert '[data-variant="segmented_control"]' in theme
+    assert '[data-testid="stSegmentedControl"]' not in theme
+    assert "background: var(--bg) !important;" in theme
+
+
 def test_client_toolbar_is_minimal_in_streamlit_config() -> None:
     config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
     assert "[client]" in config
     assert 'toolbarMode = "minimal"' in config
+
+
+# ---------------------------------------------------------------- G: distances, no far class
+def test_hazard_tab_reports_distances_without_a_far_classification() -> None:
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.session_state["filter_case_id"] = CASE
+    at.run()
+    assert not at.exception
+    text = "\n".join(str(node.value) for node in at.markdown)
+    captions = "\n".join(str(node.value) for node in at.caption)
+    for label in ("Minimum distance", "Median distance", "Maximum distance"):
+        assert label in text
+    assert "not classified" in captions
+    summary = loaders.get_distance_summary(CASE, {})
+    assert f"{summary['median_m']:g} m" in text
+    # The distance caption must explicitly refuse a classification; no band label is emitted.
+    distance_caption = [line for line in captions.splitlines() if "not classified" in line]
+    assert distance_caption
+    assert not re.search(r"\b(far|near)\b", " ".join(distance_caption), re.IGNORECASE)
+
+
+def test_distance_summary_hook_has_no_threshold_key() -> None:
+    summary = loaders.get_distance_summary(CASE, {})
+    assert not any("threshold" in key.lower() or "far" in key.lower() for key in summary)
+
+
+# ---------------------------------------------------------------- H: mobile telemetry
+def test_header_has_a_compact_telemetry_chip_with_details() -> None:
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    assert not at.exception
+    text = "\n".join(str(node.value) for node in at.markdown)
+    assert 'class="telemetry-disclosure"' in text
+    assert 'class="mission-chip telemetry-chip">Telemetry<' in text
+    assert "telemetry-detail" in text
+    theme = (ROOT / "src" / "ui" / "theme.py").read_text(encoding="utf-8")
+    assert ".mission-bar .telemetry:not(.telemetry-detail)" in theme
+
+
+# ---------------------------------------------------------------- I: 3D presentation
+def test_extrusion_caption_uses_adapter_constants() -> None:
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.session_state["filter_case_id"] = CASE
+    at.session_state["filter_extrude_3d"] = True
+    at.run()
+    assert not at.exception
+    captions = "\n".join(str(node.value) for node in at.caption)
+    presentation = loaders.get_extrusion_presentation()
+    assert "3D column height is presentation only" in captions
+    assert f"baseline {presentation['baseline_m']:g} {presentation['unit']}" in captions
+
+
+# ---------------------------------------------------------------- J: README §3
+def test_readme_section_three_documents_the_new_controls() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    section = readme.split("## 3. Using the app", 1)[1].split("## 4.", 1)[0]
+    lowered = section.lower()
+    assert "segmented" in lowered
+    assert "not fitted" in lowered
+    assert "near/far" in lowered
+    assert "compact chip" in lowered
