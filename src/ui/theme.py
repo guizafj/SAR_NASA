@@ -94,10 +94,11 @@ DESIGN_TOKENS = {
 }
 
 #: Categorical identity slots for the three cities, fixed order, validated with
-#: `dataviz/scripts/validate_palette.py` on both cockpit surfaces (light: one WARN
-#: at 2.82:1 for Málaga, hence the mandatory direct label). Never cycled.
+#: `dataviz/scripts/validate_palette.py` on both cockpit surfaces. Every slot clears
+#: 3:1 against both `surface` (`paper_bgcolor`) and `bg` (`plot_bgcolor`), and every
+#: line still carries a direct end label so color is never the sole channel.
 CASE_COLORS = {
-    "light": {"mexico-city": "#2a78d6", "jakarta": "#eb6834", "malaga": "#1baf7a"},
+    "light": {"mexico-city": "#2a78d6", "jakarta": "#e26432", "malaga": "#189a6b"},
     "dark": {"mexico-city": "#3987e5", "jakarta": "#d95926", "malaga": "#199e70"},
 }
 
@@ -220,10 +221,11 @@ def style_figure(
             "font": {"color": palette["text"], "family": _CHART_FONT, "size": 11},
         },
     )
+    axis_border = palette.get("border-strong", palette["border"])
     axis = {
         "gridcolor": palette["border"],
-        "zerolinecolor": palette["border"],
-        "linecolor": palette["border"],
+        "zerolinecolor": axis_border,
+        "linecolor": axis_border,
         "tickfont": {"color": palette["text"], "family": _CHART_FONT, "size": 11},
         "title_font": {"color": palette["muted"], "family": _CHART_FONT, "size": 11},
         "automargin": True,
@@ -1144,8 +1146,21 @@ ul[data-baseweb="menu"] li {{
 
 /* Radio, Toggle, Slider, Captions, Markdown */
 /* Toggle: Streamlit 1.67 renders it as stCheckbox with role="switch". The off
-   track, the on track and the thumb each clear 3:1 against the surface. */
+   track, the on track and the thumb each clear 3:1 against the surface, and the
+   clickable label + track clear the 24x24 CSS px target floor (WCAG 2.2 2.5.8). */
+[data-testid="stCheckbox"] label {{
+  min-height: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}}
+
 [data-testid="stCheckbox"] label:has(input[role="switch"]) > div:nth-of-type(1) {{
+  min-width: 36px !important;
+  min-height: 24px !important;
+  height: 24px !important;
+  border-radius: 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
   background-color: var(--border-strong) !important;
   border: var(--border-width) solid var(--border-strong) !important;
   opacity: 1 !important;
@@ -1157,6 +1172,8 @@ ul[data-baseweb="menu"] li {{
 }}
 
 [data-testid="stCheckbox"] label:has(input[role="switch"]) > div:first-of-type > div {{
+  width: 18px !important;
+  height: 18px !important;
   background-color: var(--text) !important;
   border: var(--border-width) solid var(--border-strong) !important;
 }}
@@ -1166,16 +1183,21 @@ ul[data-baseweb="menu"] li {{
   border-color: var(--on-accent) !important;
 }}
 
-/* Slider (React Aria in 1.67): rail, thumb and value bubble all tokenized. */
+/* Slider (React Aria in 1.67): rail, thumb and value bubble all tokenized.
+   The thumb is 20 px + 2 px border = 24x24 CSS px (WCAG 2.2 2.5.8). */
 [data-testid="stSlider"] [role="group"] > div > div:first-child {{
   background-color: var(--border-strong) !important;
   border-radius: var(--radius-sm);
 }}
 
 [data-testid="stSlider"] [role="group"] div[style*="translate"] {{
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
   background-color: var(--on-accent) !important;
   border: 2px solid var(--accent) !important;
-  box-sizing: content-box;
+  box-sizing: border-box !important;
 }}
 
 [data-testid="stSliderThumbValue"] {{
@@ -1207,14 +1229,20 @@ ul[data-baseweb="menu"] li {{
   opacity: 1 !important;
 }}
 
-/* Compact expander header so the filter strip does not push the map down. */
+/* Compact expander header so the filter strip does not push the map down.
+   Closed details must also hide their body from hit-testing under 1.4.12 spacing. */
 [data-testid="stExpander"] details {{
   border: var(--border-width) solid var(--border-strong) !important;
   background: var(--surface) !important;
   border-radius: var(--radius) !important;
 }}
 
+[data-testid="stExpander"] details:not([open]) > :not(summary) {{
+  display: none !important;
+}}
+
 [data-testid="stExpander"] summary {{
+  min-height: 24px !important;
   background: var(--surface) !important;
   padding: var(--space-2) var(--space-3) !important;
   font-family: var(--font-body) !important;
@@ -1230,6 +1258,14 @@ ul[data-baseweb="menu"] li {{
   font-family: var(--font-body) !important;
   font-size: var(--type-sm) !important;
   font-weight: var(--weight-medium) !important;
+  margin-bottom: 0 !important;
+}}
+
+[data-testid="stRadioOption"] {{
+  min-height: 24px !important;
+  min-width: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
 }}
 
 [data-testid="stRadio"] label,
@@ -1301,13 +1337,22 @@ ul[data-baseweb="menu"] li {{
 .deck-tooltip {{
   background: var(--surface) !important;
   color: var(--text) !important;
-  border: 1px solid var(--border) !important;
+  border: var(--border-width) solid var(--border-strong) !important;
   border-radius: var(--radius) !important;
   font-family: var(--font-mono) !important;
   font-size: var(--type-xs) !important;
   line-height: var(--leading-normal) !important;
   padding: var(--space-1) var(--space-3) !important;
   box-shadow: none !important;
+  pointer-events: auto !important;
+}}
+
+.deck-tooltip:hover {{
+  display: block !important;
+}}
+
+.deck-tooltip[data-dismissed="true"] {{
+  display: none !important;
 }}
 
 /* Tabs: force resting text color on inner <p>/<span> so it never hides until hover */
@@ -1500,9 +1545,24 @@ ul[data-baseweb="menu"] li {{
   line-height: var(--leading-tight) !important;
 }}
 
+button[aria-label^="Help for"],
 .st-key-filters button[aria-label^="Help for"] {{
+  min-width: 24px !important;
+  min-height: 24px !important;
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   color: var(--muted) !important;
   background: transparent !important;
+}}
+
+[data-testid="stMultiSelect"] button,
+[data-testid="stSelectbox"] button {{
+  min-width: 24px !important;
+  min-height: 24px !important;
 }}
 
 .st-key-filters button[aria-label^="Help for"] svg,
@@ -1592,6 +1652,11 @@ ul[data-baseweb="menu"] li {{
   outline: 2px solid var(--accent) !important;
   outline-offset: -4px !important;
   border-radius: var(--radius);
+}}
+
+.st-key-map-slot [data-testid="stElementToolbar"] {{
+  right: 3rem !important;
+  top: var(--space-2) !important;
 }}
 
 /* KPI cards in one row must share a height: stretch the column chain and let
@@ -1823,7 +1888,8 @@ summary:focus-visible,
 input:focus-visible,
 [role="tab"]:focus-visible,
 [role="switch"]:focus-visible,
-[role="combobox"]:focus-visible {{
+[role="combobox"]:focus-visible,
+.cockpit-table-wrap:focus-visible {{
   outline: 2px solid var(--accent) !important;
   outline-offset: 2px !important;
 }}
@@ -2035,6 +2101,18 @@ input:focus-visible,
   color: var(--accent) !important;
 }}
 
+[data-testid="stElementContainer"]:has(iframe[title="st.iframe"]),
+[data-testid="stElementContainer"]:has(iframe[height="0"]) {{
+  position: fixed !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}}
+
 @media (prefers-reduced-motion: reduce) {{
   *,
   *::before,
@@ -2047,11 +2125,60 @@ input:focus-visible,
 }}
 """
 
+# Minimal parent-document shim (WCAG 1.4.13 Escape dismissal for `.deck-tooltip`,
+# plus stripping MapLibre's invalid `role="list"` on `.mapboxgl-ctrl-attrib-inner`).
+_A11Y_SHIM = """<script>
+(function () {
+  try {
+    if (window.frameElement) {
+      window.frameElement.setAttribute("aria-hidden", "true");
+      window.frameElement.setAttribute("tabindex", "-1");
+      window.frameElement.setAttribute("title", "Accessibility keyboard helper");
+    }
+    var doc = window.parent && window.parent.document;
+    if (!doc) return;
+    if (!doc.__cockpitA11yBound) {
+      doc.__cockpitA11yBound = true;
+      doc.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          doc.querySelectorAll(".deck-tooltip").forEach(function (t) {
+            t.setAttribute("data-dismissed", "true");
+          });
+        }
+      });
+      doc.addEventListener("pointermove", function (e) {
+        if (e.target && e.target.tagName === "CANVAS") {
+          doc.querySelectorAll(".deck-tooltip[data-dismissed]").forEach(function (t) {
+            t.removeAttribute("data-dismissed");
+          });
+        }
+      });
+    }
+    var fixAttrib = function () {
+      doc.querySelectorAll(".mapboxgl-ctrl-attrib-inner[role='list'], .maplibregl-ctrl-attrib-inner[role='list']").forEach(function (el) {
+        el.removeAttribute("role");
+      });
+    };
+    fixAttrib();
+    if (!doc.__cockpitAttribObserver && typeof MutationObserver !== "undefined") {
+      doc.__cockpitAttribObserver = new MutationObserver(fixAttrib);
+      doc.__cockpitAttribObserver.observe(doc.body, { childList: true, subtree: true });
+    }
+  } catch (err) {}
+})();
+</script>"""
+
 
 def inject_css() -> None:
     """Inject cockpit CSS. Call once per run, after set_page_config."""
     compact = "\n".join(line for line in _CSS.splitlines() if line.strip())
     st.markdown(f"<style>\n{compact}\n</style>", unsafe_allow_html=True)
+    try:
+        import streamlit.components.v1 as components
+
+        components.html(_A11Y_SHIM, height=0)
+    except Exception:
+        pass
 
 
 def apply_theme_marker() -> None:

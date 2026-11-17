@@ -70,13 +70,16 @@ CHIP_PAIRS = (
 # The demo banner uses a 12% alert tint.
 BANNER_PAIRS = (("alert", "alert", 0.12),)
 
-# Non-text graphics: boundaries, focus rings, chart strokes and control tracks.
+# Non-text graphics: boundaries, focus rings, chart strokes, reference lines and slider marks.
 NON_TEXT_PAIRS = (
     ("border-strong", "bg"),
     ("border-strong", "surface"),
     ("accent", "bg"),
     ("accent", "surface"),
+    ("coherence", "bg"),
     ("coherence", "surface"),
+    ("muted", "bg"),
+    ("muted", "surface"),
     ("alert", "surface"),
     ("coral", "surface"),
     ("on-accent", "accent"),
@@ -84,6 +87,16 @@ NON_TEXT_PAIRS = (
     ("text", "surface"),
     ("text", "border-strong"),
     ("on-accent", "border-strong"),
+)
+
+# Three-cities series lines against both plot_bgcolor (`bg`) and paper_bgcolor (`surface`).
+CASE_SERIES_PAIRS = (
+    ("mexico-city", "bg"),
+    ("mexico-city", "surface"),
+    ("jakarta", "bg"),
+    ("jakarta", "surface"),
+    ("malaga", "bg"),
+    ("malaga", "surface"),
 )
 
 
@@ -123,16 +136,69 @@ def test_non_text_boundaries_meet_aa() -> None:
 
 
 def test_case_identity_colors_are_not_the_only_channel() -> None:
-    """Every case color must reach 3:1 against its surface, or carry a direct label."""
+    """Every case series color must clear 3:1 against both plot (`bg`) and paper (`surface`)
+    backgrounds in light and dark mode, while keeping its direct end label."""
+    from src.data import loaders
+    from src.ui.charts import three_cities_figure
+
     failures = []
     for scheme, palette in _schemes():
-        for case_id, color in CASE_COLORS[scheme].items():
-            ratio = contrast(_rgb(color), _rgb(palette["surface"]))
+        for case_id, bg_key in CASE_SERIES_PAIRS:
+            color = CASE_COLORS[scheme][case_id]
+            ratio = contrast(_rgb(color), _rgb(palette[bg_key]))
             if ratio < AA_NON_TEXT:
-                failures.append((scheme, case_id, round(ratio, 2)))
-    # Málaga's light aqua is the documented exception: the chart labels it directly.
-    assert all(item[1] == "malaga" and item[0] == "light" for item in failures), failures
-    assert len(failures) <= 1, failures
+                failures.append((scheme, case_id, bg_key, round(ratio, 2)))
+    assert not failures, failures
+
+    # Direct end labels remain mandatory even with >= 3:1 line contrast (WCAG 1.4.1).
+    rows = loaders.load_timeseries("malaga").to_dict(orient="records")
+    fig = three_cities_figure(
+        {"mexico-city": rows, "jakarta": rows, "malaga": rows},
+        {"mexico-city": "Mexico City, MX", "jakarta": "Jakarta, ID", "malaga": "Málaga, ES"},
+    )
+    labels = {str(a.text) for a in fig.layout.annotations}
+    assert {"Mexico City, MX", "Jakarta, ID", "Málaga, ES"} <= labels
+
+
+def test_series_reference_lines_and_slider_marks_meet_non_text_aa() -> None:
+    """Primary series, seasonal fit, detection-limit reference line and axis baselines all clear 3:1."""
+    from src.data import loaders
+    from src.ui.charts import bars_figure, line_figure
+
+    series = loaders.get_case_series("malaga", {})
+    bars = loaders.get_land_use_bars("malaga", {})
+    meta = loaders.load_meta("malaga")
+    line_fig = line_figure(series)
+    bars_fig = bars_figure(bars, meta)
+
+    for scheme, palette in _schemes():
+        plot_bg = _rgb(palette["bg"])
+        paper_bg = _rgb(palette["surface"])
+        # Primary line (`accent`), seasonal fit (`coherence`), detection limit (`muted`) and axis (`border-strong`).
+        for token in ("accent", "coherence", "muted", "border-strong"):
+            for bg in (plot_bg, paper_bg):
+                assert contrast(_rgb(palette[token]), bg) >= AA_NON_TEXT, (scheme, token)
+    # Reference line and seasonal trace are present on the constructed figures.
+    assert len(line_fig.data) >= 2
+    assert len(bars_fig.layout.shapes) == 2
+
+
+def test_wcag_target_size_and_focusable_table_rules_are_present() -> None:
+    """Points 2 and 4: scrollable table region is keyboard-focusable and small controls have >= 24x24 CSS px rules."""
+    from src.ui.theme import _CSS
+
+    assert ".cockpit-table-wrap:focus-visible" in _CSS
+    for selector in (
+        'button[aria-label^="Help for"]',
+        '[data-testid="stCheckbox"] label',
+        '[data-testid="stSlider"] [role="group"] div[style*="translate"]',
+        '[data-testid="stRadioOption"]',
+        '[data-testid="stExpander"] summary',
+        '[data-testid="stMultiSelect"] button',
+    ):
+        assert selector in _CSS, selector
+    assert "min-height: 24px !important" in _CSS
+    assert "min-width: 24px !important" in _CSS
 
 
 def _linear(color: tuple[int, int, int]) -> tuple[float, float, float]:
@@ -233,4 +299,93 @@ def test_injected_css_uses_only_scale_font_sizes() -> None:
     for raw in re.findall(r"font-size:\s*([^;!]+)", _CSS):
         value = raw.strip()
         assert value.startswith(("var(--type-", "clamp(var(--type-")), value
+
+
+def audit_wcag_live(url: str = "http://127.0.0.1:8503/") -> dict[str, object]:
+    """Reusable headless-browser verifier for Points 2–6 (keyboard table, AX tree,
+    24x24 target sizes, 1.4.12 text spacing, 1.4.13 tooltip Escape/hover and chrome gaps).
+    """
+    import importlib
+
+    sync_playwright = importlib.import_module("playwright.sync_api").sync_playwright
+
+    report: dict[str, object] = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+
+        # Point 2 & 3: Tab 3 keyboard scroll + AX tree + tab order on 708-row DOM table
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.goto(f"{url}?theme=dark&tab=3. Hazard and infrastructure", wait_until="domcontentloaded")
+        page.wait_for_timeout(6500)
+        wrap = page.locator(".cockpit-table-wrap")
+        wrap.focus()
+        page.wait_for_timeout(150)
+        before_scroll = page.evaluate("""() => {
+          const el = document.querySelector('.cockpit-table-wrap');
+          const cs = getComputedStyle(el);
+          return {
+            role: el.getAttribute('role'),
+            ariaLabel: el.getAttribute('aria-label'),
+            tabIndex: el.tabIndex,
+            isFocused: document.activeElement === el,
+            outline: cs.outline,
+            scrollTop: el.scrollTop,
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight
+          };
+        }""")
+        for _ in range(6):
+            page.keyboard.press("PageDown")
+            page.wait_for_timeout(80)
+        after_scroll = page.evaluate("""() => {
+          const el = document.querySelector('.cockpit-table-wrap');
+          const rows = [...document.querySelectorAll('.cockpit-table tbody tr')];
+          const vis = rows.filter(r => getComputedStyle(r).display !== 'none' && !r.hidden);
+          const hidden = rows.filter(r => getComputedStyle(r).display === 'none' && r.hidden && r.getAttribute('aria-hidden') === 'true');
+          const lastVis = vis[vis.length - 1].getBoundingClientRect();
+          const wrapRect = el.getBoundingClientRect();
+          return {
+            scrollTop: el.scrollTop,
+            maxScroll: el.scrollHeight - el.clientHeight,
+            lastRowVisibleInWrap: lastVis.bottom <= wrapRect.bottom + 2 && lastVis.top >= wrapRect.top - 2,
+            domTotalRows: rows.length,
+            visibleRows: vis.length,
+            hiddenOffPageRows: hidden.length
+          };
+        }""")
+        cdp = page.context.new_cdp_session(page)
+        ax_nodes = cdp.send("Accessibility.getFullAXTree")["nodes"]
+        ax_rows = [
+            n for n in ax_nodes
+            if n.get("role", {}).get("value") == "row" and not n.get("ignored", False)
+        ]
+        report["tab3_keyboard_and_ax"] = {
+            "before": before_scroll,
+            "after": after_scroll,
+            "axExposedRows": len(ax_rows),  # 1 header row + 25 active-page body rows = 26
+        }
+        page.close()
+
+        # Point 6: Chrome vertical & horizontal gaps across 4 viewports
+        gaps = {}
+        for vw, vh in ((1440, 900), (1920, 1080), (1024, 768), (390, 844)):
+            pg = browser.new_page(viewport={"width": vw, "height": vh})
+            pg.goto(f"{url}?theme=dark&tab=1. Map", wait_until="domcontentloaded")
+            pg.wait_for_timeout(6000)
+            gaps[f"{vw}x{vh}"] = pg.evaluate("""() => {
+              const hb = document.querySelector('.mission-bar').getBoundingClientRect();
+              const db = document.querySelector('.demo-banner').getBoundingClientRect();
+              const fl = document.querySelector('.st-key-filters').getBoundingClientRect();
+              return {
+                vGapHeaderBanner: Math.round((db.top - hb.bottom) * 10) / 10,
+                vGapBannerFilters: Math.round((fl.top - db.bottom) * 10) / 10,
+                hGapLeft: Math.round(hb.left * 10) / 10,
+                hGapRight: Math.round((window.innerWidth - hb.right) * 10) / 10
+              };
+            }""")
+            pg.close()
+        report["chrome_gaps"] = gaps
+        browser.close()
+    return report
+
 

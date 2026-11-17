@@ -85,16 +85,19 @@ def _render_table(frame: pd.DataFrame, provenance: str | None = None, page: int 
                 cells.append(f"<td>{html.escape(risk_label(text))}</td>")
             else:
                 cells.append(f"<td>{html.escape(text)}</td>")
+        row_page = index // PAGE_SIZE + 1
+        hidden_attr = ' hidden aria-hidden="true"' if row_page != page else ""
         body_rows.append(
-            f'<tr{row_class} data-page="{index // PAGE_SIZE + 1}">{"".join(cells)}</tr>'
+            f'<tr{row_class} data-page="{row_page}"{hidden_attr}>{"".join(cells)}</tr>'
         )
-    # All rows stay in the DOM (the artefact-parity tests read them), but only the
-    # active page is laid out. `content-visibility` keeps off-page rows cheap.
+    # All rows stay in the DOM (the artefact-parity tests read them), but off-page
+    # rows carry both `hidden`/`aria-hidden="true"` and `display: none !important`,
+    # removing them from layout, tab order and the accessibility tree.
     return (
         f"{note}"
         f'<style>.cockpit-table[data-page="{page}"] tbody tr[data-page]:not([data-page="{page}"]) '
         "{ display: none !important; }</style>"
-        '<div class="cockpit-table-wrap" role="region" aria-label="Context layers">'
+        '<div class="cockpit-table-wrap" role="region" aria-label="Context layers" tabindex="0">'
         f'<table class="cockpit-table" data-page="{page}" aria-label="Context layer properties">'
         f"<thead><tr>{headers}</tr></thead>"
         f'<tbody>{"".join(body_rows)}</tbody>'
