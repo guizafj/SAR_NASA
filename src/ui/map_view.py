@@ -16,7 +16,7 @@ from typing import Any, Callable
 import pydeck as pdk
 import streamlit as st
 
-from src.ui.color_scale import FALLBACK_DOMAIN, STOPS, color_for
+from src.ui.color_scale import FALLBACK_DOMAIN, color_for
 from src.ui.components import empty_state
 from src.ui.formatters import (
     NOT_DECLARED,
@@ -27,7 +27,7 @@ from src.ui.formatters import (
     is_shared_scale,
     risk_label,
 )
-from src.ui.theme import MAP_RAMPS, MAP_RAMP_LABELS, active_palette, reported_scheme, style_figure
+from src.ui.theme import MAP_RAMPS, MAP_RAMP_LABELS, active_palette, map_ramp, reported_scheme, style_figure
 
 LAYER_ID = "h3-cells"
 MAP_HEIGHT = 560
@@ -143,14 +143,10 @@ def _legend_inline(scale: dict[str, Any], mode: str, ramp: str = "classic") -> s
     vmax = scale.get("max")
     unit = scale.get("unit") or UNIT_NOT_DECLARED
     metric = scale.get("metric") or "delta_change"
-    stops = scale.get("stops") if ramp == "classic" else None
-    if isinstance(stops, (list, tuple)) and stops:
-        gradient = ", ".join(html.escape(str(color)) for color in stops)
-    else:
-        chosen_stops = MAP_RAMPS.get(ramp, STOPS)
-        gradient = ", ".join(
-            f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in chosen_stops
-        )
+    chosen_stops = map_ramp(ramp, reported_scheme())
+    gradient = ", ".join(
+        f"rgb({red}, {green}, {blue})" for _, (red, green, blue, _alpha) in chosen_stops
+    )
     if isinstance(vmin, (int, float)) and isinstance(vmax, (int, float)):
         span = f"{format_number(vmin, 1)} … {format_number(vmax, 1)}"
     else:
@@ -656,7 +652,7 @@ def _render_deck(
                     row.get(metric),
                     float(vmin),
                     float(vmax),
-                    MAP_RAMPS[ramp],
+                    map_ramp(ramp, reported_scheme()),
                 )
     layer = pdk.Layer(
         "H3HexagonLayer",
@@ -669,7 +665,12 @@ def _render_deck(
         auto_highlight=True,
         extruded=extrude,
         elevation_scale=1 if extrude else 0,
-        coverage=0.9,
+        coverage=1.0,
+        # A 1 px boundary in the theme's text ink keeps each cell's shape at >= 3:1
+        # against both basemaps, including the pale mid-ramp as seen on light tiles.
+        stroked=True,
+        get_line_color=_hex_rgba(active_palette()["border-strong"], 200),
+        line_width_min_pixels=1,
     )
     layers = [layer]
     for layer_name, color, collection in context_groups:
@@ -983,13 +984,9 @@ def render_map_tab(
                 horizontal=False,
             )
         st.markdown('<p class="kicker">Scale and provenance</p>', unsafe_allow_html=True)
-        # The live filtered count is already in the Filters disclosure title.
-        counts_text = (
-            f"{shown} of {total} cells"
-            if isinstance(shown, int) and isinstance(total, int)
-            else ""
-        )
-        st.markdown(_legend_details(scale, counts_text), unsafe_allow_html=True)
+        # The live filtered count is in the one-line mission header; repeating it here
+        # would duplicate the same datum inside one view.
+        st.markdown(_legend_details(scale, ""), unsafe_allow_html=True)
         # One provenance line per selected case in this tab; the full per-case IDs
         # (all three cities) live in "Provenance and limits".
         if not st.session_state.get("selected_cell_id"):

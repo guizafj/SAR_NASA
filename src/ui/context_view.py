@@ -59,7 +59,10 @@ def _visible_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def _render_table(frame: pd.DataFrame, provenance: str | None = None) -> str:
+PAGE_SIZE = 25
+
+
+def _render_table(frame: pd.DataFrame, provenance: str | None = None, page: int = 1) -> str:
     shown = _visible_frame(frame)
     note = (
         f'<p class="kpi-note">Provenance ID {html.escape(provenance)}</p>'
@@ -68,7 +71,7 @@ def _render_table(frame: pd.DataFrame, provenance: str | None = None) -> str:
     )
     headers = "".join(f"<th>{html.escape(humanize(col))}</th>" for col in shown.columns)
     body_rows: list[str] = []
-    for row in shown.itertuples(index=False):
+    for index, row in enumerate(shown.itertuples(index=False)):
         risk = str(getattr(row, "risk_level", "") or "")
         row_class = ' class="row-alert"' if risk == "critico" else (
             ' class="row-warn"' if risk == "moderado" else ""
@@ -82,15 +85,25 @@ def _render_table(frame: pd.DataFrame, provenance: str | None = None) -> str:
                 cells.append(f"<td>{html.escape(risk_label(text))}</td>")
             else:
                 cells.append(f"<td>{html.escape(text)}</td>")
-        body_rows.append(f"<tr{row_class}>{''.join(cells)}</tr>")
+        body_rows.append(
+            f'<tr{row_class} data-page="{index // PAGE_SIZE + 1}">{"".join(cells)}</tr>'
+        )
+    # All rows stay in the DOM (the artefact-parity tests read them), but only the
+    # active page is laid out. `content-visibility` keeps off-page rows cheap.
     return (
         f"{note}"
+        f'<style>.cockpit-table[data-page="{page}"] tbody tr[data-page]:not([data-page="{page}"]) '
+        "{ display: none !important; }</style>"
         '<div class="cockpit-table-wrap" role="region" aria-label="Context layers">'
-        '<table class="cockpit-table" aria-label="Context layer properties">'
+        f'<table class="cockpit-table" data-page="{page}" aria-label="Context layer properties">'
         f"<thead><tr>{headers}</tr></thead>"
         f'<tbody>{"".join(body_rows)}</tbody>'
         "</table></div>"
     )
+
+
+def _set_page(key: str, value: int) -> None:
+    st.session_state[key] = max(1, int(value))
 
 
 def _stat_card(column: Any, label: str, value: str, note: str | None = None) -> None:
@@ -304,7 +317,37 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         f"<p>{len(shown)} features shown of {len(frame)}</p>",
         unsafe_allow_html=True,
     )
-    st.markdown(_render_table(shown, single_source), unsafe_allow_html=True)
+    pages = max(1, (len(shown) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page_key = f"ctx-page-{case_id}"
+    page = st.session_state.get(page_key, 1)
+    if not isinstance(page, int) or isinstance(page, bool):
+        page = 1
+    page = min(max(1, page), pages)
+    st.session_state[page_key] = page
+    pager = st.columns([1, 2, 1], vertical_alignment="center")
+    with pager[0]:
+        st.button(
+            "Previous page",
+            key=f"ctx-prev-{case_id}",
+            disabled=page <= 1,
+            on_click=_set_page,
+            args=(page_key, page - 1),
+        )
+    with pager[1]:
+        st.markdown(
+            f'<p class="context-pager" role="status">Page {page} / {pages} · '
+            f"{PAGE_SIZE} rows per page</p>",
+            unsafe_allow_html=True,
+        )
+    with pager[2]:
+        st.button(
+            "Next page",
+            key=f"ctx-next-{case_id}",
+            disabled=page >= pages,
+            on_click=_set_page,
+            args=(page_key, page + 1),
+        )
+    st.markdown(_render_table(shown, single_source, page), unsafe_allow_html=True)
     # `CONTEXT_LAYER_GLOSSARY` was imported here and never rendered, so the video script promised a glossary no
     # reader could find. Four layers with one line each is cheap, collapsed so it never displaces the table.
     if CONTEXT_LAYER_GLOSSARY:

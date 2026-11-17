@@ -29,6 +29,18 @@ TAB_LABELS = (
 FORBIDDEN = ("Guadalquivir", "Doñana", "MALG-01", "B_PERP", "deriva cero", "Sector 4")
 
 
+def test_context_table_is_paginated_without_dropping_rows() -> None:
+    """Tab 3 paints 25 rows per page; every artefact row stays in the markup."""
+    app = AppTest.from_file(APP, default_timeout=90)
+    app.query_params["tab"] = TAB_LABELS[2]
+    app.run()
+    text = "\n".join(node.value for node in app.markdown)
+    assert 'class="cockpit-table" data-page="1"' in text
+    assert 'data-page="1"' in text
+    assert re.search(r"Page 1 / \d+ · 25 rows per page", text)
+    assert "25 rows per page" in text
+
+
 def test_shell_starts_with_mock_and_four_tabs() -> None:
     app = AppTest.from_file(APP, default_timeout=30)
     app.run()
@@ -265,7 +277,14 @@ def test_compact_query_param_closes_the_filter_strip() -> None:
 
     normal = AppTest.from_file(APP, default_timeout=60)
     normal.run()
-    assert next(e for e in normal.expander if e.label.startswith("Filters")).proto.expanded is True
+    # The redesign keeps the filters folded by default so the map owns the first
+    # screen; the header chips carry the active-filter summary.
+    assert next(e for e in normal.expander if e.label.startswith("Filters")).proto.expanded is False
+
+    opened = AppTest.from_file(APP, default_timeout=60)
+    opened.query_params["filters"] = "open"
+    opened.run()
+    assert next(e for e in opened.expander if e.label.startswith("Filters")).proto.expanded is True
 
 
 def test_filter_counts_presets_and_removable_chips() -> None:
