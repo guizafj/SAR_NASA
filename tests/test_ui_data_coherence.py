@@ -20,11 +20,12 @@ from src.domain import contracts as C
 from src.domain.metrics import (
     cell_velocity_context,
     coherence_bounds,
+    context_row_counts,
     distance_summary,
     threshold_counts,
     velocity_distribution,
 )
-from src.ui import map_view
+from src.ui import charts, map_view
 
 ROOT = Path(__file__).resolve().parents[1]
 PROCESSED = ROOT / "data" / "processed"
@@ -182,3 +183,81 @@ def test_distance_summary_reports_no_classification() -> None:
 def test_velocity_distribution_empty_view_is_not_fabricated() -> None:
     empty = velocity_distribution(pd.DataFrame(columns=["velocity_mm_yr"]), {})
     assert empty.p05_mm_yr is None and empty.median_mm_yr is None and empty.p95_mm_yr is None
+
+
+# ---------------------------------------------------------------- D: velocity strip
+def test_velocity_strip_draws_only_domain_values_and_the_selected_cell() -> None:
+    distribution = loaders.get_velocity_distribution(CASE, {})
+    figure = charts.velocity_strip_figure(
+        distribution,
+        {"velocity_mm_yr": distribution["median_mm_yr"], "provenance_id": "prov"},
+    )
+    assert figure.data, "expected the p05/p95 range to be drawn"
+    names = {trace.name for trace in figure.data if trace.name}
+    assert {"p05", "median", "p95", "Selected cell"}.issubset(names)
+    xs = [float(trace.x[0]) for trace in figure.data if trace.x is not None and len(trace.x)]
+    for key in ("p05_mm_yr", "median_mm_yr", "p95_mm_yr"):
+        assert distribution[key] in xs
+    assert figure.layout.height == charts.STRIP_HEIGHT
+
+
+def test_velocity_strip_does_not_invent_a_range_when_stats_are_missing() -> None:
+    figure = charts.velocity_strip_figure({"unit": "mm/year"}, None)
+    assert not figure.data
+
+
+def test_app_renders_a_velocity_strip_in_tab_two() -> None:
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.session_state["filter_case_id"] = CASE
+    at.run()
+    assert not at.exception
+    assert len(at.get("plotly_chart")) >= 2, "expected the series chart plus the velocity strip"
+
+
+# ---------------------------------------------------------------- E: coherence + context counts
+def test_context_row_counts_are_domain_computed() -> None:
+    rows = [
+        {"layer": "roads", "risk_level": "critico"},
+        {"layer": "roads", "risk_level": "estable"},
+        {"layer": "schools", "risk_level": "critico"},
+        {},
+    ]
+    assert context_row_counts(rows) == {
+        "layers": {"roads": 2, "schools": 1},
+        "by_risk": {"critico": 2, "estable": 1},
+    }
+    assert loaders.summarize_context_rows(rows) == context_row_counts(rows)
+
+
+def test_coherence_summary_has_no_unit_and_declares_the_floor() -> None:
+    meta = _meta()
+    summary = loaders.get_coherence_summary(CASE, {})
+    assert summary["declared_min"] == meta["thresholds"]["coherence_min"]
+    assert "unit" not in summary
+    assert summary["provenance_id"]
+
+
+# ---------------------------------------------------------------- F: segmented scale
+def test_scale_control_is_segmented_and_preserves_the_default() -> None:
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    assert not at.exception
+    scales = [control for control in at.segmented_control if control.label == "Scale"]
+    assert len(scales) == 1, "scale must be one segmented control, not a radio group"
+    assert scales[0].value == "independent"
+    assert at.session_state["scale_mode"] == "independent"
+
+
+def test_shared_scale_caption_appears_only_in_shared_mode() -> None:
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.session_state["scale_mode"] = "shared"
+    at.run()
+    assert not at.exception
+    captions = [str(item.value) for item in at.caption]
+    assert any("Shared scale" in text for text in captions)
+
+
+def test_client_toolbar_is_minimal_in_streamlit_config() -> None:
+    config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
+    assert "[client]" in config
+    assert 'toolbarMode = "minimal"' in config

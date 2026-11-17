@@ -1279,6 +1279,30 @@ ul[data-baseweb="menu"] li {{
   opacity: 1 !important;
 }}
 
+/* Segmented scale control: outlined segments, never a full-width solid fill. */
+[data-testid="stSegmentedControl"] button,
+[data-testid="stSegmentedControl"] [role="radio"],
+[data-testid="stSegmentedControl"] label {{
+  min-height: 24px !important;
+  min-width: 24px !important;
+  color: var(--text) !important;
+  background: var(--bg) !important;
+  border: var(--border-width) solid var(--border-strong) !important;
+  border-radius: var(--radius-sm) !important;
+  font-family: var(--font-body) !important;
+  font-size: var(--type-sm) !important;
+}}
+[data-testid="stSegmentedControl"] [aria-checked="true"],
+[data-testid="stSegmentedControl"] [data-selected] {{
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}}
+[data-testid="stSegmentedControl"] button:focus-visible,
+[data-testid="stSegmentedControl"] [role="radio"]:focus-visible {{
+  outline: 2px solid var(--focus) !important;
+  outline-offset: 2px !important;
+}}
+
 [data-testid="stRadioOption"] > div > div:first-child {{
   border-color: var(--border-strong) !important;
   background-color: var(--bg) !important;

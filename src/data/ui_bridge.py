@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,7 @@ from src.domain.metrics import (
     cell_velocity_context,
     coherence_bounds,
     compute_kpis,
+    context_row_counts,
     distance_summary,
     threshold_counts,
     velocity_distribution,
@@ -335,6 +336,11 @@ def get_coherence_summary(
         "declared_min": floor if isinstance(floor, (int, float)) and not isinstance(floor, bool) else None,
         "provenance_id": _case_provenance_id(bundle),
     }
+
+
+def summarize_context_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+    """Count the context rows the UI is about to show, in the domain layer."""
+    return context_row_counts(rows)
 
 
 def get_distance_summary(
@@ -1080,6 +1086,7 @@ __all__ = [
     "get_scale_comparison",
     "get_series_kpis",
     "get_signal_status",
+    "summarize_context_rows",
     "get_velocity_distribution",
     "get_view_state",
     "load_availability",

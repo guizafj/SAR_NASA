@@ -843,14 +843,18 @@ def render_map_tab(
     # seeded value so a bad URL cannot pick an unknown mode.
     if st.session_state.get("scale_mode") not in SCALE_LABELS:
         st.session_state.scale_mode = "independent"
-    mode = st.radio(
+    # Streamlit 1.67: a segmented control keeps the same key and default as the old
+    # radio, but reads as one control rather than two independent radio groups.
+    mode = st.segmented_control(
         "Scale",
         list(SCALE_LABELS),
         format_func=lambda key: SCALE_LABELS[key],
-        horizontal=True,
         key="scale_mode",
         label_visibility="collapsed",
+        width="stretch",
     )
+    if mode not in SCALE_LABELS:
+        mode = "independent"
     if st.session_state.get("map_color_ramp") not in MAP_RAMP_LABELS:
         st.session_state.map_color_ramp = "classic"
     ramp = st.session_state.map_color_ramp
@@ -933,6 +937,11 @@ def render_map_tab(
             )
         # The ramp belongs to the canvas: directly under it, before the export.
         st.markdown(_legend_inline(scale, mode, ramp), unsafe_allow_html=True)
+        if is_shared_scale(mode):
+            st.caption(
+                "Shared scale: one colour domain is used for every published case. "
+                "Bars in the comparison card are comparable only in this mode."
+            )
         export_csv = _call(loaders, "get_filtered_export_csv", case_id, active)
         if isinstance(export_csv, str) and export_csv:
             st.download_button(
@@ -1033,6 +1042,22 @@ def render_map_tab(
         # The live filtered count is in the one-line mission header; repeating it here
         # would duplicate the same datum inside one view.
         st.markdown(_legend_details(scale, ""), unsafe_allow_html=True)
+        coherence_summary = _call(loaders, "get_coherence_summary", case_id, active)
+        if isinstance(coherence_summary, dict) and coherence_summary.get("min") is not None:
+            low = format_number(coherence_summary["min"], 3)
+            high = format_number(coherence_summary.get("max"), 3)
+            floor = coherence_summary.get("declared_min")
+            floor_text = (
+                f" · published floor {format_number(floor, 3)}"
+                if isinstance(floor, (int, float)) and not isinstance(floor, bool)
+                else ""
+            )
+            st.markdown(
+                '<p class="legend-meta">'
+                f"Observed coherence: {html.escape(low)} … {html.escape(high)} (dimensionless)"
+                f"{html.escape(floor_text)}.</p>",
+                unsafe_allow_html=True,
+            )
         # One provenance line per selected case in this tab; the full per-case IDs
         # (all three cities) live in "Provenance and limits".
         if not st.session_state.get("selected_cell_id"):

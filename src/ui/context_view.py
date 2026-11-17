@@ -120,17 +120,28 @@ def _stat_card(column: Any, label: str, value: str, note: str | None = None) -> 
     )
 
 
-def _layer_counts(rows: list[dict[str, Any]], summary: dict[str, Any]) -> dict[str, int]:
-    """Prefer the loader summary; otherwise count the delivered features."""
+def _row_counts(loaders: Any, rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Ask the domain (through the loader) to count delivered rows; never count in the UI."""
+    function = getattr(loaders, "summarize_context_rows", None)
+    if function is not None:
+        try:
+            result = function(rows)
+        except TypeError:
+            result = None
+        if isinstance(result, dict):
+            return result
+    return {"layers": {}, "by_risk": {}}
+
+
+def _layer_counts(
+    summary: dict[str, Any],
+    counted: dict[str, dict[str, int]],
+) -> dict[str, int]:
+    """Prefer the artefact summary; otherwise use the domain's count of the rows."""
     layers = summary.get("layers") if isinstance(summary, dict) else None
     if isinstance(layers, dict) and layers:
         return {str(key): int(value) for key, value in layers.items()}
-    counts: dict[str, int] = {}
-    for row in rows:
-        layer = str(row.get("layer") or "")
-        if layer:
-            counts[layer] = counts.get(layer, 0) + 1
-    return counts
+    return {str(key): int(value) for key, value in counted.get("layers", {}).items()}
 
 
 def _load(loaders: Any, case_id: Any, filters: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any], str | None]:
@@ -231,7 +242,7 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         )
         return
 
-    counts = _layer_counts(rows, summary)
+    counts = _layer_counts(summary, _row_counts(loaders, rows))
     total = summary.get("n_features")
     if not isinstance(total, int) or isinstance(total, bool):
         total = len(rows)
@@ -293,8 +304,10 @@ def render_hazard_tab(filters: dict[str, Any], loaders: Any) -> None:
         shown = shown[shown["risk_level"] == picked_risk]
 
     has_exposure = source == "exposure" and "risk_level" in shown.columns
-    critical = int((shown["risk_level"] == "critico").sum()) if has_exposure else 0
-    moderate = int((shown["risk_level"] == "moderado").sum()) if has_exposure else 0
+    shown_counts = _row_counts(loaders, shown.to_dict(orient="records"))
+    by_risk = shown_counts.get("by_risk", {})
+    critical = int(by_risk.get("critico", 0)) if has_exposure else 0
+    moderate = int(by_risk.get("moderado", 0)) if has_exposure else 0
 
     note = (
         "Delivered context only, not a hazard assessment. "

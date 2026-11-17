@@ -358,6 +358,22 @@ def cell_velocity_context(
     }
 
 
+def context_row_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+    """Counts of delivered context rows by `layer` and by `risk_level` (no UI arithmetic)."""
+    layers: dict[str, int] = {}
+    risks: dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        layer = str(row.get("layer") or "")
+        risk = str(row.get("risk_level") or "")
+        if layer:
+            layers[layer] = layers.get(layer, 0) + 1
+        if risk:
+            risks[risk] = risks.get(risk, 0) + 1
+    return {"layers": layers, "by_risk": risks}
+
+
 def distance_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Descriptive nearest-cell distance statistics; no near/far classification is defined."""
     values = [
@@ -723,6 +739,7 @@ __all__ = [
     "build_provenance_badge",
     "cell_velocity_context",
     "coherence_bounds",
+    "context_row_counts",
     "compute_kpis",
     "distance_summary",
     "extract_series_view",
