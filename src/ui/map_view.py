@@ -20,6 +20,7 @@ from src.ui.color_scale import FALLBACK_DOMAIN, color_for
 from src.ui.components import empty_state
 from src.ui.formatters import (
     NOT_DECLARED,
+    NOT_FITTED,
     SCALE_LABELS,
     UNIT_NOT_DECLARED,
     format_number,
@@ -322,7 +323,11 @@ def _stats_strip(items: list[tuple[Any, Any, Any]]) -> None:
     )
 
 
-def _inspector_groups(detail: dict[str, Any], case_id: str | None) -> None:
+def _inspector_groups(
+    detail: dict[str, Any],
+    case_id: str | None,
+    context: dict[str, Any] | None = None,
+) -> None:
     """Grouped cell read-out: Deformation, Quality, Provenance (compact, 3–4 lines each)."""
     risk = str(detail.get("risk_level") or "")
     unit = detail.get("unit") if isinstance(detail.get("unit"), str) else None
@@ -350,6 +355,30 @@ def _inspector_groups(detail: dict[str, Any], case_id: str | None) -> None:
                 _risk_hint(risk),
             ],
         ),
+    ]
+    if isinstance(context, dict) and context:
+        p05, median, p95 = (
+            context.get("p05_mm_yr"),
+            context.get("median_mm_yr"),
+            context.get("p95_mm_yr"),
+        )
+        position = context.get("position")
+        percentiles = " · ".join(
+            f"{name} {format_number(value)}"
+            for name, value in (("p05", p05), ("median", median), ("p95", p95))
+            if value is not None
+        )
+        groups.append(
+            (
+                "Distribution",
+                [
+                    f"Position: {humanize(position) if position else NOT_DECLARED}",
+                    f"{percentiles} {unit or UNIT_NOT_DECLARED}" if percentiles else NOT_DECLARED,
+                    f"Population: {context.get('n_cells')} cells · {context.get('source') or NOT_DECLARED}",
+                ],
+            )
+        )
+    groups.extend([
         (
             "Provenance",
             [
@@ -359,7 +388,7 @@ def _inspector_groups(detail: dict[str, Any], case_id: str | None) -> None:
                 f"Provenance ID: {detail.get('provenance_id') or NOT_DECLARED}",
             ],
         ),
-    ]
+    ])
     body = "".join(
         f'<p class="detail-head">{html.escape(heading)}</p>'
         + "".join(f'<p class="detail-line">{html.escape(line)}</p>' for line in lines)
@@ -408,7 +437,7 @@ def _reading_panel(
         ratio = detail.get("ratio_R")
         ratio_value: Any = ratio
         if ratio is None and isinstance(seasonal, (int, float)) and not isinstance(seasonal, bool) and seasonal == 0:
-            ratio_value = "not fitted"
+            ratio_value = NOT_FITTED
         _stats_strip(
             [
                 ("Velocity", detail.get("velocity_mm_yr"), detail.get("velocity_unit") or "mm/year"),
@@ -416,7 +445,14 @@ def _reading_panel(
                 ("Ratio R", ratio_value, None),
             ]
         )
-        _inspector_groups(detail, case_id)
+        context = _call(
+            loaders,
+            "get_cell_velocity_context",
+            case_id,
+            str(detail.get("cell_id")),
+            filters,
+        )
+        _inspector_groups(detail, case_id, context if isinstance(context, dict) else None)
         export = _call(loaders, "get_cell_export", str(case_id), str(detail.get("cell_id")))
         if isinstance(export, dict) and export:
             st.download_button(
@@ -592,8 +628,8 @@ _MAP_TOOLTIP_TEXT = (
     "Velocity {velocity_mm_yr} {velocity_unit}\n"
     "Coherence {coherence}\n"
     "Regime {regime_label}\n"
-    "Ratio R {ratio_R}\n"
-    "Risk band {risk_band}\n"
+    "Ratio R {ratio_text}\n"
+    "Risk band {risk_band} (from |velocity|, not a measurement)\n"
     "Land use {land_use_label}"
 )
 _TOOLTIP_FIELDS = frozenset(re.findall(r"\{(\w+)\}", _MAP_TOOLTIP_TEXT))
@@ -616,6 +652,16 @@ def _deck_records(frame: Any, extrude: bool) -> list[dict[str, Any]]:
         record["risk_band"] = risk_label(row.get("risk_level"))
         record["land_use_label"] = humanize(row.get("land_use")) if row.get("land_use") else NOT_DECLARED
         record["regime_label"] = humanize(row.get("regime")) if row.get("regime") else NOT_DECLARED
+        ratio = row.get("ratio_R")
+        amplitude = row.get("seasonal_amp_mm")
+        # A null ratio with a zero amplitude is the contract's "not fitted" state.
+        record["ratio_text"] = (
+            NOT_FITTED
+            if ratio is None
+            or (isinstance(ratio, float) and ratio != ratio)
+            or (isinstance(amplitude, (int, float)) and amplitude == 0)
+            else format_number(ratio)
+        )
         # Flat mode must not keep loader heights: non-zero elevation still
         # produces z-fighting that reads as overlapping hexes.
         record["height"] = record.get("height") if extrude else 0

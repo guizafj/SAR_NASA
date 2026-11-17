@@ -270,6 +270,25 @@ def render_series_tab(filters: dict[str, Any], loaders: Any, meta: dict[str, Any
     # The persistent demo banner lives in app.py; do not duplicate it per tab.
     case_id = filters.get("case_id")
     render_kpi_cards(_call(loaders, "get_series_kpis", case_id, filters))
+    # The five cards above are computed in src.domain.metrics. This line is the whole-case
+    # distribution the artefact publishes in meta.stats (or the filtered view's own quantiles).
+    distribution = _call(loaders, "get_velocity_distribution", case_id, filters)
+    if isinstance(distribution, dict):
+        unit = distribution.get("unit") or UNIT_NOT_DECLARED
+        quantiles = " … ".join(
+            f"{name} {format_number(distribution.get(key))}"
+            for name, key in (
+                ("p05", "p05_mm_yr"),
+                ("median", "median_mm_yr"),
+                ("p95", "p95_mm_yr"),
+            )
+            if distribution.get(key) is not None
+        )
+        if quantiles:
+            st.caption(
+                f"Velocity distribution · {quantiles} {unit} · "
+                f"{distribution.get('n_cells')} cells · {distribution.get('source')}"
+            )
     area_series = _call(loaders, "get_case_series", case_id, filters)
     selected_cell = st.session_state.get("selected_cell_id")
     detail = (

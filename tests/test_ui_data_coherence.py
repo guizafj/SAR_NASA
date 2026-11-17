@@ -1,0 +1,184 @@
+"""UI/data coherence A–J: counts, quantiles and bounds originate in `src.domain`.
+
+The cockpit must not re-derive statistics that the backend already publishes, and it must
+not invent thresholds that neither the artefact nor the contract declares. Every test here
+uses the frozen artefacts through the loaders; nothing writes into `data/processed/`.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import pytest
+from streamlit.testing.v1 import AppTest
+
+from src.data import loaders
+from src.domain import contracts as C
+from src.domain.metrics import (
+    cell_velocity_context,
+    coherence_bounds,
+    distance_summary,
+    threshold_counts,
+    velocity_distribution,
+)
+from src.ui import map_view
+
+ROOT = Path(__file__).resolve().parents[1]
+PROCESSED = ROOT / "data" / "processed"
+APP = ROOT / "app.py"
+CASE = "mexico-city"
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache() -> None:
+    loaders.clear_loader_cache()
+    yield
+    loaders.clear_loader_cache()
+
+
+def _grid() -> pd.DataFrame:
+    return pd.read_parquet(PROCESSED / CASE / "nisar_grid.parquet")
+
+
+def _meta() -> dict[str, Any]:
+    return json.loads((PROCESSED / CASE / "meta.json").read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------- A: cell context
+def test_cell_velocity_context_uses_published_percentiles_for_a_cell() -> None:
+    grid, meta = _grid(), _meta()
+    cell = str(grid["cell_id"].iloc[0])
+    context = cell_velocity_context(grid, cell, meta["stats"])
+    assert context is not None
+    assert context["source"] == "meta.stats"
+    assert context["n_cells"] == meta["stats"]["n_cells"] == len(grid)
+    assert context["p05_mm_yr"] == meta["stats"]["p05_velocity_mm_yr"]
+    assert context["p95_mm_yr"] == meta["stats"]["p95_velocity_mm_yr"]
+    assert context["position"] in {"below p05", "p05 to median", "median to p95", "above p95"}
+
+
+def test_cell_velocity_context_recomputes_for_a_filtered_view() -> None:
+    grid, meta = _grid(), _meta()
+    filtered = grid.loc[grid["coherence"] >= meta["thresholds"]["coherence_min"] + 0.2]
+    cell = str(filtered["cell_id"].iloc[0])
+    context = cell_velocity_context(filtered, cell, meta["stats"])
+    assert context is not None and context["source"] == "filtered grid"
+    assert context["n_cells"] == len(filtered)
+    assert context["p05_mm_yr"] != meta["stats"]["p05_velocity_mm_yr"]
+
+
+def test_cell_context_hook_reaches_the_published_cell() -> None:
+    cell = str(loaders.get_map_layer_df(CASE)["cell_id"].iloc[0])
+    context = loaders.get_cell_velocity_context(CASE, cell, {})
+    assert context is not None
+    assert context["cell_id"] == cell
+    assert context["unit"] == C.VELOCITY_UNIT
+
+
+# ---------------------------------------------------------------- B: tooltip risk
+def test_map_tooltip_labels_risk_as_a_band_and_undefined_ratio_as_not_fitted() -> None:
+    assert "Risk band {risk_band} (from |velocity|" in map_view._MAP_TOOLTIP_TEXT
+    records = map_view._deck_records(
+        pd.DataFrame(
+            [
+                {
+                    "cell_id": "cell-a",
+                    "delta_change": -1.0,
+                    "unit": "mm",
+                    "velocity_mm_yr": -5.0,
+                    "velocity_unit": "mm/year",
+                    "coherence": 0.5,
+                    "regime": "elastic",
+                    "ratio_R": None,
+                    "seasonal_amp_mm": 0.0,
+                    "risk_level": "estable",
+                    "land_use": "urban-dense",
+                    "color": [0, 0, 0, 255],
+                    "height": 0.0,
+                }
+            ]
+        ),
+        extrude=False,
+    )
+    assert records[0]["ratio_text"] == "not fitted"
+    assert records[0]["risk_band"] == "Stable"
+    assert "ratio_text" in map_view._TOOLTIP_FIELDS
+
+
+# ---------------------------------------------------------------- C: Tab 2 cards
+def test_series_kpis_are_domain_values_not_ui_arithmetic() -> None:
+    grid, meta = _grid(), _meta()
+    kpis = loaders.get_series_kpis(CASE, {})
+    above = threshold_counts(grid["velocity_mm_yr"], C.NULL_RESULT_MM_YR)
+    coherent = threshold_counts(grid["coherence"], meta["thresholds"]["coherence_min"], absolute=False)
+    by_label = {item["label"]: item for item in kpis}
+    assert by_label["Cells above threshold"]["value"] == above.percentage
+    assert by_label["Coherent coverage"]["value"] == coherent.percentage
+    assert by_label["Critical cells"]["value"] == int((grid["risk_level"] == "critico").sum())
+
+
+def test_velocity_distribution_hook_prefers_meta_stats_for_the_whole_case() -> None:
+    meta = _meta()
+    published = loaders.get_velocity_distribution(CASE, {})
+    assert published["source"] == "meta.stats"
+    assert published["p05_mm_yr"] == meta["stats"]["p05_velocity_mm_yr"]
+    assert published["median_mm_yr"] == meta["stats"]["median_velocity_mm_yr"]
+    assert published["p95_mm_yr"] == meta["stats"]["p95_velocity_mm_yr"]
+    assert published["unit"] == C.VELOCITY_UNIT
+
+
+def test_app_renders_one_distribution_line_in_tab_two() -> None:
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.session_state["filter_case_id"] = CASE
+    at.run()
+    assert not at.exception
+    stats = _meta()["stats"]
+    lines = [str(item.value) for item in at.caption]
+    matches = [
+        line
+        for line in lines
+        if "Velocity distribution" in line and f"{stats['p05_velocity_mm_yr']:.2f}" in line
+    ]
+    assert len(matches) == 1, f"expected one distribution line, got {matches}"
+    assert "meta.stats" in matches[0]
+
+
+def test_app_inspector_shows_the_cell_position_once() -> None:
+    cell = str(_grid()["cell_id"].iloc[0])
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.session_state["filter_case_id"] = CASE
+    at.session_state["selected_cell_id"] = cell
+    at.run()
+    assert not at.exception
+    markup = "\n".join(str(node.value) for node in at.markdown)
+    assert markup.count("Provenance ID:") == 1
+    assert markup.count("Position: ") == 1
+    assert "p05 " in markup and "p95 " in markup
+
+
+def test_coherence_bounds_are_domain_computed() -> None:
+    grid = _grid()
+    bounds = coherence_bounds(grid)
+    assert bounds["min"] == float(grid["coherence"].min())
+    assert bounds["max"] == float(grid["coherence"].max())
+    assert loaders.get_coherence_summary(CASE, {})["min"] == bounds["min"]
+
+
+def test_distance_summary_reports_no_classification() -> None:
+    summary = distance_summary([{"distance_m": 10.0}, {"distance_m": 30.0}])
+    assert summary == {
+        "n_features": 2,
+        "min_m": 10.0,
+        "median_m": 20.0,
+        "max_m": 30.0,
+        "unit": "m",
+    }
+    assert not any("far" in str(value).lower() for value in summary.values())
+
+
+def test_velocity_distribution_empty_view_is_not_fabricated() -> None:
+    empty = velocity_distribution(pd.DataFrame(columns=["velocity_mm_yr"]), {})
+    assert empty.p05_mm_yr is None and empty.median_mm_yr is None and empty.p95_mm_yr is None
